@@ -1,0 +1,89 @@
+/* ============================================================
+   Onevue theme engine — the ONLY place colors are defined.
+   Every token is a registered @property so palette switches
+   interpolate smoothly instead of snapping.
+   ============================================================ */
+@property --bg-0 { syntax: '<color>'; inherits: true; initial-value: #050A1A; }
+@property --bg-1 { syntax: '<color>'; inherits: true; initial-value: #0D1836; }
+@property --bg-2 { syntax: '<color>'; inherits: true; initial-value: #14224A; }
+@property --primary { syntax: '<color>'; inherits: true; initial-value: #3558F0; }
+@property --soft { syntax: '<color>'; inherits: true; initial-value: #9DBBFF; }
+@property --metal { syntax: '<color>'; inherits: true; initial-value: #E7EAF3; }
+@property --accent { syntax: '<color>'; inherits: true; initial-value: #D8B873; }
+@property --text-1 { syntax: '<color>'; inherits: true; initial-value: #E7EAF3; }
+@property --text-2 { syntax: '<color>'; inherits: true; initial-value: #A9B2C9; }
+@property --text-3 { syntax: '<color>'; inherits: true; initial-value: #6C7798; }
+@property --on-primary { syntax: '<color>'; inherits: true; initial-value: #FFFFFF; }
+@property --glass { syntax: '<color>'; inherits: true; initial-value: rgba(231,234,243,.06); }
+@property --glass-hi { syntax: '<color>'; inherits: true; initial-value: rgba(231,234,243,.09); }
+@property --line { syntax: '<color>'; inherits: true; initial-value: rgba(231,234,243,.13); }
+@property --line-hi { syntax: '<color>'; inherits: true; initial-value: rgba(231,234,243,.24); }
+@property --shade { syntax: '<color>'; inherits: true; initial-value: rgba(1,3,10,.55); }
+@property --sheen { syntax: '<color>'; inherits: true; initial-value: rgba(255,255,255,.07); }
+
+/* 1 · Midnight Sapphire & Platinum (default) */
+:root, [data-theme="sapphire"] {
+  --bg-0: #050A1A; --bg-1: #0D1836; --bg-2: #14224A;
+  --primary: #3558F0; --soft: #9DBBFF; --metal: #E7EAF3; --accent: #D8B873;
+  --text-1: #E7EAF3; --text-2: #A9B2C9; --text-3: #6C7798;
+  --on-primary: #FFFFFF;
+  --glass: rgba(231,234,243,.055); --glass-hi: rgba(231,234,243,.085);
+  --line: rgba(231,234,243,.12); --line-hi: rgba(231,234,243,.24);
+  --shade: rgba(1,3,12,.6); --sheen: rgba(255,255,255,.07);
+  --scheme: dark;
+}
+/* 2 · Obsidian & Champagne Gold */
+[data-theme="obsidian"] {
+  --bg-0: #0A0A0F; --bg-1: #15151D; --bg-2: #1E1E29;
+  --primary: #C9A961; --soft: #EBDDB0; --metal: #F6F2E9; --accent: #C9A961;
+  --text-1: #F6F2E9; --text-2: #B8B2A3; --text-3: #7D786C;
+  --on-primary: #14120C;
+  --glass: rgba(246,242,233,.05); --glass-hi: rgba(246,242,233,.08);
+  --line: rgba(246,242,233,.11); --line-hi: rgba(235,221,176,.26);
+  --shade: rgba(0,0,0,.62); --sheen: rgba(255,248,230,.07);
+  --scheme: dark;
+}
+/* 3 · Emerald Royale */
+[data-theme="emerald"] {
+  --bg-0: #04100D; --bg-1: #0A2820; --bg-2: #10372C;
+  --primary: #1E9B74; --soft: #7FE0BE; --metal: #F4F1E8; --accent: #D4B26A;
+  --text-1: #F4F1E8; --text-2: #A9BDB4; --text-3: #6B8379;
+  --on-primary: #03140F;
+  --glass: rgba(244,241,232,.05); --glass-hi: rgba(244,241,232,.08);
+  --line: rgba(244,241,232,.12); --line-hi: rgba(127,224,190,.26);
+  --shade: rgba(0,6,4,.6); --sheen: rgba(240,255,248,.07);
+  --scheme: dark;
+}
+/* 4 · Imperial Plum & Rose Gold */
+[data-theme="plum"] {
+  --bg-0: #110819; --bg-1: #26123B; --bg-2: #341A4F;
+  --primary: #7A3FC0; --soft: #C9A6F0; --metal: #F5EEF8; --accent: #DDA58F;
+  --text-1: #F5EEF8; --text-2: #B9A9C9; --text-3: #7E6F92;
+  --on-primary: #FFFFFF;
+  --glass: rgba(245,238,248,.055); --glass-hi: rgba(245,238,248,.085);
+  --line: rgba(245,238,248,.12); --line-hi: rgba(201,166,240,.28);
+  --shade: rgba(6,0,12,.6); --sheen: rgba(255,240,250,.07);
+  --scheme: dark;
+}
+/* 5 · Ivory Light Luxe — frosted white glass */
+[data-theme="ivory"] {
+  --bg-0: #F8F5EE; --bg-1: #FFFFFF; --bg-2: #EFEADF;
+  --primary: #14213D; --soft: #3C4F7C; --metal: #A8844A; --accent: #A8844A;
+  --text-1: #14213D; --text-2: #5B6478; --text-3: #8A91A3;
+  --on-primary: #FFFFFF;
+  --glass: rgba(255,255,255,.58); --glass-hi: rgba(255,255,255,.78);
+  --line: rgba(20,33,61,.10); --line-hi: rgba(168,132,74,.38);
+  --shade: rgba(60,48,20,.16); --sheen: rgba(255,255,255,.7);
+  --scheme: light;
+}
+
+:root {
+  --theme-fade: 700ms cubic-bezier(.4,0,.2,1);
+  transition:
+    --bg-0 var(--theme-fade), --bg-1 var(--theme-fade), --bg-2 var(--theme-fade),
+    --primary var(--theme-fade), --soft var(--theme-fade), --metal var(--theme-fade), --accent var(--theme-fade),
+    --text-1 var(--theme-fade), --text-2 var(--theme-fade), --text-3 var(--theme-fade), --on-primary var(--theme-fade),
+    --glass var(--theme-fade), --glass-hi var(--theme-fade), --line var(--theme-fade), --line-hi var(--theme-fade),
+    --shade var(--theme-fade), --sheen var(--theme-fade);
+}
+@media (prefers-reduced-motion: reduce) { :root { --theme-fade: 1ms; } }

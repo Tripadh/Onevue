@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+*/node_modules/
+.pnp
+.pnp.js
+
+# Testing & Coverage
+coverage/
+*/coverage/
+
+# Next.js Build Outputs & Cache
+.next/
+*/.next/
+out/
+*/out/
+build/
+*/build/
+dist/
+*/dist/
+.content-collections/
+*/.content-collections/
+
+# TypeScript Build Artifacts
+*.tsbuildinfo
+next-env.d.ts
+*/next-env.d.ts
+
+# Environment & Sensitive Files
+.env
+.env.local
+.env.*.local
+*.env.local
+**/.env
+**/.env.local
+**/.env.*.local
+!**/.env.example
+
+# Vercel
+.vercel/
+*/.vercel/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
+*.pem
