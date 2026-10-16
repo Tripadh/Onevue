@@ -1,0 +1,1245 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ONEVUE LLM Service",
+    "description": "Microservice responsible for LLM resume extraction and portfolio synthesis.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health Check",
+        "description": "Returns operational status and version without exposing secrets.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "summary": "Readiness Check",
+        "description": "Verifies whether the service has the local configuration and initialized components required to accept requests. Does not perform live provider calls. Readiness is not proof that external provider APIs are reachable.",
+        "operationId": "readiness_check_ready_get",
+        "responses": {
+          "200": {
+            "description": "Service is ready to accept requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service is unconfigured or unavailable."
+          }
+        }
+      }
+    },
+    "/version": {
+      "get": {
+        "summary": "Service Version",
+        "description": "Returns service version and runtime metadata. Git commit SHA is returned only when available from runtime/build configuration; otherwise null.",
+        "operationId": "version_info_version_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Protected Prometheus Metrics",
+        "description": "Returns low-cardinality Prometheus metrics in text format. Protected by METRICS_TOKEN. Disabled if METRICS_TOKEN is unset.",
+        "operationId": "get_metrics_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Low-cardinality operational metrics in Prometheus text format.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "text/plain; version=0.0.4; charset=utf-8": {}
+            }
+          },
+          "401": {
+            "description": "Missing or invalid metrics authentication token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Metrics endpoint is disabled (METRICS_TOKEN unset).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "MetricsTokenAuth": []
+          }
+        ]
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Service Information",
+        "description": "Identifies service and directs clients to interactive documentation.",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RootResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/extract": {
+      "post": {
+        "summary": "Extract Resume Profile",
+        "description": "Extracts structured resume candidate profile from an uploaded PDF document. Requires X-API-Key authentication.",
+        "operationId": "extract_resume_v1_extract_post",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_extract_resume_v1_extract_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Structured extraction candidate profile. The status field indicates whether extraction completed cleanly ('ok') or with partial normalization ('partial').",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid file upload, empty payload, or PDF parser failure.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, or unconfigured service API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Uploaded PDF exceeds maximum allowed file size.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable document (exceeds page limit, encrypted, or scanned PDF).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Provider rate limit or process-local rate guard reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected internal server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream provider credential failure or malformed provider response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Upstream provider unavailable, circuit breaker open, or concurrency queue timeout.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Extraction deadline exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StructuredError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Achievement": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "Achievement",
+        "description": "Honor, award, or certification entry."
+      },
+      "Body_extract_resume_v1_extract_post": {
+        "properties": {
+          "file": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "title": "Body_extract_resume_v1_extract_post"
+      },
+      "Confidence": {
+        "type": "string",
+        "enum": [
+          "high",
+          "medium",
+          "low"
+        ],
+        "title": "Confidence",
+        "description": "Confidence tier for an extracted field."
+      },
+      "Education": {
+        "properties": {
+          "institution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Institution"
+          },
+          "degree": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Degree"
+          },
+          "fieldOfStudy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fieldofstudy"
+          },
+          "startDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startdate"
+          },
+          "endDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enddate"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "Education",
+        "description": "Academic institution, degree, and study duration."
+      },
+      "ErrorCode": {
+        "type": "string",
+        "enum": [
+          "INVALID_FILE",
+          "FILE_TOO_LARGE",
+          "TOO_MANY_PAGES",
+          "ENCRYPTED_PDF",
+          "SCANNED_PDF",
+          "INVALID_OUTPUT",
+          "PROVIDER_AUTH",
+          "PROVIDER_RATE_LIMITED",
+          "PROVIDER_UNAVAILABLE",
+          "UNAUTHORIZED",
+          "INTERNAL"
+        ],
+        "title": "ErrorCode",
+        "description": "Enumeration of recognized service error codes."
+      },
+      "Experience": {
+        "properties": {
+          "company": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "startDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startdate"
+          },
+          "endDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enddate"
+          },
+          "isCurrent": {
+            "type": "boolean",
+            "title": "Iscurrent",
+            "default": false
+          },
+          "bullets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Bullets"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "Experience",
+        "description": "Work experience, employment period, and achievement bullets."
+      },
+      "ExtractionMeta": {
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "title": "Schemaversion",
+            "default": "1.0.0"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "fallbackUsed": {
+            "type": "boolean",
+            "title": "Fallbackused",
+            "default": false
+          },
+          "latencyMs": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Latencyms"
+          },
+          "mock": {
+            "type": "boolean",
+            "title": "Mock",
+            "default": false
+          },
+          "primaryProvider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primaryprovider"
+          },
+          "fallbackProvider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallbackprovider"
+          },
+          "attemptsCount": {
+            "type": "integer",
+            "title": "Attemptscount",
+            "default": 1
+          },
+          "quotaBlocked": {
+            "type": "boolean",
+            "title": "Quotablocked",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "provider",
+          "latencyMs"
+        ],
+        "title": "ExtractionMeta",
+        "description": "Telemetry and execution metadata for the extraction request."
+      },
+      "ExtractionResponse": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/ExtractionStatus"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ResumeData"
+          },
+          "fieldMeta": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FieldMeta"
+            },
+            "type": "object",
+            "title": "Fieldmeta"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionWarning"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ExtractionMeta"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StructuredError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "data",
+          "meta"
+        ],
+        "title": "ExtractionResponse",
+        "description": "Standard response envelope returning extracted resume data and metadata.",
+        "example": {
+          "status": "ok",
+          "data": {
+            "profile": {
+              "name": "Jordan Doe",
+              "headline": "Full-Stack Software Engineer",
+              "email": "jordan.doe.synthetic@example.com",
+              "phone": "+1-555-019-2831",
+              "location": "San Francisco, CA",
+              "summary": "Full-stack engineer with 4+ years of experience in distributed microservices."
+            },
+            "education": [
+              {
+                "institution": "State University of Technology",
+                "degree": "B.S. Computer Science",
+                "fieldOfStudy": "Computer Science",
+                "startDate": "2016-08",
+                "endDate": "2020-05",
+                "grade": "3.8 GPA"
+              }
+            ],
+            "experience": [
+              {
+                "company": "Acme Innovations Inc.",
+                "title": "Software Engineer",
+                "location": "San Francisco, CA",
+                "startDate": "2020-06",
+                "endDate": null,
+                "isCurrent": true,
+                "bullets": [
+                  "Engineered distributed REST APIs handling high throughput.",
+                  "Implemented asynchronous background pipeline workers."
+                ]
+              }
+            ],
+            "skills": [
+              {
+                "name": "Python"
+              },
+              {
+                "name": "FastAPI"
+              },
+              {
+                "name": "TypeScript"
+              },
+              {
+                "name": "PostgreSQL"
+              },
+              {
+                "name": "Docker"
+              }
+            ],
+            "projects": [
+              {
+                "name": "Cloud Observability Dashboard",
+                "description": "Real-time metrics visualization platform for distributed services.",
+                "technologies": [
+                  "Python",
+                  "React",
+                  "Prometheus"
+                ],
+                "links": [
+                  "https://github.com/example-synthetic/cloud-dashboard"
+                ]
+              }
+            ],
+            "achievements": [
+              {
+                "title": "Hackathon First Place Winner",
+                "description": "Awarded first place for cloud automation tooling project."
+              }
+            ],
+            "socialLinks": [
+              {
+                "platform": "github",
+                "url": "https://github.com/example-synthetic"
+              },
+              {
+                "platform": "linkedin",
+                "url": "https://linkedin.com/in/example-synthetic"
+              }
+            ]
+          },
+          "fieldMeta": {
+            "profile.name": {
+              "confidence": "high",
+              "grounded": true,
+              "source": "llm",
+              "alternatives": [],
+              "grounding_status": "grounded",
+              "evidence": [
+                "Jordan Doe"
+              ]
+            },
+            "profile.email": {
+              "confidence": "high",
+              "grounded": true,
+              "source": "rules",
+              "alternatives": [],
+              "grounding_status": "grounded",
+              "evidence": [
+                "jordan.doe.synthetic@example.com"
+              ]
+            }
+          },
+          "warnings": [],
+          "meta": {
+            "schemaVersion": "1.0.0",
+            "provider": "llama-3.3-70b-versatile",
+            "fallbackUsed": false,
+            "latencyMs": 1420,
+            "mock": false,
+            "primaryProvider": "groq",
+            "fallbackProvider": null,
+            "attemptsCount": 1,
+            "quotaBlocked": false
+          },
+          "error": null
+        }
+      },
+      "ExtractionStatus": {
+        "type": "string",
+        "enum": [
+          "ok",
+          "partial"
+        ],
+        "title": "ExtractionStatus",
+        "description": "Overall outcome of the extraction process."
+      },
+      "ExtractionWarning": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path",
+            "default": ""
+          },
+          "code": {
+            "$ref": "#/components/schemas/WarningCode"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ExtractionWarning",
+        "description": "Structured advisory generated during document processing or normalization."
+      },
+      "FieldMeta": {
+        "properties": {
+          "confidence": {
+            "$ref": "#/components/schemas/Confidence"
+          },
+          "grounded": {
+            "type": "boolean",
+            "title": "Grounded"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FieldSource"
+          },
+          "alternatives": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Alternatives"
+          },
+          "grounding_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GroundingStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence": {
+            "items": {},
+            "type": "array",
+            "title": "Evidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "confidence",
+          "grounded",
+          "source"
+        ],
+        "title": "FieldMeta",
+        "description": "Extraction confidence and provenance metadata for an individual field."
+      },
+      "FieldSource": {
+        "type": "string",
+        "enum": [
+          "rules",
+          "llm",
+          "llm+check"
+        ],
+        "title": "FieldSource",
+        "description": "Origin mechanism of an extracted value."
+      },
+      "GroundingStatus": {
+        "type": "string",
+        "enum": [
+          "grounded",
+          "partially_grounded",
+          "unsupported",
+          "not_checked"
+        ],
+        "title": "GroundingStatus",
+        "description": "Grounding verification state against source document evidence."
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "service",
+          "version"
+        ],
+        "title": "HealthResponse",
+        "description": "Schema for health check response.",
+        "example": {
+          "status": "ok",
+          "service": "onevue-llm-service",
+          "version": "1.0.0"
+        }
+      },
+      "Profile": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "headline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headline"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "Profile",
+        "description": "Candidate profile and contact details."
+      },
+      "Project": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "technologies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Technologies"
+          },
+          "links": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Links"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "Project",
+        "description": "Portfolio or personal project detail."
+      },
+      "ReadinessResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "ready": {
+            "type": "boolean",
+            "title": "Ready"
+          },
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "checks": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "ready",
+          "service",
+          "checks"
+        ],
+        "title": "ReadinessResponse",
+        "description": "Schema for readiness check response.",
+        "example": {
+          "status": "ready",
+          "ready": true,
+          "service": "onevue-llm-service",
+          "checks": {
+            "configuration": "ok",
+            "provider": "ok",
+            "mock_mode": "false"
+          }
+        }
+      },
+      "ResumeData": {
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/Profile"
+          },
+          "education": {
+            "items": {
+              "$ref": "#/components/schemas/Education"
+            },
+            "type": "array",
+            "title": "Education"
+          },
+          "experience": {
+            "items": {
+              "$ref": "#/components/schemas/Experience"
+            },
+            "type": "array",
+            "title": "Experience"
+          },
+          "skills": {
+            "items": {
+              "$ref": "#/components/schemas/Skill"
+            },
+            "type": "array",
+            "title": "Skills"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            },
+            "type": "array",
+            "title": "Projects"
+          },
+          "achievements": {
+            "items": {
+              "$ref": "#/components/schemas/Achievement"
+            },
+            "type": "array",
+            "title": "Achievements"
+          },
+          "socialLinks": {
+            "items": {
+              "$ref": "#/components/schemas/SocialLink"
+            },
+            "type": "array",
+            "title": "Sociallinks"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ResumeData",
+        "description": "Top-level normalized resume data contract."
+      },
+      "RootResponse": {
+        "properties": {
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "docs_url": {
+            "type": "string",
+            "title": "Docs Url"
+          },
+          "openapi_url": {
+            "type": "string",
+            "title": "Openapi Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "service",
+          "version",
+          "message",
+          "docs_url",
+          "openapi_url"
+        ],
+        "title": "RootResponse",
+        "description": "Schema for service root response.",
+        "example": {
+          "service": "onevue-llm-service",
+          "version": "1.0.0",
+          "message": "ONEVUE LLM Service is operational. Refer to /docs for interactive API documentation.",
+          "docs_url": "/docs",
+          "openapi_url": "/openapi.json"
+        }
+      },
+      "Skill": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "Skill",
+        "description": "Single candidate skill entry."
+      },
+      "SocialLink": {
+        "properties": {
+          "platform": {
+            "type": "string",
+            "title": "Platform"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "platform",
+          "url"
+        ],
+        "title": "SocialLink",
+        "description": "Web platform and profile hyperlink."
+      },
+      "StructuredError": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "StructuredError",
+        "description": "Structured error payload ensuring sensitive information is never exposed.",
+        "example": {
+          "code": "INVALID_FILE",
+          "message": "Invalid file upload. Only .pdf files are supported."
+        }
+      },
+      "VersionResponse": {
+        "properties": {
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "commit_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Sha"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "service",
+          "version",
+          "commit_sha",
+          "environment"
+        ],
+        "title": "VersionResponse",
+        "description": "Schema for service version response.",
+        "example": {
+          "service": "onevue-llm-service",
+          "version": "1.0.0",
+          "commit_sha": null,
+          "environment": "development"
+        }
+      },
+      "WarningCode": {
+        "type": "string",
+        "enum": [
+          "UNSUPPORTED_VALUE",
+          "INVALID_DATE",
+          "AMBIGUOUS_DATE",
+          "DROPPED_ITEM",
+          "INPUT_TRUNCATED",
+          "LIST_TRUNCATED",
+          "CONFLICT",
+          "MOCK_DATA"
+        ],
+        "title": "WarningCode",
+        "description": "Enumeration of non-fatal extraction warning codes."
+      }
+    },
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "Server-to-server service API key for ONEVUE LLM Service. Rotatable across active keys in SERVICE_API_KEYS."
+      },
+      "MetricsTokenAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Bearer token or X-Metrics-Token header for protected Prometheus metrics. Must match configured METRICS_TOKEN."
+      }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CertificateStatus {
+  PENDING
+  VERIFIED
+  UNVERIFIED
+}
+
+enum FailureReason {
+  NOT_FOUND
+  FIELD_MISMATCH
+  ISSUER_UNAVAILABLE
+  MAX_ATTEMPTS
+}
+
+model Certificate {
+  id             String             @id
+  userId         String             @map("user_id")
+  url            String
+  canonicalUrl   String?            @map("canonical_url")
+  issuer         String?
+  credentialId   String?            @map("credential_id")
+  status         CertificateStatus
+  evidence       Json?
+  submittedAt    String             @map("submitted_at")
+  verifiedAt     String?            @map("verified_at")
+  attempts       Int
+  failureReason  FailureReason?     @map("failure_reason")
+
+  @@unique([userId, url], map: "certificates_user_id_url_key")
+  @@unique([userId, issuer, credentialId], map: "certificates_user_credential_key")
+  @@map("certificates")
+}
