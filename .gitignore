@@ -1,17 +1,33 @@
-
 # Environment secrets
 .env
 .env.*
 !.env.example
+!.*/.env.example
+!.**/.env.example
 
-# Node.js
+# Node.js dependencies
 node_modules/
-npm-debug.log*
+*/node_modules/
 .npm/
+.pnp
+.pnp.js
 
-# Build output
+# Build output and caches
 dist/
-coverage/
+*/dist/
+build/
+*/build/
+out/
+*/out/
+.next/
+*/.next/
+.content-collections/
+*/.content-collections/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+*/next-env.d.ts
 
 # Python
 __pycache__/
@@ -19,11 +35,32 @@ __pycache__/
 .venv/
 venv/
 
+# Coverage and testing
+coverage/
+*/coverage/
+
+# Vercel
+.vercel/
+*/.vercel/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Certificates and private keys
+*.pem
+*.key
+
 # IDE and operating system
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
+# Temporary files
+.~lock.*
+*.tmp
