@@ -4,7 +4,28 @@
   const listeners = new Set();
   const emit = () => listeners.forEach(fn => fn(getSessionSync()));
   function getSessionSync() { return db.get('session', null); }
-  const clean = u => u && ({ id: u.id, name: u.name, email: u.email, username: u.username, identity: u.identity, onboarding: u.onboarding, createdAt: u.createdAt });
+  const clean = u => {
+    if (!u) return null;
+    let photoUrl = u.profilePhotoUrl || null;
+    if (photoUrl && !photoUrl.startsWith('http')) {
+      const origin = API_BASE.replace(/\/api\/?$/, '');
+      photoUrl = `${origin}${photoUrl.startsWith('/') ? '' : '/'}${photoUrl}`;
+    }
+    return {
+      id: u.id || u._id,
+      name: u.name,
+      email: u.email,
+      username: u.username || null,
+      identity: u.identity,
+      bio: u.bio || '',
+      location: u.location || '',
+      profilePhotoKey: u.profilePhotoKey || null,
+      profilePhotoUrl: photoUrl,
+      profilePhotoUpdatedAt: u.profilePhotoUpdatedAt || null,
+      onboarding: u.onboarding,
+      createdAt: u.createdAt,
+    };
+  };
   const hash = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return 'h' + (h >>> 0).toString(36); };
 
   /** @returns {Promise<Session|null>} */
@@ -150,9 +171,177 @@
     db.set('session', next); emit(); return next;
   }
 
+  /** Fetch authenticated user profile from backend */
+  async function getProfile() {
+    const s = getSessionSync();
+    if (!s || !s.token) throw new ServiceError('unauthorized', 'Authentication required');
+    try {
+      const res = await fetch(`${API_BASE}/profile`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${s.token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new ServiceError('fetch_error', data.message || 'Failed to load profile');
+
+      const updatedUser = clean(data.user);
+      const nextSession = { ...s, user: updatedUser };
+      db.set('session', nextSession);
+      emit();
+      return updatedUser;
+    } catch (e) {
+      if (e instanceof ServiceError) throw e;
+      throw new ServiceError('network_error', 'Could not connect to profile service.');
+    }
+  }
+
+  /** Update editable account profile fields (name, username, bio, location) */
+  async function updateProfile(patch) {
+    const s = getSessionSync();
+    if (!s || !s.token) throw new ServiceError('unauthorized', 'Authentication required');
+    try {
+      const res = await fetch(`${API_BASE}/profile`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${s.token}`,
+        },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new ServiceError('update_error', data.message || 'Failed to update profile');
+
+      const updatedUser = clean(data.user);
+      const nextSession = { ...s, user: updatedUser };
+      db.set('session', nextSession);
+      emit();
+      return updatedUser;
+    } catch (e) {
+      if (e instanceof ServiceError) throw e;
+      throw new ServiceError('network_error', 'Could not save profile changes.');
+    }
+  }
+
+  /** Upload a new profile photo (validates image type and size) */
+  async function uploadProfilePhoto(file) {
+    const s = getSessionSync();
+    if (!s || !s.token) throw new ServiceError('unauthorized', 'Authentication required');
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch(`${API_BASE}/profile/photo`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${s.token}`,
+        },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new ServiceError('upload_error', data.message || 'Failed to upload photo');
+
+      let resolvedUrl = data.profilePhotoUrl;
+      if (resolvedUrl && !resolvedUrl.startsWith('http')) {
+        const origin = API_BASE.replace(/\/api\/?$/, '');
+        resolvedUrl = `${origin}${resolvedUrl.startsWith('/') ? '' : '/'}${resolvedUrl}`;
+      }
+      // Add version cache-buster query parameter to force instantaneous reload
+      if (resolvedUrl) {
+        resolvedUrl += `${resolvedUrl.includes('?') ? '&' : '?'}v=${Date.now()}`;
+      }
+
+      const nextUser = {
+        ...s.user,
+        profilePhotoKey: data.profilePhotoKey,
+        profilePhotoUrl: resolvedUrl,
+        profilePhotoUpdatedAt: data.profilePhotoUpdatedAt,
+      };
+      const nextSession = { ...s, user: nextUser };
+      db.set('session', nextSession);
+      emit();
+      return { ...data, profilePhotoUrl: resolvedUrl };
+    } catch (e) {
+      if (e instanceof ServiceError) throw e;
+      throw new ServiceError('network_error', 'Could not upload profile photo.');
+    }
+  }
+
+  /** Remove current profile photo */
+  async function removeProfilePhoto() {
+    const s = getSessionSync();
+    if (!s || !s.token) throw new ServiceError('unauthorized', 'Authentication required');
+
+    try {
+      const res = await fetch(`${API_BASE}/profile/photo`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${s.token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new ServiceError('delete_error', data.message || 'Failed to remove photo');
+
+      const nextUser = {
+        ...s.user,
+        profilePhotoKey: null,
+        profilePhotoUrl: null,
+        profilePhotoUpdatedAt: null,
+      };
+      const nextSession = { ...s, user: nextUser };
+      db.set('session', nextSession);
+      emit();
+      return data;
+    } catch (e) {
+      if (e instanceof ServiceError) throw e;
+      throw new ServiceError('network_error', 'Could not remove profile photo.');
+    }
+  }
+
+  /** Change user account password */
+  async function changePassword({ currentPassword, newPassword, confirmPassword }) {
+    const s = getSessionSync();
+    if (!s || !s.token) throw new ServiceError('unauthorized', 'Authentication required');
+
+    try {
+      const res = await fetch(`${API_BASE}/profile/change-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${s.token}`,
+        },
+        body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new ServiceError('password_error', data.message || 'Failed to update password');
+      return data;
+    } catch (e) {
+      if (e instanceof ServiceError) throw e;
+      throw new ServiceError('network_error', 'Could not connect to password service.');
+    }
+  }
+
   function onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
-  window.OV.services.auth = { getSession, getSessionSync, signUp, signIn, signOut, attachUsername, onChange, getDashboardData, setIdentity, submitSurvey };
+  window.OV.services.auth = {
+    getSession,
+    getSessionSync,
+    signUp,
+    signIn,
+    signOut,
+    attachUsername,
+    onChange,
+    getDashboardData,
+    setIdentity,
+    submitSurvey,
+    getProfile,
+    updateProfile,
+    uploadProfilePhoto,
+    removeProfilePhoto,
+    changePassword,
+  };
 
 })();
 

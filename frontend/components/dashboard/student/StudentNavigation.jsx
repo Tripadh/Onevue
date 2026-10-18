@@ -166,8 +166,9 @@ function StudentTopbar({
             }}
             aria-expanded={accountMenuOpen}
             aria-haspopup="true"
+            aria-label="Account menu"
           >
-            <Avatar initials={initials} size={34} ring />
+            <Avatar initials={initials} src={session?.user?.profilePhotoUrl} size={34} ring />
             <span className="hide-mobile-nav" style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text-1)' }}>
               {session?.user?.name || 'Student'}
             </span>
@@ -180,7 +181,7 @@ function StudentTopbar({
                 position: 'absolute',
                 right: 0,
                 top: 'calc(100% + 10px)',
-                width: 240,
+                width: 250,
                 padding: '12px',
                 borderRadius: 18,
                 display: 'grid',
@@ -190,10 +191,29 @@ function StudentTopbar({
                 border: '1px solid var(--line-hi)',
               }}
             >
-              <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>
-                <strong style={{ display: 'block', fontSize: 14 }}>{session?.user?.name}</strong>
-                <span className="faint" style={{ fontSize: 12 }}>{session?.user?.email}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 8px 10px', borderBottom: '1px solid var(--line)' }}>
+                <Avatar initials={initials} src={session?.user?.profilePhotoUrl} size={38} ring />
+                <div style={{ overflow: 'hidden' }}>
+                  <strong style={{ display: 'block', fontSize: 13.5, fontWeight: 600, color: 'var(--text-1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {session?.user?.name || 'Student'}
+                  </strong>
+                  <span className="faint" style={{ fontSize: 12, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {session?.user?.email}
+                  </span>
+                </div>
               </div>
+
+              <button
+                className="btn btn-ghost"
+                style={{ justifyContent: 'flex-start', fontSize: 13, height: 36, padding: '0 8px' }}
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  navigate('/app/student/profile');
+                }}
+              >
+                <StudentIcons.profile style={{ marginRight: 8 }} />
+                My Profile
+              </button>
 
               <button
                 className="btn btn-ghost"
@@ -241,7 +261,7 @@ function StudentTopbar({
 const STUDENT_NAV_ITEMS = [
   { id: 'overview', path: '/app/student', label: 'Overview', icon: StudentIcons.overview },
   { id: 'identity', path: '/app/student/identity', label: 'Identity', icon: StudentIcons.identity },
-  { id: 'visiting-card', path: '/app/student/visiting-card', label: 'Visiting Card', icon: StudentIcons.card },
+  { id: 'visiting-card', path: '/app/student/visiting-card/overview', label: 'Visiting Card', icon: StudentIcons.card },
   { id: 'analytics', path: '/app/student/analytics', label: 'Analytics', icon: StudentIcons.analytics },
   { id: 'website', path: '/app/student/website', label: 'My Website', icon: StudentIcons.website },
 ];

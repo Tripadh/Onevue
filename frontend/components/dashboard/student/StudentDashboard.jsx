@@ -93,6 +93,7 @@ function StudentDashboard({ session }) {
   // Derive active navigation id
   const activeNavId = sUseMemo(() => {
     const path = location.pathname.toLowerCase();
+    if (path.includes('/app/student/profile')) return 'profile';
     if (path.includes('/app/student/identity')) return 'identity';
     if (path.includes('/app/student/visiting-card')) return 'visiting-card';
     if (path.includes('/app/student/analytics')) return 'analytics';
@@ -103,8 +104,14 @@ function StudentDashboard({ session }) {
 
   const pageTitle = sUseMemo(() => {
     switch (activeNavId) {
+      case 'profile': return 'My Profile';
       case 'identity': return 'Student Identity';
-      case 'visiting-card': return 'Visiting Card';
+      case 'visiting-card': {
+        const sub = location.pathname.toLowerCase();
+        if (sub.includes('/templates')) return 'Card Templates';
+        if (sub.includes('/studio')) return 'Visiting Card Studio';
+        return 'Visiting Cards';
+      }
       case 'analytics': return 'Analytics';
       case 'website-preview': return 'Website Preview';
       case 'website': return 'My Website';
@@ -150,6 +157,11 @@ function StudentDashboard({ session }) {
             overflowX: 'hidden',
           }}
         >
+          {activeNavId === 'profile' && window.StudentProfilePage && (
+            <window.StudentProfilePage
+              session={session}
+            />
+          )}
           {activeNavId === 'overview' && (
             <StudentOverviewPage
               session={session}

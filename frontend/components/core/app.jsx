@@ -1,6 +1,6 @@
 /* App shell + routes. Landing at "/", public profile at "/:username" and "/:username/:onevue". */
 const { useState: apUseState, useEffect: apUseEffect } = React;
-const { HashRouter, Routes, Route, useParams, useNavigate, Link } = ReactRouterDOM;
+const { HashRouter, Routes, Route, useParams, useNavigate, Link, Navigate } = ReactRouterDOM;
 const SP = window.OV.services;
 
 /* ---------------- Centralized Route Resolver ---------------- */
@@ -197,8 +197,14 @@ function App() {
             <Route path="/onboarding/survey" element={<SurveyOnboardingPage />} />
             <Route path="/dashboard" element={<DashboardRedirect />} />
             <Route path="/app/student" element={<ProtectedDashboardRoute expectedRole="student" />} />
+            <Route path="/app/student/profile" element={<ProtectedDashboardRoute expectedRole="student" />} />
             <Route path="/app/student/identity" element={<ProtectedDashboardRoute expectedRole="student" />} />
-            <Route path="/app/student/visiting-card" element={<ProtectedDashboardRoute expectedRole="student" />} />
+            <Route path="/app/student/visiting-card" element={<Navigate to="/app/student/visiting-card/overview" replace />} />
+            <Route path="/app/student/visiting-card/overview" element={<ProtectedDashboardRoute expectedRole="student" />} />
+            <Route path="/app/student/visiting-card/templates" element={<ProtectedDashboardRoute expectedRole="student" />} />
+            <Route path="/app/student/visiting-card/studio/new" element={<ProtectedDashboardRoute expectedRole="student" />} />
+            <Route path="/app/student/visiting-card/studio/:cardId" element={<ProtectedDashboardRoute expectedRole="student" />} />
+            <Route path="/app/student/visiting-card/studio" element={<Navigate to="/app/student/visiting-card/overview" replace />} />
             <Route path="/app/student/analytics" element={<ProtectedDashboardRoute expectedRole="student" />} />
             <Route path="/app/student/website" element={<ProtectedDashboardRoute expectedRole="student" />} />
             <Route path="/app/student/website/preview" element={<ProtectedDashboardRoute expectedRole="student" />} />
@@ -206,6 +212,8 @@ function App() {
             <Route path="/app/freelancer" element={<ProtectedDashboardRoute expectedRole="freelancer" />} />
             <Route path="/app/creator" element={<ProtectedDashboardRoute expectedRole="creator" />} />
             <Route path="/app/business" element={<ProtectedDashboardRoute expectedRole="business" />} />
+            <Route path="/card/:username" element={<PublicVisitingCard />} />
+            <Route path="/v/:username" element={<PublicVisitingCard />} />
             <Route path="/:username" element={<PublicProfile />} />
             <Route path="/:username/:onevue" element={<PublicProfile />} />
           </Routes>

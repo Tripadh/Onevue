@@ -25,6 +25,7 @@ const Icon = {
   copy: (p) => <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" {...p}><rect x="8" y="8" width="12" height="12" rx="2.5" /><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" /></svg>,
   seal: (p) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" {...p}><path d="M12 2.5l2.6 1.9 3.2-.2.9 3.1 2.6 1.9-1.1 3 1.1 3-2.6 1.9-.9 3.1-3.2-.2L12 21.5l-2.6-1.9-3.2.2-.9-3.1-2.6-1.9 1.1-3-1.1-3 2.6-1.9.9-3.1 3.2.2z" /><path d="M8.5 12.2l2.4 2.3 4.6-4.8" strokeLinecap="round" /></svg>,
   lock: (p) => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...p}><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 018 0v3" /></svg>,
+  sparkle: (p) => <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M12 3l1.9 5.8a2 2 0 001.3 1.3L21 12l-5.8 1.9a2 2 0 00-1.3 1.3L12 21l-1.9-5.8a2 2 0 00-1.3-1.3L3 12l5.8-1.9a2 2 0 001.3-1.3L12 3z" /></svg>,
 };
 
 /* ---------- Button ---------- */
@@ -221,8 +222,46 @@ function Badge({ tone, dot, children, icon }) {
   return <span className={'badge' + (tone ? ' badge-' + tone : '') + (dot ? ' badge-dot' : '')}>{icon}{children}</span>;
 }
 function Verified({ children = 'Verified' }) { return <Badge tone="verified" icon={<Icon.seal />}>{children}</Badge>; }
-function Avatar({ initials, size = 44, ring }) {
-  return <span className={'avatar' + (ring ? ' ring' : '')} style={{ '--s': size + 'px' }} aria-hidden="true">{initials}</span>;
+function Avatar({ initials, src, size = 44, ring, alt = 'Avatar', style }) {
+  const [errorSrc, setErrorSrc] = uiUseState(null);
+  const showImg = Boolean(src) && errorSrc !== src;
+
+  return (
+    <span
+      className={'avatar' + (ring ? ' ring' : '')}
+      style={{
+        '--s': size + 'px',
+        width: size,
+        height: size,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+        position: 'relative',
+        borderRadius: '50%',
+        flexShrink: 0,
+        ...style,
+      }}
+      aria-hidden="true"
+    >
+      {showImg ? (
+        <img
+          src={src}
+          alt={alt}
+          onError={() => setErrorSrc(src)}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            borderRadius: '50%',
+            display: 'block',
+          }}
+        />
+      ) : (
+        initials
+      )}
+    </span>
+  );
 }
 function Skeleton({ w = '100%', h = 14, r, style }) {
   return <span className="skel" style={{ display: 'block', width: w, height: h, borderRadius: r, ...style }} aria-hidden="true" />;

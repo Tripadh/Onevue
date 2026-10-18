@@ -50,3 +50,8 @@ lerna-debug.log*
 .DS_Store
 Thumbs.db
 *.pem
+
+# Local Profile Photos Storage
+storage/profile-photos/
+backend/storage/
+!backend/lib/storage/

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import connectToDatabase from "../../../../lib/db";
 import User from "../../../../models/User";
+import { getProfilePhotoStorage } from "../../../../lib/storage";
 
 export async function OPTIONS() {
   return NextResponse.json({}, { status: 200 });
@@ -41,13 +42,24 @@ export async function GET(req: Request) {
       );
     }
 
+    const storage = getProfilePhotoStorage();
+    const profilePhotoUrl = user.profilePhotoKey
+      ? storage.resolveUrl(user.profilePhotoKey)
+      : null;
+
     return NextResponse.json(
       {
         user: {
           id: user._id,
           name: user.name,
           email: user.email,
+          username: user.username || null,
           identity: user.identity || "professional",
+          bio: user.bio || "",
+          location: user.location || "",
+          profilePhotoKey: user.profilePhotoKey || null,
+          profilePhotoUrl,
+          profilePhotoUpdatedAt: user.profilePhotoUpdatedAt || null,
           onboarding: user.onboarding || { surveyCompleted: false },
           createdAt: user.createdAt,
         },
