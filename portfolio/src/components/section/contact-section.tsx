@@ -10,6 +10,7 @@ interface ContactSectionProps {
     tel?: string;
     social: Record<string, AdaptedSocialLink>;
   };
+  resumeUrl?: string;
 }
 
 function renderContactIcon(iconName: string) {
@@ -29,7 +30,7 @@ function renderContactIcon(iconName: string) {
   }
 }
 
-export default function ContactSection({ contact }: ContactSectionProps) {
+export default function ContactSection({ contact, resumeUrl }: ContactSectionProps) {
   const isDynamic = contact !== undefined;
 
   // Build the list of all available social/contact channels
@@ -87,6 +88,17 @@ export default function ContactSection({ contact }: ContactSectionProps) {
             </>
           )}
         </p>
+
+        {resumeUrl && (
+          <a
+            href={resumeUrl}
+            data-ov-track="download"
+            data-ov-action="resume"
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-medium border border-border bg-card/60 hover:bg-muted text-foreground"
+          >
+            Resume
+          </a>
+        )}
 
         {socialList.length > 0 && (
           <div className="flex flex-wrap items-center justify-center gap-2.5 mt-2">

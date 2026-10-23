@@ -60,6 +60,10 @@ export async function GET(
             name: user?.name || "Student",
             identity: user?.identity || "student",
           },
+          analytics: {
+            resourceId: String(card._id),
+            resourceType: "visiting_card",
+          },
         },
       },
       {

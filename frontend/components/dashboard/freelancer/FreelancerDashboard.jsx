@@ -8,7 +8,6 @@ const { useState: freeState, useEffect: freeEffect, useMemo: freeMemo } = React;
 
 function FreelancerDashboard({ session }) {
   const toast = useToast();
-  const [serviceModal, setServiceModal] = freeState(false);
 
   // Tab & Customization State
   const [activeTab, setActiveTab] = freeState('overview');
@@ -56,12 +55,32 @@ function FreelancerDashboard({ session }) {
     return Math.round((completed / total) * 100);
   }, [freeConfig, checkedItems]);
 
+  const [savingAccount, setSavingAccount] = proState(false);
+
   const saveProfile = async (e) => {
     e.preventDefault();
-    if (session?.user?.id && window.OV?.services?.profile?.updateMyProfile) {
-      await window.OV.services.profile.updateMyProfile(session.user.id, { name }).catch(() => {});
+    if (savingAccount) return;
+    const trimmed = String(name || "").trim();
+    if (!trimmed) {
+      toast.push({ title: "Profile was not saved", body: "Display name cannot be empty.", tone: "error" });
+      return;
     }
-    toast.push({ title: 'Profile saved', body: 'Changes updated successfully', tone: 'success' });
+    setSavingAccount(true);
+    try {
+      if (!window.OV?.services?.domainProfile?.updateAccountName) {
+        throw new Error("Profile service is unavailable.");
+      }
+      await window.OV.services.domainProfile.updateAccountName(trimmed);
+      toast.push({ title: "Profile saved", body: "Account name updated.", tone: "success" });
+    } catch (err) {
+      toast.push({
+        title: "Profile was not saved",
+        body: err?.message || "The server did not confirm this change.",
+        tone: "error",
+      });
+    } finally {
+      setSavingAccount(false);
+    }
   };
 
   const saveTheme = (t) => {
@@ -72,8 +91,8 @@ function FreelancerDashboard({ session }) {
     }
   };
 
-  const publicUrl = session?.user?.username ? `onevue.id/${session.user.username}` : 'onevue.id/freelancer.demo';
-  const viewUrl = session?.user?.username ? `/#/${session.user.username}/client` : '/#/amara/client';
+  const publicUrl = session?.user?.username ? `onevue.id/${session.user.username}` : '';
+  const viewUrl = session?.user?.username ? `/#/${session.user.username}/client` : '';
 
   return (
     <main id="main" className="wrap" style={{ paddingTop: 90, paddingBottom: 100, minHeight: '85vh' }}>
@@ -104,12 +123,13 @@ function FreelancerDashboard({ session }) {
             {/* Quick Actions */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <Button size="sm" variant="glass" icon={<Icon.copy />} onClick={async () => {
+                if (!publicUrl) { toast.push({ title: 'No public link', body: 'Claim a username before sharing. This identity profile is not published.', tone: 'info' }); return; }
                 await copyText('https://' + publicUrl);
                 toast.push({ title: 'Link copied', body: publicUrl, tone: 'success' });
               }}>
                 Copy link
               </Button>
-              <Button size="sm" variant="accent" onClick={() => window.open(viewUrl, '_blank')}>
+              <Button size="sm" variant="accent" onClick={() => { if (!viewUrl) { toast.push({ title: 'Profile is private', body: 'This identity profile stays private until a publishing flow releases it.', tone: 'info' }); return; } window.open(viewUrl, '_blank'); }}>
                 Preview public view
               </Button>
             </div>
@@ -134,8 +154,7 @@ function FreelancerDashboard({ session }) {
           </div>
         </header>
 
-        {activeTab === 'overview' ? (
-          <>
+        <div style={{ display: activeTab === 'overview' ? 'grid' : 'none', gap: 24 }}>
             {/* Top Grid: Onboarding Checklist & Publishing Status */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
               
@@ -207,7 +226,7 @@ function FreelancerDashboard({ session }) {
                 <div style={{ display: 'grid', gap: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span className="muted" style={{ fontSize: 13.5 }}>Publishing status</span>
-                    <Badge tone="verified"><span className="badge-dot" /> Live on OneVue</Badge>
+                    <Badge><span className="badge-dot" /> Not published</Badge>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span className="muted" style={{ fontSize: 13.5 }}>Audience template</span>
@@ -220,12 +239,13 @@ function FreelancerDashboard({ session }) {
                 </div>
 
                 <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14, display: 'flex', gap: 8 }}>
-                  <Button size="sm" variant="glass" block onClick={() => window.open(viewUrl, '_blank')}>
+                  <Button size="sm" variant="glass" block onClick={() => { if (!viewUrl) { toast.push({ title: 'Profile is private', body: 'This identity profile stays private until a publishing flow releases it.', tone: 'info' }); return; } window.open(viewUrl, '_blank'); }}>
                     Test Client View
                   </Button>
                   <Button size="sm" variant="primary" block onClick={async () => {
-                    await copyText('https://' + publicUrl);
-                    toast.push({ title: 'Copied', body: 'Ready to share with prospective clients', tone: 'success' });
+                    if (!publicUrl) { toast.push({ title: 'No public link', body: 'Claim a username before sharing. This identity profile is not published.', tone: 'info' }); return; }
+                await copyText('https://' + publicUrl);
+                    toast.push({ title: 'Copied', body: 'Username link copied. This identity profile is still private.', tone: 'success' });
                   }}>
                     Share Link
                   </Button>
@@ -233,78 +253,9 @@ function FreelancerDashboard({ session }) {
               </section>
             </div>
 
-            {/* Freelancer Content Sections */}
-            <div style={{ display: 'grid', gap: 24 }}>
-              {/* Freelancer Overview Banner */}
-              <GlassCard style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                  <h2 className="h-card" style={{ fontSize: 20, margin: 0 }}>Freelance Practice Overview</h2>
-                  <Badge tone="verified">Availability: Open for Select Projects</Badge>
-                </div>
-                <p className="muted" style={{ fontSize: 14, margin: 0 }}>
-                  Tailored for direct client booking, agency pitches, and consulting engagements. Features service packages, rates, and verified deliverables.
-                </p>
-              </GlassCard>
-
-              {/* Services & Pricing */}
-              <section className="glass" style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <h3 className="h-sub" style={{ fontSize: 18, margin: 0 }}>Services & Pricing Tiers</h3>
-                    <p className="muted" style={{ fontSize: 13, margin: '2px 0 0' }}>Offerings, deliverables, fixed scopes, and turnaround times</p>
-                  </div>
-                  <Button size="sm" variant="glass" icon={<Icon.plus />} onClick={() => setServiceModal(true)}>Add Service</Button>
-                </div>
-
-                <EmptyState
-                  title="No services configured"
-                  body="Define package names (e.g., 'Brand Identity Sprint'), baseline pricing, and timeline."
-                  action={<Button size="sm" variant="primary" onClick={() => setServiceModal(true)}>+ Add Service Package</Button>}
-                />
-              </section>
-
-              {/* Portfolio & Case Studies */}
-              <section className="glass" style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <h3 className="h-sub" style={{ fontSize: 18, margin: 0 }}>Portfolio & Client Case Studies</h3>
-                    <p className="muted" style={{ fontSize: 13, margin: '2px 0 0' }}>Visual proof of shipped work and verified metrics</p>
-                  </div>
-                  <Button size="sm" variant="glass" icon={<Icon.plus />} onClick={() => toast.push({ title: 'Add Case Study', tone: 'info' })}>Add Case Study</Button>
-                </div>
-
-                <EmptyState
-                  title="No case studies added"
-                  body="Present past work with real outcomes (e.g. '+45% conversion uplift for FinTech client')."
-                />
-              </section>
-
-              {/* Two Column: Skills & Testimonials */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
-                <section className="glass" style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 14 }}>
-                  <h3 className="h-sub" style={{ fontSize: 18, margin: 0 }}>Domain Specialization</h3>
-                  <p className="muted" style={{ fontSize: 13 }}>Core client offerings, tools, and platforms.</p>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <span className="badge">UI/UX Systems</span>
-                    <span className="badge">Next.js Development</span>
-                    <span className="badge">Design Systems</span>
-                    <span className="badge">Conversion Strategy</span>
-                  </div>
-                </section>
-
-                <section className="glass" style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 14 }}>
-                  <h3 className="h-sub" style={{ fontSize: 18, margin: 0 }}>Client Testimonials & Reviews</h3>
-                  <p className="muted" style={{ fontSize: 13 }}>Verified feedback from past clients.</p>
-                  <EmptyState
-                    title="No reviews collected"
-                    body="Request testimonials directly to build trust with new prospects."
-                    action={<Button size="sm" variant="glass" onClick={() => toast.push({ title: 'Review link generated', tone: 'info' })}>Request Review</Button>}
-                  />
-                </section>
-              </div>
-            </div>
-          </>
-        ) : (
+                        <IdentityProfileEditor identity="freelancer" />
+        </div>
+        {activeTab === 'settings' ? (
           /* Settings Tab */
           <div style={{ display: 'grid', gap: 24, maxWidth: 640 }}>
             <section className="glass" style={{ padding: 28, borderRadius: 20 }}>
@@ -327,7 +278,7 @@ function FreelancerDashboard({ session }) {
                   disabled
                   hint="Automatic route resolved for your account."
                 />
-                <Button type="submit" variant="primary" style={{ justifySelf: 'start' }}>Save Information</Button>
+                <Button type="submit" variant="primary" loading={savingAccount} disabled={savingAccount} style={{ justifySelf: 'start' }}>Save Information</Button>
               </form>
             </section>
 
@@ -347,19 +298,8 @@ function FreelancerDashboard({ session }) {
               </div>
             </section>
           </div>
-        )}
+        ) : null}
 
-        {/* Modal */}
-        <Modal open={serviceModal} onClose={() => setServiceModal(false)} title="Add Service Package">
-          <div style={{ display: 'grid', gap: 16 }}>
-            <h3 className="h-card" style={{ fontSize: 22 }}>New Service</h3>
-            <Input label="Service Name" placeholder="e.g. Design System Sprint" />
-            <Input label="Starting Rate" placeholder="e.g. $2,500" />
-            <Input label="Estimated Turnaround" placeholder="e.g. 2 weeks" />
-            <Input label="Deliverables" placeholder="Figma tokens, React components, documentation" />
-            <Button block onClick={() => { setServiceModal(false); toast.push({ title: 'Service saved', tone: 'success' }); }}>Save Service</Button>
-          </div>
-        </Modal>
 
       </div>
     </main>

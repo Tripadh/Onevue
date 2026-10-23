@@ -1,0 +1,102 @@
+import { Schema, model, models } from "mongoose";
+import { FREELANCER_AVAILABILITY, PRICING_MODELS, TESTIMONIAL_ATTRIBUTION, CONTACT_CHANNELS } from "../lib/domain-profile/constants";
+import {
+  limitedArray,
+  skillSchema,
+  text,
+  userIdField,
+  visibilitySchema,
+  workSampleSchema,
+  stableId,
+} from "./domain/fragments";
+
+const PortfolioSchema = new Schema(
+  {
+    id: stableId,
+    title: text(150, true),
+    summary: text(2000),
+    url: text(500),
+    outcome: text(500),
+  },
+  { _id: true }
+);
+
+const ServiceSchema = new Schema(
+  {
+    id: { type: String, trim: true, maxlength: 100, default: "" },
+    name: text(150, true),
+    description: text(2000),
+    pricingModel: { type: String, enum: [...PRICING_MODELS], default: "hourly" },
+    currency: text(8),
+    rateMin: { type: Number, min: 0, max: 10000000 },
+    rateMax: { type: Number, min: 0, max: 10000000 },
+    deliveryDays: { type: Number, min: 0, max: 3650 },
+  },
+  { _id: true }
+);
+
+const TestimonialSchema = new Schema(
+  {
+    id: { type: String, trim: true, maxlength: 100, default: "" },
+    quote: text(1000, true),
+    authorName: text(120, true),
+    relationship: text(120),
+    attribution: {
+      type: String,
+      enum: [...TESTIMONIAL_ATTRIBUTION],
+      default: "self-reported",
+    },
+  },
+  { _id: true }
+);
+
+const ContactSchema = new Schema(
+  {
+    email: text(200),
+    phone: text(30),
+    preferredChannel: { type: String, enum: [...CONTACT_CHANNELS], default: "email" },
+    visibility: { type: visibilitySchema(false), default: () => ({ email: "private", phone: "private" }) },
+  },
+  { _id: false }
+);
+
+const FreelancerProfileSchema = new Schema(
+  {
+    userId: userIdField,
+    headline: text(200),
+    bio: text(3000),
+    specialization: text(150),
+    availability: { type: String, enum: [...FREELANCER_AVAILABILITY], default: "available" },
+    services: limitedArray(ServiceSchema, 40),
+    skills: limitedArray(skillSchema(), 60),
+    technologies: {
+      type: [{ type: String, trim: true, maxlength: 40 }],
+      default: [],
+      validate: {
+        validator: (arr: unknown[]) => Array.isArray(arr) && arr.length <= 40,
+        message: "Cannot exceed 40 technologies",
+      },
+    },
+    portfolio: limitedArray(PortfolioSchema, 30),
+    testimonials: limitedArray(TestimonialSchema, 30),
+    workSamples: limitedArray(workSampleSchema(), 30),
+    contact: {
+      type: ContactSchema,
+      default: () => ({
+        email: "",
+        phone: "",
+        preferredChannel: "email",
+        visibility: { email: "private", phone: "private" },
+      }),
+    },
+  },
+  { timestamps: true, strict: true }
+);
+
+if (models.FreelancerProfile) {
+  delete (models as Record<string, unknown>).FreelancerProfile;
+}
+
+const FreelancerProfile = models.FreelancerProfile || model("FreelancerProfile", FreelancerProfileSchema);
+
+export default FreelancerProfile;

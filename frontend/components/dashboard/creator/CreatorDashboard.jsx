@@ -8,7 +8,6 @@ const { useState: creState, useEffect: creEffect, useMemo: creMemo } = React;
 
 function CreatorDashboard({ session }) {
   const toast = useToast();
-  const [contentModal, setContentModal] = creState(false);
 
   // Tab & Customization State
   const [activeTab, setActiveTab] = creState('overview');
@@ -56,12 +55,32 @@ function CreatorDashboard({ session }) {
     return Math.round((completed / total) * 100);
   }, [creConfig, checkedItems]);
 
+  const [savingAccount, setSavingAccount] = proState(false);
+
   const saveProfile = async (e) => {
     e.preventDefault();
-    if (session?.user?.id && window.OV?.services?.profile?.updateMyProfile) {
-      await window.OV.services.profile.updateMyProfile(session.user.id, { name }).catch(() => {});
+    if (savingAccount) return;
+    const trimmed = String(name || "").trim();
+    if (!trimmed) {
+      toast.push({ title: "Profile was not saved", body: "Display name cannot be empty.", tone: "error" });
+      return;
     }
-    toast.push({ title: 'Profile saved', body: 'Changes updated successfully', tone: 'success' });
+    setSavingAccount(true);
+    try {
+      if (!window.OV?.services?.domainProfile?.updateAccountName) {
+        throw new Error("Profile service is unavailable.");
+      }
+      await window.OV.services.domainProfile.updateAccountName(trimmed);
+      toast.push({ title: "Profile saved", body: "Account name updated.", tone: "success" });
+    } catch (err) {
+      toast.push({
+        title: "Profile was not saved",
+        body: err?.message || "The server did not confirm this change.",
+        tone: "error",
+      });
+    } finally {
+      setSavingAccount(false);
+    }
   };
 
   const saveTheme = (t) => {
@@ -72,8 +91,8 @@ function CreatorDashboard({ session }) {
     }
   };
 
-  const publicUrl = session?.user?.username ? `onevue.id/${session.user.username}` : 'onevue.id/creator.demo';
-  const viewUrl = session?.user?.username ? `/#/${session.user.username}/client` : '/#/amara/client';
+  const publicUrl = session?.user?.username ? `onevue.id/${session.user.username}` : '';
+  const viewUrl = session?.user?.username ? `/#/${session.user.username}/client` : '';
 
   return (
     <main id="main" className="wrap" style={{ paddingTop: 90, paddingBottom: 100, minHeight: '85vh' }}>
@@ -104,12 +123,13 @@ function CreatorDashboard({ session }) {
             {/* Quick Actions */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <Button size="sm" variant="glass" icon={<Icon.copy />} onClick={async () => {
+                if (!publicUrl) { toast.push({ title: 'No public link', body: 'Claim a username before sharing. This identity profile is not published.', tone: 'info' }); return; }
                 await copyText('https://' + publicUrl);
                 toast.push({ title: 'Link copied', body: publicUrl, tone: 'success' });
               }}>
                 Copy link
               </Button>
-              <Button size="sm" variant="accent" onClick={() => window.open(viewUrl, '_blank')}>
+              <Button size="sm" variant="accent" onClick={() => { if (!viewUrl) { toast.push({ title: 'Profile is private', body: 'This identity profile stays private until a publishing flow releases it.', tone: 'info' }); return; } window.open(viewUrl, '_blank'); }}>
                 Preview public view
               </Button>
             </div>
@@ -134,8 +154,7 @@ function CreatorDashboard({ session }) {
           </div>
         </header>
 
-        {activeTab === 'overview' ? (
-          <>
+        <div style={{ display: activeTab === 'overview' ? 'grid' : 'none', gap: 24 }}>
             {/* Top Grid: Onboarding Checklist & Publishing Status */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
               
@@ -207,7 +226,7 @@ function CreatorDashboard({ session }) {
                 <div style={{ display: 'grid', gap: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span className="muted" style={{ fontSize: 13.5 }}>Publishing status</span>
-                    <Badge tone="verified"><span className="badge-dot" /> Live on OneVue</Badge>
+                    <Badge><span className="badge-dot" /> Not published</Badge>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span className="muted" style={{ fontSize: 13.5 }}>Audience template</span>
@@ -220,12 +239,13 @@ function CreatorDashboard({ session }) {
                 </div>
 
                 <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14, display: 'flex', gap: 8 }}>
-                  <Button size="sm" variant="glass" block onClick={() => window.open(viewUrl, '_blank')}>
+                  <Button size="sm" variant="glass" block onClick={() => { if (!viewUrl) { toast.push({ title: 'Profile is private', body: 'This identity profile stays private until a publishing flow releases it.', tone: 'info' }); return; } window.open(viewUrl, '_blank'); }}>
                     Test Brand View
                   </Button>
                   <Button size="sm" variant="primary" block onClick={async () => {
-                    await copyText('https://' + publicUrl);
-                    toast.push({ title: 'Copied', body: 'Ready to share with sponsors and brands', tone: 'success' });
+                    if (!publicUrl) { toast.push({ title: 'No public link', body: 'Claim a username before sharing. This identity profile is not published.', tone: 'info' }); return; }
+                await copyText('https://' + publicUrl);
+                    toast.push({ title: 'Copied', body: 'Username link copied. This identity profile is still private.', tone: 'success' });
                   }}>
                     Share Link
                   </Button>
@@ -233,81 +253,9 @@ function CreatorDashboard({ session }) {
               </section>
             </div>
 
-            {/* Creator Content Blocks */}
-            <div style={{ display: 'grid', gap: 24 }}>
-              {/* Creator Overview Banner */}
-              <GlassCard style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                  <h2 className="h-card" style={{ fontSize: 20, margin: 0 }}>Creator Channel Overview</h2>
-                  <Badge tone="verified">Media Kit Status: Published</Badge>
-                </div>
-                <p className="muted" style={{ fontSize: 14, margin: 0 }}>
-                  Built for brand partners, sponsors, and community followers. Showcases top content, cross-platform reach, and collaboration terms.
-                </p>
-              </GlassCard>
-
-              {/* Featured Content & Spotlights */}
-              <section className="glass" style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <h3 className="h-sub" style={{ fontSize: 18, margin: 0 }}>Featured Content & Spotlights</h3>
-                    <p className="muted" style={{ fontSize: 13, margin: '2px 0 0' }}>Highlight top videos, podcasts, articles, or newsletter editions</p>
-                  </div>
-                  <Button size="sm" variant="glass" icon={<Icon.plus />} onClick={() => setContentModal(true)}>Feature Work</Button>
-                </div>
-
-                <EmptyState
-                  title="No content featured yet"
-                  body="Pin your highest-performing video, essay, or creative release."
-                  action={<Button size="sm" variant="primary" onClick={() => setContentModal(true)}>+ Pin Featured Content</Button>}
-                />
-              </section>
-
-              {/* Social Platforms & Connected Channels */}
-              <section className="glass" style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 16 }}>
-                <h3 className="h-sub" style={{ fontSize: 18, margin: 0 }}>Connected Social Channels</h3>
-                <p className="muted" style={{ fontSize: 13, margin: 0 }}>Audiences and platform links presented clearly to potential sponsors.</p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-                  <div className="glass" style={{ padding: 14, borderRadius: 12, display: 'grid', gap: 4 }}>
-                    <span style={{ fontWeight: 600, fontSize: 14 }}>YouTube</span>
-                    <span className="muted" style={{ fontSize: 12 }}>Channel connected</span>
-                  </div>
-                  <div className="glass" style={{ padding: 14, borderRadius: 12, display: 'grid', gap: 4 }}>
-                    <span style={{ fontWeight: 600, fontSize: 14 }}>Substack / Newsletter</span>
-                    <span className="muted" style={{ fontSize: 12 }}>Publications linked</span>
-                  </div>
-                  <div className="glass" style={{ padding: 14, borderRadius: 12, display: 'grid', gap: 4 }}>
-                    <span style={{ fontWeight: 600, fontSize: 14 }}>GitHub / Dev</span>
-                    <span className="muted" style={{ fontSize: 12 }}>Open source repos</span>
-                  </div>
-                </div>
-              </section>
-
-              {/* Sponsorship Tiers & Media Kit */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
-                <section className="glass" style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 14 }}>
-                  <h3 className="h-sub" style={{ fontSize: 18, margin: 0 }}>Sponsorship Opportunities</h3>
-                  <p className="muted" style={{ fontSize: 13 }}>Standard packages for newsletter mentions, dedicated videos, and podcasts.</p>
-                  <EmptyState
-                    title="No tiers published"
-                    body="Define flat-rate sponsorships and delivery specifications."
-                    action={<Button size="sm" variant="glass" onClick={() => toast.push({ title: 'Add tier', tone: 'info' })}>+ Add Sponsorship Tier</Button>}
-                  />
-                </section>
-
-                <section className="glass" style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 14 }}>
-                  <h3 className="h-sub" style={{ fontSize: 18, margin: 0 }}>Audience Demographics</h3>
-                  <p className="muted" style={{ fontSize: 13 }}>Verified subscriber totals, engagement metrics, and geographic spread.</p>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <span className="badge">Engineering Audience</span>
-                    <span className="badge">North America (62%)</span>
-                    <span className="badge">4.2% Avg Clickthrough</span>
-                  </div>
-                </section>
-              </div>
-            </div>
-          </>
-        ) : (
+                        <IdentityProfileEditor identity="creator" />
+        </div>
+        {activeTab === 'settings' ? (
           /* Settings Tab */
           <div style={{ display: 'grid', gap: 24, maxWidth: 640 }}>
             <section className="glass" style={{ padding: 28, borderRadius: 20 }}>
@@ -330,7 +278,7 @@ function CreatorDashboard({ session }) {
                   disabled
                   hint="Automatic route resolved for your account."
                 />
-                <Button type="submit" variant="primary" style={{ justifySelf: 'start' }}>Save Information</Button>
+                <Button type="submit" variant="primary" loading={savingAccount} disabled={savingAccount} style={{ justifySelf: 'start' }}>Save Information</Button>
               </form>
             </section>
 
@@ -350,18 +298,8 @@ function CreatorDashboard({ session }) {
               </div>
             </section>
           </div>
-        )}
+        ) : null}
 
-        {/* Modal */}
-        <Modal open={contentModal} onClose={() => setContentModal(false)} title="Feature Content">
-          <div style={{ display: 'grid', gap: 16 }}>
-            <h3 className="h-card" style={{ fontSize: 22 }}>Feature Media</h3>
-            <Input label="Title" placeholder="e.g. Building an Agentic OS in 24h" />
-            <Input label="Platform / Channel" placeholder="e.g. YouTube / Podcast" />
-            <Input label="Media URL" placeholder="https://..." />
-            <Button block onClick={() => { setContentModal(false); toast.push({ title: 'Content featured', tone: 'success' }); }}>Save Spotlight</Button>
-          </div>
-        </Modal>
 
       </div>
     </main>

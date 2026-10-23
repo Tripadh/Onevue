@@ -11,6 +11,10 @@ export interface FetchPublicProfileResult {
  * Gets the validated upstream OneVue API base URL.
  * Falls back safely to localhost:3000 in development if unconfigured.
  */
+export function getAnalyticsEventsEndpoint(): string {
+  return `${getApiBaseUrl()}/analytics/events`;
+}
+
 function getApiBaseUrl(): string {
   const envUrl = process.env.ONEVUE_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_ONEVUE_API_BASE_URL;
   const baseUrl = envUrl ? envUrl.trim().replace(/\/+$/, "") : "http://localhost:3000/api";

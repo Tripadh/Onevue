@@ -18,6 +18,73 @@
     return { total: views.length, byOnevue };
   }
 
-  window.OV.services.analytics = { track, getViewStats };
+  function queryString(query) {
+    const params = new URLSearchParams();
+    Object.entries(query || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+    });
+    const text = params.toString();
+    return text ? '?' + text : '';
+  }
+
+  function authHeaders() {
+    const session = db.get('session');
+    const token = session && session.token;
+    if (!token) {
+      const error = new Error('Sign in to view analytics.');
+      error.status = 401;
+      throw error;
+    }
+    return { Authorization: 'Bearer ' + token, Accept: 'application/json' };
+  }
+
+  async function analyticsGet(path, query) {
+    const base = (window.OV_ENV && window.OV_ENV.API_BASE) || 'http://localhost:3000/api';
+    const response = await fetch(base + path + queryString(query), { headers: authHeaders(), credentials: 'omit' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(data.message || 'Analytics request failed.');
+      error.status = response.status;
+      error.code = data.code;
+      throw error;
+    }
+    return data;
+  }
+
+  function getOverview(query) { return analyticsGet('/analytics/overview', query); }
+  function getResources(query) { return analyticsGet('/analytics/resources', query); }
+  function getResource(resourceId, query) { return analyticsGet('/analytics/resources/' + encodeURIComponent(resourceId), query); }
+  function getTimeseries(resourceId, query) { return analyticsGet('/analytics/resources/' + encodeURIComponent(resourceId) + '/timeseries', query); }
+  function getAudience(resourceId, query) { return analyticsGet('/analytics/resources/' + encodeURIComponent(resourceId) + '/audience', query); }
+  function getSources(resourceId, query) { return analyticsGet('/analytics/resources/' + encodeURIComponent(resourceId) + '/sources', query); }
+  function getEvents(resourceId, query) { return analyticsGet('/analytics/resources/' + encodeURIComponent(resourceId) + '/events', query); }
+
+  async function exportReport(resourceId, query) {
+    const base = (window.OV_ENV && window.OV_ENV.API_BASE) || 'http://localhost:3000/api';
+    const response = await fetch(base + '/analytics/resources/' + encodeURIComponent(resourceId) + '/export' + queryString(Object.assign({ format: 'csv' }, query || {})), {
+      headers: authHeaders(),
+      credentials: 'omit',
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      const error = new Error(data.message || 'Export failed.');
+      error.status = response.status;
+      throw error;
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'onevue-analytics.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    return blob;
+  }
+
+  window.OV.services.analytics = {
+    track, getViewStats, getOverview, getResources, getResource, getTimeseries, getAudience, getSources, getEvents, exportReport,
+  };
 })();
 

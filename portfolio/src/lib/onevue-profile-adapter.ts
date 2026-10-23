@@ -202,6 +202,10 @@ export interface OneVuePublicApiResponse {
   success: boolean;
   dto: PublicProfileDTO_v1;
   website: WebsiteMetadata;
+  analytics?: {
+    resourceId: string;
+    resourceType: "portfolio" | "visiting_card";
+  };
 }
 
 /**
@@ -292,6 +296,7 @@ export interface AdaptedPortfolioData {
     tel?: string;
     social: Record<string, AdaptedSocialLink>;
   };
+  resumeUrl?: string;
   visibleSections: {
     hero: boolean;
     about: boolean;
@@ -615,6 +620,7 @@ export function adaptOneVueProfile(
       tel: contact?.phone,
       social: socialMap,
     },
+    resumeUrl: sanitizeSafeUrl(dto.resume?.url),
     visibleSections: {
       hero: true,
       about: isVisible("about") && Boolean(summary),

@@ -6,6 +6,7 @@
 window.OV_ENV = {
   API_MODE: 'mock',           // 'mock' | 'live'
   API_URL: 'https://api.onevue.id/v1',
+  API_BASE: 'http://localhost:3000/api',
   PUBLIC_BASE: 'onevue.id',
   STORAGE_PREFIX: 'onevue:',
 };

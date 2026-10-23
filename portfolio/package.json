@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
-    "test": "node --experimental-strip-types --test tests/adapter.test.ts tests/api.test.ts"
+    "test": "node --experimental-strip-types --test tests/adapter.test.ts tests/api.test.ts tests/analytics-sdk.test.ts"
   },
   "dependencies": {
     "@content-collections/mdx": "^0.2.2",

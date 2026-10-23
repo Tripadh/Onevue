@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import connectToDatabase from "../../../../lib/db";
 import User, { IdentityType } from "../../../../models/User";
+import { resolveJwtSecret } from "../../../../lib/auth";
 import { getProfilePhotoStorage } from "../../../../lib/storage";
 
 export async function OPTIONS() {
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
         identity,
         surveyCompleted,
       },
-      process.env.JWT_SECRET || "fallback_secret",
+      resolveJwtSecret(),
       { expiresIn: "7d" }
     );
 

@@ -53,11 +53,24 @@ export interface ProfileService {
   updateMyProfile(userId: string, patch: Partial<Profile>): Promise<Profile>;
   getDemoProfile(): Promise<Profile>;
   listProfileTypes(): Promise<ProfileType[]>;
+  getIdentityProfile?(identity: Exclude<ProfileTypeId, 'student'>): Promise<{ success: boolean; profile: Record<string, unknown> }>;
+  updateIdentityProfile?(identity: Exclude<ProfileTypeId, 'student'>, patch: Record<string, unknown>): Promise<{ success: boolean; profile: Record<string, unknown> }>;
 }
 export interface OnevuesService { listOnevues(): Promise<Onevue[]>; renderOnevue(p: Profile, f: OnevueId): Promise<RenderedOnevue> }
 export interface PortfolioService { listItems(pid: string): Promise<PortfolioItem[]>; addItem(pid: string, i: Omit<PortfolioItem, 'id'>): Promise<PortfolioItem>; removeItem(pid: string, id: string): Promise<boolean> }
 export interface CredentialsService { listCredentials(pid: string): Promise<Credential[]>; verify(id: string): Promise<VerificationResult> }
 export interface SharesService { buildUrl(u: string, f?: OnevueId): string; createShare(i: { username: string; onevueId?: OnevueId; label?: string; expiresInDays?: number }): Promise<Share>; listShares(u: string): Promise<Share[]>; qrMatrix(url: string, size?: number): Promise<boolean[][]> }
-export interface AnalyticsService { track(name: string, props?: Record<string, unknown>): void; getViewStats(u: string): Promise<{ total: number; byOnevue: Record<string, number> }> }
+export interface AnalyticsService {
+  track(name: string, props?: Record<string, unknown>): void;
+  getViewStats(u: string): Promise<{ total: number; byOnevue: Record<string, number> }>;
+  getOverview(query?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  getResources(query?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  getResource(resourceId: string, query?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  getTimeseries(resourceId: string, query?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  getAudience(resourceId: string, query?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  getSources(resourceId: string, query?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  getEvents(resourceId: string, query?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  exportReport(resourceId: string, query?: Record<string, unknown>): Promise<Blob>;
+}
 export interface NotificationsService { subscribe(email: string): Promise<{ email: string; already: boolean }> }
 

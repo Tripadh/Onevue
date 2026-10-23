@@ -3,6 +3,7 @@ import * as jwtLib from "jsonwebtoken";
 import mongoose from "mongoose";
 import connectToDatabase from "../../../../lib/db";
 import User from "../../../../models/User";
+import { isJwtConfigError, resolveJwtSecret } from "../../../../lib/auth";
 import StudentProfile, {
   SKILL_CATEGORIES,
   SKILL_PROFICIENCIES,
@@ -57,8 +58,11 @@ async function verifyStudentAuth(req: Request) {
   const token = authHeader.split(" ")[1];
   let decoded: { id: string; email: string };
   try {
-    decoded = verifyJwtToken(token, process.env.JWT_SECRET || "fallback_secret");
+    decoded = verifyJwtToken(token, resolveJwtSecret());
   } catch (err) {
+    if (isJwtConfigError(err)) {
+      return { error: "Server authentication is not configured.", status: 500 };
+    }
     console.error("verifyJwtToken failed with:", err);
     return { error: "Invalid or expired session token.", status: 401 };
   }
@@ -68,6 +72,13 @@ async function verifyStudentAuth(req: Request) {
   const user = await UserModel.findById(decoded.id);
   if (!user) {
     return { error: "Authenticated user no longer exists.", status: 401 };
+  }
+
+  if (String(user.identity || "").toLowerCase() !== "student") {
+    return {
+      error: `Access denied. Your identity is '${String(user.identity || "unset")}', but this profile is reserved for 'student'.`,
+      status: 403,
+    };
   }
 
   return { user };
@@ -270,24 +281,31 @@ export async function GET(req: Request) {
     // Baseline creation if not found
     // Contact email is deliberately empty to protect user privacy (not prefilled with login email)
     if (!profile) {
-      profile = await StudentProfileModel.create({
-        userId: user._id,
-        contacts: {
-          email: "",
-          phone: "",
-          countryCode: "",
-          city: "",
-          state: "",
-          country: "",
-          visibility: { email: "private", phone: "private" },
-          github: "",
-          linkedin: "",
-          twitter: "",
-          portfolio: `https://onevue.id/${
-            user.name ? user.name.toLowerCase().replace(/\s+/g, "") : "student"
-          }`,
-        },
-      });
+      try {
+        profile = await StudentProfileModel.create({
+          userId: user._id,
+          contacts: {
+            email: "",
+            phone: "",
+            countryCode: "",
+            city: "",
+            state: "",
+            country: "",
+            visibility: { email: "private", phone: "private" },
+            github: "",
+            linkedin: "",
+            twitter: "",
+            portfolio: `https://onevue.id/${
+              user.name ? user.name.toLowerCase().replace(/\s+/g, "") : "student"
+            }`,
+          },
+        });
+      } catch (createError: unknown) {
+        if ((createError as { code?: number })?.code === 11000) {
+          profile = await StudentProfileModel.findOne({ userId: user._id });
+        }
+        if (!profile) throw createError;
+      }
     }
 
     const serialized = serializeProfile(profile, true);

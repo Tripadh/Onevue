@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { fetchPublishedProfile } from "@/lib/onevue-api";
+import { fetchPublishedProfile, getAnalyticsEventsEndpoint } from "@/lib/onevue-api";
 import { adaptOneVueProfile } from "@/lib/onevue-profile-adapter";
 import { PortfolioClientWrapper } from "@/components/portfolio-client-wrapper";
 
@@ -84,8 +84,23 @@ export default async function PublicProfilePage({
     throw new Error(result.errorMessage || "Failed to load public portfolio.");
   }
 
-  const { dto, website } = result.data;
+  const { dto, website, analytics } = result.data;
   const adaptedData = adaptOneVueProfile(dto, website);
+  let endpoint = "";
+  try {
+    endpoint = getAnalyticsEventsEndpoint();
+  } catch {
+    endpoint = "";
+  }
 
-  return <PortfolioClientWrapper data={adaptedData} />;
+  return (
+    <PortfolioClientWrapper
+      data={adaptedData}
+      analytics={
+        analytics?.resourceId
+          ? { resourceId: analytics.resourceId, endpoint, path: `/p/${website.username}` }
+          : null
+      }
+    />
+  );
 }

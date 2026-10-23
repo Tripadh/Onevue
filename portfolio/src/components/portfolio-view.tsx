@@ -224,7 +224,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
       {visibleSections.contact && (
         <section id="contact">
           <BlurFade delay={BLUR_FADE_DELAY * 16}>
-            <ContactSection contact={data.contact} />
+            <ContactSection contact={data.contact} resumeUrl={data.resumeUrl} />
           </BlurFade>
         </section>
       )}

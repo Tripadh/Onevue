@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import connectToDatabase from "../../../../lib/db";
 import User, { IdentityType } from "../../../../models/User";
+import { isJwtConfigError, resolveJwtSecret } from "../../../../lib/auth";
 
 const VALID_IDENTITIES: IdentityType[] = [
   "student",
@@ -43,9 +44,15 @@ export async function GET(
     try {
       decoded = jwt.verify(
         token,
-        process.env.JWT_SECRET || "fallback_secret"
+        resolveJwtSecret()
       ) as { id: string; email: string; identity?: string };
-    } catch {
+    } catch (error) {
+      if (isJwtConfigError(error)) {
+        return NextResponse.json(
+          { message: "Server authentication is not configured." },
+          { status: 500 }
+        );
+      }
       return NextResponse.json(
         { message: "Invalid or expired session token." },
         { status: 401 }

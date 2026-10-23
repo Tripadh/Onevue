@@ -8,7 +8,6 @@ const { useState: proState, useEffect: proEffect, useMemo: proMemo } = React;
 
 function ProfessionalDashboard({ session }) {
   const toast = useToast();
-  const [expModal, setExpModal] = proState(false);
 
   // Tab & Customization State
   const [activeTab, setActiveTab] = proState('overview');
@@ -56,12 +55,32 @@ function ProfessionalDashboard({ session }) {
     return Math.round((completed / total) * 100);
   }, [proConfig, checkedItems]);
 
+  const [savingAccount, setSavingAccount] = proState(false);
+
   const saveProfile = async (e) => {
     e.preventDefault();
-    if (session?.user?.id && window.OV?.services?.profile?.updateMyProfile) {
-      await window.OV.services.profile.updateMyProfile(session.user.id, { name }).catch(() => {});
+    if (savingAccount) return;
+    const trimmed = String(name || "").trim();
+    if (!trimmed) {
+      toast.push({ title: "Profile was not saved", body: "Display name cannot be empty.", tone: "error" });
+      return;
     }
-    toast.push({ title: 'Profile saved', body: 'Changes updated successfully', tone: 'success' });
+    setSavingAccount(true);
+    try {
+      if (!window.OV?.services?.domainProfile?.updateAccountName) {
+        throw new Error("Profile service is unavailable.");
+      }
+      await window.OV.services.domainProfile.updateAccountName(trimmed);
+      toast.push({ title: "Profile saved", body: "Account name updated.", tone: "success" });
+    } catch (err) {
+      toast.push({
+        title: "Profile was not saved",
+        body: err?.message || "The server did not confirm this change.",
+        tone: "error",
+      });
+    } finally {
+      setSavingAccount(false);
+    }
   };
 
   const saveTheme = (t) => {
@@ -72,8 +91,8 @@ function ProfessionalDashboard({ session }) {
     }
   };
 
-  const publicUrl = session?.user?.username ? `onevue.id/${session.user.username}` : 'onevue.id/professional.demo';
-  const viewUrl = session?.user?.username ? `/#/${session.user.username}/recruiter` : '/#/amara/recruiter';
+  const publicUrl = session?.user?.username ? `onevue.id/${session.user.username}` : '';
+  const viewUrl = session?.user?.username ? `/#/${session.user.username}/recruiter` : '';
 
   return (
     <main id="main" className="wrap" style={{ paddingTop: 90, paddingBottom: 100, minHeight: '85vh' }}>
@@ -104,12 +123,13 @@ function ProfessionalDashboard({ session }) {
             {/* Quick Actions */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <Button size="sm" variant="glass" icon={<Icon.copy />} onClick={async () => {
+                if (!publicUrl) { toast.push({ title: 'No public link', body: 'Claim a username before sharing. This identity profile is not published.', tone: 'info' }); return; }
                 await copyText('https://' + publicUrl);
                 toast.push({ title: 'Link copied', body: publicUrl, tone: 'success' });
               }}>
                 Copy link
               </Button>
-              <Button size="sm" variant="accent" onClick={() => window.open(viewUrl, '_blank')}>
+              <Button size="sm" variant="accent" onClick={() => { if (!viewUrl) { toast.push({ title: 'Profile is private', body: 'This identity profile stays private until a publishing flow releases it.', tone: 'info' }); return; } window.open(viewUrl, '_blank'); }}>
                 Preview public view
               </Button>
             </div>
@@ -134,8 +154,7 @@ function ProfessionalDashboard({ session }) {
           </div>
         </header>
 
-        {activeTab === 'overview' ? (
-          <>
+        <div style={{ display: activeTab === 'overview' ? 'grid' : 'none', gap: 24 }}>
             {/* Top Grid: Onboarding Checklist & Publishing Status */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
               
@@ -207,7 +226,7 @@ function ProfessionalDashboard({ session }) {
                 <div style={{ display: 'grid', gap: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span className="muted" style={{ fontSize: 13.5 }}>Publishing status</span>
-                    <Badge tone="verified"><span className="badge-dot" /> Live on OneVue</Badge>
+                    <Badge><span className="badge-dot" /> Not published</Badge>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span className="muted" style={{ fontSize: 13.5 }}>Audience template</span>
@@ -220,12 +239,13 @@ function ProfessionalDashboard({ session }) {
                 </div>
 
                 <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14, display: 'flex', gap: 8 }}>
-                  <Button size="sm" variant="glass" block onClick={() => window.open(viewUrl, '_blank')}>
+                  <Button size="sm" variant="glass" block onClick={() => { if (!viewUrl) { toast.push({ title: 'Profile is private', body: 'This identity profile stays private until a publishing flow releases it.', tone: 'info' }); return; } window.open(viewUrl, '_blank'); }}>
                     Test Recruiter View
                   </Button>
                   <Button size="sm" variant="primary" block onClick={async () => {
-                    await copyText('https://' + publicUrl);
-                    toast.push({ title: 'Copied', body: 'Ready to share with recruiters', tone: 'success' });
+                    if (!publicUrl) { toast.push({ title: 'No public link', body: 'Claim a username before sharing. This identity profile is not published.', tone: 'info' }); return; }
+                await copyText('https://' + publicUrl);
+                    toast.push({ title: 'Copied', body: 'Username link copied. This identity profile is still private.', tone: 'success' });
                   }}>
                     Share Link
                   </Button>
@@ -233,78 +253,9 @@ function ProfessionalDashboard({ session }) {
               </section>
             </div>
 
-            {/* Professional Content Blocks */}
-            <div style={{ display: 'grid', gap: 24 }}>
-              {/* Professional Overview Banner */}
-              <GlassCard style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                  <h2 className="h-card" style={{ fontSize: 20, margin: 0 }}>Career Overview</h2>
-                  <Badge tone="verified">Career Verification: Enabled</Badge>
-                </div>
-                <p className="muted" style={{ fontSize: 14, margin: 0 }}>
-                  Designed for career recruiters, hiring managers, and professional networks. Highlights employment tenure, career impact, and vetted skills.
-                </p>
-              </GlassCard>
-
-              {/* Work Experience */}
-              <section className="glass" style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <h3 className="h-sub" style={{ fontSize: 18, margin: 0 }}>Work Experience & Employment</h3>
-                    <p className="muted" style={{ fontSize: 13, margin: '2px 0 0' }}>Roles, organizations, employment dates, and key accomplishments</p>
-                  </div>
-                  <Button size="sm" variant="glass" icon={<Icon.plus />} onClick={() => setExpModal(true)}>Add Position</Button>
-                </div>
-
-                <EmptyState
-                  title="No work history added yet"
-                  body="Add your current and previous professional roles to demonstrate experience and career progression."
-                  action={<Button size="sm" variant="primary" onClick={() => setExpModal(true)}>+ Add Work Experience</Button>}
-                />
-              </section>
-
-              {/* Two Column: Career Achievements & Skills */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
-                <section className="glass" style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 14 }}>
-                  <h3 className="h-sub" style={{ fontSize: 18, margin: 0 }}>Career Achievements & Impact</h3>
-                  <p className="muted" style={{ fontSize: 13 }}>Measurable results, team leadership milestones, and promotions.</p>
-                  <EmptyState
-                    title="No milestones recorded"
-                    body="Document quantifiable milestones (e.g., revenue growth, system optimizations)."
-                    action={<Button size="sm" variant="glass" onClick={() => toast.push({ title: 'Milestone added', tone: 'info' })}>+ Add Achievement</Button>}
-                  />
-                </section>
-
-                <section className="glass" style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 14 }}>
-                  <h3 className="h-sub" style={{ fontSize: 18, margin: 0 }}>Skills & Professional Qualifications</h3>
-                  <p className="muted" style={{ fontSize: 13 }}>Validated technical proficiencies, management capabilities, and tools.</p>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <span className="badge">Product Strategy</span>
-                    <span className="badge">Engineering Leadership</span>
-                    <span className="badge">Cross-Functional Delivery</span>
-                    <span className="badge">System Architecture</span>
-                  </div>
-                </section>
-              </div>
-
-              {/* Certifications Card */}
-              <section className="glass" style={{ padding: 24, borderRadius: 20, display: 'grid', gap: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <h3 className="h-sub" style={{ fontSize: 18, margin: 0 }}>Industry Certifications & Credentials</h3>
-                    <p className="muted" style={{ fontSize: 13, margin: '2px 0 0' }}>Verified licenses, cloud certifications, and compliance credentials</p>
-                  </div>
-                  <Button size="sm" variant="glass" icon={<Icon.plus />} onClick={() => toast.push({ title: 'Add credential modal', tone: 'info' })}>Add Credential</Button>
-                </div>
-
-                <EmptyState
-                  title="No credentials on file"
-                  body="Attach AWS, PMP, CPA, or other industry certifications with verification hashes."
-                />
-              </section>
-            </div>
-          </>
-        ) : (
+                        <IdentityProfileEditor identity="professional" />
+        </div>
+        {activeTab === 'settings' ? (
           /* Settings Tab */
           <div style={{ display: 'grid', gap: 24, maxWidth: 640 }}>
             <section className="glass" style={{ padding: 28, borderRadius: 20 }}>
@@ -327,7 +278,7 @@ function ProfessionalDashboard({ session }) {
                   disabled
                   hint="Automatic route resolved for your account."
                 />
-                <Button type="submit" variant="primary" style={{ justifySelf: 'start' }}>Save Information</Button>
+                <Button type="submit" variant="primary" loading={savingAccount} disabled={savingAccount} style={{ justifySelf: 'start' }}>Save Information</Button>
               </form>
             </section>
 
@@ -347,19 +298,8 @@ function ProfessionalDashboard({ session }) {
               </div>
             </section>
           </div>
-        )}
+        ) : null}
 
-        {/* Modal */}
-        <Modal open={expModal} onClose={() => setExpModal(false)} title="Add Work Experience">
-          <div style={{ display: 'grid', gap: 16 }}>
-            <h3 className="h-card" style={{ fontSize: 22 }}>Add Position</h3>
-            <Input label="Job Title" placeholder="e.g. Senior Software Engineer" />
-            <Input label="Company / Employer" placeholder="e.g. Stripe, Airbnb" />
-            <Input label="Period" placeholder="e.g. 2022 — Present" />
-            <Input label="Key Impact / Note" placeholder="Led infrastructure migration reducing latency by 28%" />
-            <Button block onClick={() => { setExpModal(false); toast.push({ title: 'Position saved', tone: 'success' }); }}>Save Position</Button>
-          </div>
-        </Modal>
 
       </div>
     </main>

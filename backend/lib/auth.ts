@@ -6,6 +6,37 @@ import User from "../models/User";
    OneVue Authentication & Authorization Helper
    ========================================================================= */
 
+export class JwtConfigError extends Error {
+  readonly status = 500;
+
+  constructor() {
+    super("Server authentication is not configured.");
+    this.name = "JwtConfigError";
+  }
+}
+
+export function isJwtConfigError(error: unknown): error is JwtConfigError {
+  return error instanceof JwtConfigError || (error instanceof Error && error.name === "JwtConfigError");
+}
+
+const INSECURE_JWT_FALLBACK = "fallback_secret";
+
+/**
+ * Production refuses a missing secret and the insecure fallback value.
+ * Local development and tests may omit JWT_SECRET; those processes set it
+ * explicitly when they need a stable signing key.
+ */
+export function resolveJwtSecret(): string {
+  const secret = (process.env.JWT_SECRET || "").trim();
+  if (process.env.NODE_ENV === "production") {
+    if (!secret || secret === INSECURE_JWT_FALLBACK) {
+      throw new JwtConfigError();
+    }
+    return secret;
+  }
+  return secret || INSECURE_JWT_FALLBACK;
+}
+
 export function verifyJwtToken(token: string, secret: string): { id: string; email: string } {
   const pkg: any = jwtLib;
   const verifier =
@@ -40,9 +71,19 @@ export async function verifyAuth(req: Request): Promise<AuthResult> {
   }
 
   const token = authHeader.split(" ")[1];
+  let secret: string;
+  try {
+    secret = resolveJwtSecret();
+  } catch (error) {
+    if (isJwtConfigError(error)) {
+      return { error: "Server authentication is not configured.", status: 500 };
+    }
+    return { error: "Server authentication is not configured.", status: 500 };
+  }
+
   let decoded: { id: string; email: string };
   try {
-    decoded = verifyJwtToken(token, process.env.JWT_SECRET || "fallback_secret");
+    decoded = verifyJwtToken(token, secret);
   } catch {
     return { error: "Invalid or expired session token.", status: 401 };
   }

@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import connectToDatabase from "../../../../lib/db";
 import User, { IdentityType } from "../../../../models/User";
+import { resolveJwtSecret } from "../../../../lib/auth";
 
 const VALID_IDENTITIES: IdentityType[] = [
   "student",
@@ -70,7 +71,7 @@ export async function POST(req: Request) {
         identity: newUser.identity,
         surveyCompleted: false,
       },
-      process.env.JWT_SECRET || "fallback_secret",
+      resolveJwtSecret(),
       { expiresIn: "7d" }
     );
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import connectToDatabase from "../../../../lib/db";
 import User, { DiscoverySourceType } from "../../../../models/User";
+import { isJwtConfigError, resolveJwtSecret } from "../../../../lib/auth";
 
 const ALLOWED_DISCOVERY_SOURCES: DiscoverySourceType[] = [
   "google_search",
@@ -38,9 +39,15 @@ export async function POST(req: Request) {
     try {
       decoded = jwt.verify(
         token,
-        process.env.JWT_SECRET || "fallback_secret"
+        resolveJwtSecret()
       ) as { id: string; email: string };
-    } catch {
+    } catch (error) {
+      if (isJwtConfigError(error)) {
+        return NextResponse.json(
+          { message: "Server authentication is not configured." },
+          { status: 500 }
+        );
+      }
       return NextResponse.json(
         { message: "Invalid or expired session token." },
         { status: 401 }
@@ -129,7 +136,7 @@ export async function POST(req: Request) {
         identity: user.identity,
         surveyCompleted: true,
       },
-      process.env.JWT_SECRET || "fallback_secret",
+      resolveJwtSecret(),
       { expiresIn: "7d" }
     );
 

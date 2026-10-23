@@ -18,6 +18,23 @@
     const toast = useToast();
 
     useEffect(() => {
+      const analytics = cardData && cardData.analytics;
+      if (!analytics || !analytics.resourceId || !window.OneVueAnalytics) return undefined;
+      try {
+        const base = (window.OV_ENV && window.OV_ENV.API_BASE) || 'http://localhost:3000/api';
+        const tracker = window.OneVueAnalytics.createTracker({
+          endpoint: base + '/analytics/events',
+          resourceId: analytics.resourceId,
+          resourceType: analytics.resourceType || 'visiting_card',
+          path: '/card/' + username,
+        });
+        return tracker.observe(document);
+      } catch (error) {
+        return undefined;
+      }
+    }, [cardData, username]);
+
+    useEffect(() => {
       async function fetchCard() {
         setLoading(true);
         setError(null);
@@ -125,6 +142,9 @@
             }}
             onClick={handleFlip}
             title="Click to flip card"
+            data-ov-track="engagement"
+            data-ov-action="flip"
+            data-ov-side={activeSide}
           >
             <div
               style={{
@@ -149,6 +169,8 @@
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center', marginTop: 8 }}>
             <Button
               variant="primary"
+              data-ov-track="download"
+              data-ov-action="vcard"
               onClick={() => {
                 window.OV.services.visitingCard.exportVCard({
                   name: user.name,
@@ -164,6 +186,8 @@
             <Button
               variant="glass"
               icon={<Icon.copy />}
+              data-ov-track="engagement"
+              data-ov-action="copy_link"
               onClick={async () => {
                 await copyText(`https://${publicUrl}`);
                 toast.push({ title: 'Link Copied', body: `https://${publicUrl}`, tone: 'success' });
@@ -174,6 +198,8 @@
 
             <Button
               variant="glass"
+              data-ov-track="download"
+              data-ov-action="png"
               onClick={() => window.OV.services.visitingCard.exportPng(design, `${username}_card_${activeSide}.png`, activeSide)}
             >
               Download {activeSide === 'front' ? 'Front' : 'Back'} (PNG)
@@ -181,6 +207,8 @@
 
             <Button
               variant="glass"
+              data-ov-track="download"
+              data-ov-action="pdf"
               onClick={() => window.OV.services.visitingCard.exportPdf(design, `${username}_double_sided_card.pdf`)}
             >
               Print-Ready PDF
