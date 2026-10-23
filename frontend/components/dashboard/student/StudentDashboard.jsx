@@ -117,7 +117,7 @@ function StudentDashboard({ session }) {
       case 'website': return 'My Website';
       default: return 'Overview';
     }
-  }, [activeNavId]);
+  }, [activeNavId, location.pathname]);
 
   return (
     <div className="student-dashboard-root" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>

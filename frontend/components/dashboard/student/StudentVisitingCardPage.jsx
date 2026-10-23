@@ -399,6 +399,8 @@
      ========================================================================= */
   function StudentVisitingCardPage({ session, studentProfile }) {
     const toast = useToast();
+    const toastRef = useRef(toast);
+    toastRef.current = toast;
     const user = session?.user || {};
     const username = user.username || `user_${user.id || 'student'}`;
     const publicUrl = `onevue.id/card/${username}`;
@@ -434,7 +436,11 @@
     }, [navigate]);
 
     const goToTemplates = useCallback((targetCardId = null) => {
-      const q = targetCardId ? `?cardId=${encodeURIComponent(targetCardId)}` : '';
+      // Ignore click events when this helper is passed directly to onClick.
+      const id = typeof targetCardId === 'string' && targetCardId && !targetCardId.includes('[object')
+        ? targetCardId
+        : null;
+      const q = id ? `?cardId=${encodeURIComponent(id)}` : '';
       navigate(`/app/student/visiting-card/templates${q}`);
     }, [navigate]);
 
@@ -517,7 +523,7 @@
           setCardNotFoundError(true);
           setCardData(null);
           setDesignDoc(null);
-          toast.push({ title: 'Card Not Found', body: 'The requested card was not found or has been removed.', tone: 'error' });
+          toastRef.current.push({ title: 'Card Not Found', body: 'The requested card was not found or has been removed.', tone: 'error' });
         } else {
           setCardData(data.card);
           if (data.card?.designDocument) {
@@ -532,11 +538,11 @@
           setCardData(null);
           setDesignDoc(null);
         }
-        toast.push({ title: 'Load Error', body: err.message || 'Could not load visiting card', tone: 'error' });
+        toastRef.current.push({ title: 'Load Error', body: err.message || 'Could not load visiting card', tone: 'error' });
       } finally {
         setLoading(false);
       }
-    }, [toast]);
+    }, []);
 
     // Handle /studio/new route: prevent duplicate draft creation using ref
     const creatingDraftRef = useRef(false);
@@ -553,11 +559,11 @@
             templateId: tid,
             designName: `New ${tid.replace('-', ' ')} Card`,
           });
-          toast.push({ title: 'Card Created', body: 'Opened in Visiting Card Studio.', tone: 'success' });
+          toastRef.current.push({ title: 'Card Created', body: 'Opened in Visiting Card Studio.', tone: 'success' });
           // Navigate with replace to actual saved card ID
           navigate(`/app/student/visiting-card/studio/${res.card._id}`, { replace: true });
         } catch (err) {
-          toast.push({ title: 'Creation Failed', body: err.message, tone: 'error' });
+          toastRef.current.push({ title: 'Creation Failed', body: err.message, tone: 'error' });
           navigate('/app/student/visiting-card/templates', { replace: true });
         } finally {
           creatingDraftRef.current = false;
@@ -565,7 +571,7 @@
       }
 
       createDraftFromTemplate();
-    }, [viewMode, searchParams, navigate, toast]);
+    }, [viewMode, searchParams, navigate]);
 
     // Route-driven loading effect
     useEffect(() => {
@@ -1210,27 +1216,66 @@
       });
     }, [templates, selectedCategory, selectedOrientation, templateSearch]);
 
+    const pageSwitch = (
+      <div role="tablist" aria-label="Visiting card pages" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {[
+          { key: 'cards', label: 'My Cards', active: viewMode === 'my-cards', onClick: goToOverview },
+          { key: 'templates', label: 'Templates', active: viewMode === 'templates', onClick: () => goToTemplates() },
+          {
+            key: 'studio',
+            label: 'Studio',
+            active: viewMode === 'studio' || viewMode === 'studio-new',
+            onClick: () => {
+              const id = cardData?._id || userCards[0]?._id;
+              if (id) goToStudio(id);
+              else goToTemplates();
+            },
+          },
+        ].map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            role="tab"
+            aria-selected={item.active}
+            onClick={item.onClick}
+            className={`btn ${item.active ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ height: 34, fontSize: 13, padding: '0 16px', borderRadius: 999 }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    );
+
     if (loading) {
       return (
-        <div style={{ padding: '80px 0', textAlign: 'center' }}>
-          <div className="spin" style={{ margin: '0 auto 16px', width: 32, height: 32 }} />
-          <p className="muted">Loading Visiting Card Studio...</p>
+        <div style={{ display: 'grid', gap: 24 }}>
+          {pageSwitch}
+          <div style={{ padding: '80px 0', textAlign: 'center' }}>
+            <div className="spin" style={{ margin: '0 auto 16px', width: 32, height: 32 }} />
+            <p className="muted">Loading Visiting Card Studio...</p>
+          </div>
         </div>
       );
     }
 
     if (viewMode === 'studio-new') {
       return (
-        <div style={{ padding: '80px 0', textAlign: 'center' }}>
-          <div className="spin" style={{ margin: '0 auto 16px', width: 32, height: 32 }} />
-          <p className="muted">Creating your new card from template...</p>
+        <div style={{ display: 'grid', gap: 24 }}>
+          {pageSwitch}
+          <div style={{ padding: '80px 0', textAlign: 'center' }}>
+            <div className="spin" style={{ margin: '0 auto 16px', width: 32, height: 32 }} />
+            <p className="muted">Creating your new card from template...</p>
+          </div>
         </div>
       );
     }
 
     if (viewMode === 'studio' && (cardNotFoundError || (!cardData && !loading))) {
       return (
-        <div style={{ maxWidth: 500, margin: '80px auto', textAlign: 'center', padding: 24 }}>
+        <div style={{ display: 'grid', gap: 24, maxWidth: 1180, margin: '0 auto' }}>
+          {pageSwitch}
+        <div style={{ maxWidth: 500, margin: '40px auto', textAlign: 'center', padding: 24 }}>
           <GlassCard style={{ padding: 36, display: 'grid', gap: 18 }}>
             <div style={{ fontSize: 48 }}>🪪</div>
             <h2 className="h-display" style={{ fontSize: 22, margin: 0 }}>Visiting Card Not Found</h2>
@@ -1244,6 +1289,7 @@
             </div>
           </GlassCard>
         </div>
+        </div>
       );
     }
 
@@ -1256,11 +1302,12 @@
 
       return (
         <div style={{ display: 'grid', gap: 32, maxWidth: 1180, margin: '0 auto' }}>
+          {pageSwitch}
           {/* Top Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
-                <h1 className="h-display" style={{ fontSize: 28, margin: 0 }}>Visiting Card Studio</h1>
+                <h1 className="h-display" style={{ fontSize: 28, margin: 0 }}>My Visiting Cards</h1>
                 <span className="badge" style={{ fontSize: 12, padding: '3px 10px' }}>
                   {userCards.length} {userCards.length === 1 ? 'Card' : 'Cards'} Managed
                 </span>
@@ -1273,7 +1320,7 @@
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <Button
                 variant="primary"
-                onClick={goToTemplates}
+                onClick={() => goToTemplates()}
                 icon={Icon?.sparkle ? <Icon.sparkle /> : <span style={{ marginLeft: 6 }}>+</span>}
               >
                 + Create New Card
@@ -1292,7 +1339,8 @@
             {userCards.map((c) => {
               const isDefaultCard = c.isDefault;
               const isCardPublished = c.publicationStatus === 'published';
-              const isCardSelected = cardData?._id === c._id;
+              const isCardSelected = String(cardData?._id || '') === String(c._id || '');
+              const previewDoc = c.designDocument || (isCardSelected ? designDoc : null);
 
               return (
                 <GlassCard
@@ -1352,8 +1400,8 @@
                     }}
                     title="Click to edit in Studio"
                   >
-                    {isCardSelected && designDoc ? (
-                      <CardCanvasView designDocument={designDoc} side="front" scale={0.28} />
+                    {previewDoc ? (
+                      <CardCanvasView designDocument={previewDoc} side="front" scale={0.28} />
                     ) : (
                       <div style={{ textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
                         <span style={{ fontSize: 28, display: 'block', marginBottom: 4 }}>🪪</span>
@@ -1529,6 +1577,7 @@
 
       return (
         <div style={{ display: 'grid', gap: 28, maxWidth: 1180, margin: '0 auto' }}>
+          {pageSwitch}
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
             <div>
@@ -1678,7 +1727,10 @@
                       size="sm"
                       variant={isSelected ? 'primary' : 'glass'}
                       onClick={async () => {
-                        const targetCardId = queryCardId || cardData?._id || userCards[0]?._id;
+                        const safeQueryCardId = typeof queryCardId === 'string' && !queryCardId.includes('[object')
+                          ? queryCardId
+                          : null;
+                        const targetCardId = safeQueryCardId || cardData?._id || userCards[0]?._id;
                         if (!targetCardId) {
                           handleCreateCard(tmpl.id);
                           return;
@@ -1726,7 +1778,8 @@
     const isVerticalDesign = designDoc?.dimensions?.orientation === 'vertical';
 
     return (
-      <div className="visiting-card-studio-root" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 110px)', minHeight: 700 }}>
+      <div className="visiting-card-studio-root" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 110px)', minHeight: 700, gap: 12 }}>
+        {pageSwitch}
         {/* Hidden File Picker for Uploads */}
         <input
           type="file"

@@ -123,6 +123,7 @@ export async function GET(req: Request) {
           isDefault: c.isDefault,
           updatedAt: c.updatedAt,
           createdAt: c.createdAt,
+          designDocument: normalizeDesignDocument(c.designDocument),
         })),
         templates: Object.values(VISITING_CARD_TEMPLATES),
       },
