@@ -316,8 +316,8 @@ function Navbar() {
     if (isDashboard) navigate('/');
   };
 
-  // On Student Dashboard, the dedicated StudentTopbar provides hybrid dashboard navigation
-  if (loc.pathname.startsWith('/app/student')) {
+  // Identity dashboards render their own workspace topbar
+  if (/^\/app\/(student|professional|freelancer|creator|business)(\/|$)/.test(loc.pathname)) {
     return null;
   }
 

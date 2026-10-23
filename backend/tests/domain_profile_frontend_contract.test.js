@@ -90,20 +90,29 @@ describe("Identity profile frontend contract", () => {
   });
 
   test("dashboards no longer toast success after a swallowed save", () => {
-    const files = [
-      "components/dashboard/professional/ProfessionalDashboard.jsx",
-      "components/dashboard/freelancer/FreelancerDashboard.jsx",
-      "components/dashboard/creator/CreatorDashboard.jsx",
-      "components/dashboard/business/BusinessDashboard.jsx",
-    ];
-    for (const file of files) {
-      const source = fs.readFileSync(path.join(frontendRoot, file), "utf8");
-      assert.equal(source.includes(".catch(() => {})"), false);
-      assert.equal(source.includes("Live on OneVue"), false);
-      assert.match(source, /IdentityProfileEditor identity="/);
-      assert.match(source, /updateAccountName/);
-      assert.match(source, /Profile was not saved/);
+    for (const [dir, name] of [
+      ["professional", "Professional"],
+      ["freelancer", "Freelancer"],
+      ["creator", "Creator"],
+      ["business", "Business"],
+    ]) {
+      const read = (suffix) => fs.readFileSync(path.join(frontendRoot, `components/dashboard/${dir}/${name}${suffix}.jsx`), "utf8");
+      const dashboard = read("Dashboard");
+      const identityPage = read("IdentityPage");
+      const overview = read("OverviewPage");
+      for (const source of [dashboard, identityPage, overview]) {
+        assert.equal(source.includes(".catch(() => {})"), false);
+        assert.equal(source.includes("Live on OneVue"), false);
+      }
+      assert.match(identityPage, new RegExp(`IdentityProfileEditor identity="${dir}"`));
+      assert.match(dashboard, /window\.StudentProfilePage session=\{session\}/);
     }
+
+    const editor = fs.readFileSync(path.join(frontendRoot, "components/dashboard/shared/IdentityProfileEditor.jsx"), "utf8");
+    assert.match(editor, /Profile was not saved/);
+    const accountPage = fs.readFileSync(path.join(frontendRoot, "components/dashboard/student/StudentProfilePage.jsx"), "utf8");
+    assert.match(accountPage, /auth\.updateProfile/);
+    assert.match(accountPage, /tone: 'error'/);
 
     const student = fs.readFileSync(path.join(frontendRoot, "components/dashboard/student/StudentDashboard.jsx"), "utf8");
     assert.match(student, /\/student\/profile/);

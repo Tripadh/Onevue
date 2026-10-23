@@ -397,7 +397,7 @@
   /* =========================================================================
      2. Main StudentVisitingCardPage Component
      ========================================================================= */
-  function StudentVisitingCardPage({ session, studentProfile }) {
+  function StudentVisitingCardPage({ session, studentProfile, basePath = '/app/student' }) {
     const toast = useToast();
     const toastRef = useRef(toast);
     toastRef.current = toast;
@@ -432,7 +432,7 @@
 
     // Navigation Helpers
     const goToOverview = useCallback(() => {
-      navigate('/app/student/visiting-card/overview');
+      navigate(`${basePath}/visiting-card/overview`);
     }, [navigate]);
 
     const goToTemplates = useCallback((targetCardId = null) => {
@@ -441,20 +441,20 @@
         ? targetCardId
         : null;
       const q = id ? `?cardId=${encodeURIComponent(id)}` : '';
-      navigate(`/app/student/visiting-card/templates${q}`);
+      navigate(`${basePath}/visiting-card/templates${q}`);
     }, [navigate]);
 
     const goToStudio = useCallback((targetCardId) => {
       if (targetCardId) {
-        navigate(`/app/student/visiting-card/studio/${targetCardId}`);
+        navigate(`${basePath}/visiting-card/studio/${targetCardId}`);
       } else {
-        navigate('/app/student/visiting-card/overview');
+        navigate(`${basePath}/visiting-card/overview`);
       }
     }, [navigate]);
 
     const goToNewCard = useCallback((tmplId) => {
       const q = tmplId ? `?templateId=${encodeURIComponent(tmplId)}` : '';
-      navigate(`/app/student/visiting-card/studio/new${q}`);
+      navigate(`${basePath}/visiting-card/studio/new${q}`);
     }, [navigate]);
 
     // Multi-Card Data State
@@ -561,10 +561,10 @@
           });
           toastRef.current.push({ title: 'Card Created', body: 'Opened in Visiting Card Studio.', tone: 'success' });
           // Navigate with replace to actual saved card ID
-          navigate(`/app/student/visiting-card/studio/${res.card._id}`, { replace: true });
+          navigate(`${basePath}/visiting-card/studio/${res.card._id}`, { replace: true });
         } catch (err) {
           toastRef.current.push({ title: 'Creation Failed', body: err.message, tone: 'error' });
-          navigate('/app/student/visiting-card/templates', { replace: true });
+          navigate(`${basePath}/visiting-card/templates`, { replace: true });
         } finally {
           creatingDraftRef.current = false;
         }

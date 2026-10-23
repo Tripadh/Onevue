@@ -6,7 +6,7 @@ const { useLocation: sUseLocation, useNavigate: sUseNavigate, Link: sLink } = Re
 /* =========================================================================
    PAGE 5B: Dedicated Full-Page Website Preview Workspace (Separate Page)
    ========================================================================= */
-function StudentWebsiteFullPreviewPage({ session, studentProfile }) {
+function StudentWebsiteFullPreviewPage({ session, studentProfile, basePath = '/app/student' }) {
   const navigate = sUseNavigate();
   const toast = useToast();
   const [loading, setLoading] = sUseState(true);
@@ -117,7 +117,7 @@ function StudentWebsiteFullPreviewPage({ session, studentProfile }) {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <button
-            onClick={() => navigate('/app/student/website')}
+            onClick={() => navigate(`${basePath}/website`)}
             className="btn btn-glass btn-sm"
             style={{ display: 'flex', alignItems: 'center', gap: 6 }}
           >

@@ -305,7 +305,7 @@ function Footer() {
     { h: 'For', l: [['Students', 'types'], ['Professionals', 'types'], ['Freelancers & creators', 'types'], ['Businesses', 'types']] },
   ];
   const loc = ReactRouterDOM.useLocation();
-  if (loc && loc.pathname && loc.pathname.startsWith('/app/student')) {
+  if (loc && loc.pathname && /^\/app\/(student|professional|freelancer|creator|business)(\/|$)/.test(loc.pathname)) {
     return null;
   }
 

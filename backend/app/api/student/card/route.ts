@@ -6,7 +6,7 @@ import VisitingCard, {
   normalizeDesignDocument,
   IVisitingCard,
 } from "../../../../models/VisitingCard";
-import StudentProfile from "../../../../models/StudentProfile";
+import { loadCardSeedFields } from "../../../../lib/domain-profile/website-source";
 import {
   generateDefaultCardDesign,
   VISITING_CARD_TEMPLATES,
@@ -51,26 +51,22 @@ export async function GET(req: Request) {
 
     // If user has no cards yet, seed initial default card
     if (userCards.length === 0) {
-      const studentProfile = await StudentProfile.findOne({ userId: user._id });
-      const primaryEdu =
-        studentProfile?.education && studentProfile.education.length > 0
-          ? studentProfile.education[0]
-          : null;
+      const seedFields = await loadCardSeedFields(user);
 
       const seedInfo = {
         name: user.name,
-        headline: studentProfile?.headline,
-        institution: primaryEdu?.institution,
-        degree: primaryEdu?.degree,
+        headline: seedFields.headline,
+        institution: seedFields.institution,
+        degree: seedFields.degree,
         email: user.email,
-        phone: studentProfile?.contacts?.phone,
+        phone: seedFields.phone,
         location: user.location,
         username: user.username || `user_${user._id.toString().slice(-6)}`,
         photoUrl: user.profilePhotoKey
           ? `/api/profile/photo/${encodeURIComponent(user.profilePhotoKey)}`
           : null,
-        github: studentProfile?.contacts?.github,
-        linkedin: studentProfile?.contacts?.linkedin,
+        github: seedFields.github,
+        linkedin: seedFields.linkedin,
       };
 
       const defaultDesign = generateDefaultCardDesign("academic-classic", seedInfo);
@@ -227,26 +223,22 @@ export async function POST(req: Request) {
       );
     }
 
-    const studentProfile = await StudentProfile.findOne({ userId: user._id });
-    const primaryEdu =
-      studentProfile?.education && studentProfile.education.length > 0
-        ? studentProfile.education[0]
-        : null;
+    const seedFields = await loadCardSeedFields(user);
 
     const seedInfo = {
       name: user.name,
-      headline: studentProfile?.headline,
-      institution: primaryEdu?.institution,
-      degree: primaryEdu?.degree,
+      headline: seedFields.headline,
+      institution: seedFields.institution,
+      degree: seedFields.degree,
       email: user.email,
-      phone: studentProfile?.contacts?.phone,
+      phone: seedFields.phone,
       location: user.location,
       username: user.username || `user_${user._id.toString().slice(-6)}`,
       photoUrl: user.profilePhotoKey
         ? `/api/profile/photo/${encodeURIComponent(user.profilePhotoKey)}`
         : null,
-      github: studentProfile?.contacts?.github,
-      linkedin: studentProfile?.contacts?.linkedin,
+      github: seedFields.github,
+      linkedin: seedFields.linkedin,
     };
 
     const newDesign = generateDefaultCardDesign(templateId, seedInfo);

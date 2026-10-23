@@ -124,7 +124,7 @@ const WebsiteIcons = {
   ),
 };
 
-function StudentWebsitePage({ session, studentProfile }) {
+function StudentWebsitePage({ session, studentProfile, basePath = '/app/student' }) {
   const toast = useToast();
   const navigate = sUseNavigate();
 
@@ -293,7 +293,7 @@ function StudentWebsitePage({ session, studentProfile }) {
 
   /* Open Preview Handler: Opens in a dedicated separate page tab */
   const handleOpenPreview = async () => {
-    window.open('/#/app/student/website/preview', '_blank');
+    window.open(`/#${basePath}/website/preview`, '_blank');
   };
 
   /* ---------------- Claim / Initialize Username ---------------- */
@@ -958,7 +958,7 @@ function StudentWebsitePage({ session, studentProfile }) {
               <Button
                 size="sm"
                 variant="glass"
-                onClick={() => navigate('/app/student/identity')}
+                onClick={() => navigate(`${basePath}/identity`)}
               >
                 Edit Student Identity →
               </Button>
@@ -1056,7 +1056,7 @@ function StudentWebsitePage({ session, studentProfile }) {
                 <Button
                   size="sm"
                   variant="primary"
-                  onClick={() => navigate('/app/student/identity')}
+                  onClick={() => navigate(`${basePath}/identity`)}
                 >
                   Add Projects & Skills →
                 </Button>
@@ -1702,7 +1702,7 @@ function StudentWebsitePage({ session, studentProfile }) {
                 size="sm"
                 variant="glass"
                 icon={<WebsiteIcons.external />}
-                onClick={() => window.open('/#/app/student/website/preview', '_blank')}
+                onClick={() => window.open(`/#${basePath}/website/preview`, '_blank')}
               >
                 Open in Separate Tab
               </Button>

@@ -2,7 +2,7 @@
 
 const { useEffect: idUseEffect, useReducer: idUseReducer, useRef: idUseRef } = React;
 
-function IdentityProfileEditor({ identity }) {
+function IdentityProfileEditor({ identity, onSaved }) {
   const logic = window.OV.identityProfileState;
   const toast = useToast();
   const spec = logic.FORM_SPECS[identity];
@@ -51,6 +51,7 @@ function IdentityProfileEditor({ identity }) {
       }
       dispatch({ type: "save_success", profile: data.profile });
       toast.push({ title: "Profile saved", body: "Changes are stored in your account.", tone: "success" });
+      if (typeof onSaved === "function") onSaved(data.profile);
     } catch (error) {
       const message = error.message || "Save failed.";
       dispatch({ type: "save_error", message });

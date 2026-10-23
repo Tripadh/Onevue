@@ -208,10 +208,25 @@ function App() {
             <Route path="/app/student/analytics" element={<ProtectedDashboardRoute expectedRole="student" />} />
             <Route path="/app/student/website" element={<ProtectedDashboardRoute expectedRole="student" />} />
             <Route path="/app/student/website/preview" element={<ProtectedDashboardRoute expectedRole="student" />} />
-            <Route path="/app/professional" element={<ProtectedDashboardRoute expectedRole="professional" />} />
-            <Route path="/app/freelancer" element={<ProtectedDashboardRoute expectedRole="freelancer" />} />
-            <Route path="/app/creator" element={<ProtectedDashboardRoute expectedRole="creator" />} />
-            <Route path="/app/business" element={<ProtectedDashboardRoute expectedRole="business" />} />
+            {['professional', 'freelancer', 'creator', 'business'].flatMap((role) => {
+              const base = `/app/${role}`;
+              const dashboard = <ProtectedDashboardRoute expectedRole={role} />;
+              const cardsHome = <Navigate to={`${base}/visiting-card/overview`} replace />;
+              return [
+                <Route key={base} path={base} element={dashboard} />,
+                <Route key={`${base}/profile`} path={`${base}/profile`} element={dashboard} />,
+                <Route key={`${base}/identity`} path={`${base}/identity`} element={dashboard} />,
+                <Route key={`${base}/visiting-card`} path={`${base}/visiting-card`} element={cardsHome} />,
+                <Route key={`${base}/visiting-card/overview`} path={`${base}/visiting-card/overview`} element={dashboard} />,
+                <Route key={`${base}/visiting-card/templates`} path={`${base}/visiting-card/templates`} element={dashboard} />,
+                <Route key={`${base}/visiting-card/studio/new`} path={`${base}/visiting-card/studio/new`} element={dashboard} />,
+                <Route key={`${base}/visiting-card/studio/:cardId`} path={`${base}/visiting-card/studio/:cardId`} element={dashboard} />,
+                <Route key={`${base}/visiting-card/studio`} path={`${base}/visiting-card/studio`} element={cardsHome} />,
+                <Route key={`${base}/analytics`} path={`${base}/analytics`} element={dashboard} />,
+                <Route key={`${base}/website`} path={`${base}/website`} element={dashboard} />,
+                <Route key={`${base}/website/preview`} path={`${base}/website/preview`} element={dashboard} />,
+              ];
+            })}
             <Route path="/card/:username" element={<PublicVisitingCard />} />
             <Route path="/v/:username" element={<PublicVisitingCard />} />
             <Route path="/:username" element={<PublicProfile />} />
