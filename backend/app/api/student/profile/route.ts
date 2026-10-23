@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
+import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
 import * as jwtLib from "jsonwebtoken";
 import mongoose from "mongoose";
 import connectToDatabase from "../../../../lib/db";
+import { ensureStudentProfile } from "../../../../lib/ensure-student-profile";
 import User from "../../../../models/User";
-import { isJwtConfigError, resolveJwtSecret } from "../../../../lib/auth";
-import StudentProfile, {
+import {
   SKILL_CATEGORIES,
   SKILL_PROFICIENCIES,
   IStudentEducation,
@@ -14,11 +15,14 @@ import StudentProfile, {
   IStudentAchievement,
   IStudentMediaItem,
   IStudentPlatformLink,
-  IStudentProfile,
 } from "../../../../models/StudentProfile";
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { status: 200 });
+function json(req: Request, body: unknown, init?: { status?: number }) {
+  return applyCorsHeaders(NextResponse.json(body, init), req.headers.get("origin"));
+}
+
+export function OPTIONS(req: Request) {
+  return preflightResponse(req.headers.get("origin"));
 }
 
 /* =========================================================================
@@ -42,10 +46,6 @@ function getUserModel() {
   return (User as any).default || User;
 }
 
-function getStudentProfileModel() {
-  return (StudentProfile as any).default || StudentProfile;
-}
-
 async function verifyStudentAuth(req: Request) {
   const authHeader = req.headers.get("authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -58,11 +58,8 @@ async function verifyStudentAuth(req: Request) {
   const token = authHeader.split(" ")[1];
   let decoded: { id: string; email: string };
   try {
-    decoded = verifyJwtToken(token, resolveJwtSecret());
+    decoded = verifyJwtToken(token, process.env.JWT_SECRET || "fallback_secret");
   } catch (err) {
-    if (isJwtConfigError(err)) {
-      return { error: "Server authentication is not configured.", status: 500 };
-    }
     console.error("verifyJwtToken failed with:", err);
     return { error: "Invalid or expired session token.", status: 401 };
   }
@@ -72,13 +69,6 @@ async function verifyStudentAuth(req: Request) {
   const user = await UserModel.findById(decoded.id);
   if (!user) {
     return { error: "Authenticated user no longer exists.", status: 401 };
-  }
-
-  if (String(user.identity || "").toLowerCase() !== "student") {
-    return {
-      error: `Access denied. Your identity is '${String(user.identity || "unset")}', but this profile is reserved for 'student'.`,
-      status: 403,
-    };
   }
 
   return { user };
@@ -271,46 +261,16 @@ export async function GET(req: Request) {
   try {
     const authResult = await verifyStudentAuth(req);
     if ("error" in authResult) {
-      return NextResponse.json({ message: authResult.error }, { status: authResult.status });
+      return json(req, { message: authResult.error }, { status: authResult.status });
     }
 
     const { user } = authResult;
-    const StudentProfileModel = getStudentProfileModel();
-    let profile = await StudentProfileModel.findOne({ userId: user._id });
-
-    // Baseline creation if not found
     // Contact email is deliberately empty to protect user privacy (not prefilled with login email)
-    if (!profile) {
-      try {
-        profile = await StudentProfileModel.create({
-          userId: user._id,
-          contacts: {
-            email: "",
-            phone: "",
-            countryCode: "",
-            city: "",
-            state: "",
-            country: "",
-            visibility: { email: "private", phone: "private" },
-            github: "",
-            linkedin: "",
-            twitter: "",
-            portfolio: `https://onevue.id/${
-              user.name ? user.name.toLowerCase().replace(/\s+/g, "") : "student"
-            }`,
-          },
-        });
-      } catch (createError: unknown) {
-        if ((createError as { code?: number })?.code === 11000) {
-          profile = await StudentProfileModel.findOne({ userId: user._id });
-        }
-        if (!profile) throw createError;
-      }
-    }
+    const profile = await ensureStudentProfile(user);
 
     const serialized = serializeProfile(profile, true);
 
-    return NextResponse.json(
+    return json(req,
       {
         success: true,
         profile: serialized,
@@ -325,7 +285,7 @@ export async function GET(req: Request) {
     );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ message }, { status: 500 });
+    return json(req, { message }, { status: 500 });
   }
 }
 
@@ -337,7 +297,7 @@ export async function PUT(req: Request) {
   try {
     const authResult = await verifyStudentAuth(req);
     if ("error" in authResult) {
-      return NextResponse.json({ message: authResult.error }, { status: authResult.status });
+      return json(req, { message: authResult.error }, { status: authResult.status });
     }
 
     const { user } = authResult;
@@ -346,14 +306,14 @@ export async function PUT(req: Request) {
     try {
       body = await req.json();
     } catch {
-      return NextResponse.json(
+      return json(req,
         { message: "Malformed JSON payload in request body." },
         { status: 400 }
       );
     }
 
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
-      return NextResponse.json(
+      return json(req,
         { message: "Request body must be an object." },
         { status: 400 }
       );
@@ -361,7 +321,7 @@ export async function PUT(req: Request) {
 
     // Reject or ignore client-supplied ownership or server-managed overrides
     if (body.userId !== undefined && String(body.userId) !== String(user._id)) {
-      return NextResponse.json(
+      return json(req,
         { message: "Unauthorized attempt to modify profile ownership." },
         { status: 403 }
       );
@@ -369,7 +329,7 @@ export async function PUT(req: Request) {
 
     // Reject multiple resumes attempt
     if (body.resumes !== undefined) {
-      return NextResponse.json(
+      return json(req,
         {
           message:
             "Multiple resumes are not permitted. Each student has exactly one resume slot.",
@@ -378,11 +338,7 @@ export async function PUT(req: Request) {
       );
     }
 
-    const StudentProfileModel = getStudentProfileModel();
-    let profile = await StudentProfileModel.findOne({ userId: user._id });
-    if (!profile) {
-      profile = new StudentProfileModel({ userId: user._id });
-    }
+    const profile = await ensureStudentProfile(user);
 
     // -----------------------------------------------------------------------
     // Module 1: Personal Profile Scalars
@@ -404,7 +360,7 @@ export async function PUT(req: Request) {
     for (const f of personalScalars) {
       if (body[f] !== undefined) {
         if (body[f] !== null && typeof body[f] !== "string") {
-          return NextResponse.json(
+          return json(req,
             { message: `Field '${f}' must be a string.` },
             { status: 400 }
           );
@@ -417,7 +373,7 @@ export async function PUT(req: Request) {
     if (body.gender !== undefined) {
       const g = String(body.gender || "").trim();
       if (g && !["male", "female", "non-binary", "prefer-not-to-say", "other"].includes(g)) {
-        return NextResponse.json({ message: `Invalid gender option: '${g}'` }, { status: 400 });
+        return json(req, { message: `Invalid gender option: '${g}'` }, { status: 400 });
       }
       profile.gender = g;
     }
@@ -425,7 +381,7 @@ export async function PUT(req: Request) {
     // Profile photo URL validation
     if (body.profilePhoto !== undefined && body.profilePhoto !== "") {
       if (!isValidUrl(String(body.profilePhoto))) {
-        return NextResponse.json(
+        return json(req,
           { message: "Invalid URL for profile photo." },
           { status: 400 }
         );
@@ -435,7 +391,7 @@ export async function PUT(req: Request) {
     // Career interests & areas of interest
     if (body.careerInterests !== undefined) {
       if (!Array.isArray(body.careerInterests)) {
-        return NextResponse.json(
+        return json(req,
           { message: "careerInterests must be an array of strings." },
           { status: 400 }
         );
@@ -445,7 +401,7 @@ export async function PUT(req: Request) {
 
     if (body.areasOfInterest !== undefined) {
       if (!Array.isArray(body.areasOfInterest)) {
-        return NextResponse.json(
+        return json(req,
           { message: "areasOfInterest must be an array of strings." },
           { status: 400 }
         );
@@ -456,7 +412,7 @@ export async function PUT(req: Request) {
     // Languages
     if (body.languages !== undefined) {
       if (!Array.isArray(body.languages)) {
-        return NextResponse.json(
+        return json(req,
           { message: "languages must be an array." },
           { status: 400 }
         );
@@ -464,7 +420,7 @@ export async function PUT(req: Request) {
       const validLangs = [];
       for (const item of body.languages) {
         if (typeof item !== "object" || item === null) {
-          return NextResponse.json(
+          return json(req,
             { message: "Each language entry must be an object." },
             { status: 400 }
           );
@@ -495,7 +451,7 @@ export async function PUT(req: Request) {
     // -----------------------------------------------------------------------
     if (body.education !== undefined) {
       if (!Array.isArray(body.education)) {
-        return NextResponse.json(
+        return json(req,
           { message: "Field 'education' must be an array." },
           { status: 400 }
         );
@@ -505,7 +461,7 @@ export async function PUT(req: Request) {
       for (let i = 0; i < body.education.length; i++) {
         const item = body.education[i];
         if (typeof item !== "object" || item === null || Array.isArray(item)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Education item at index ${i} must be an object.` },
             { status: 400 }
           );
@@ -515,13 +471,13 @@ export async function PUT(req: Request) {
         const degree = String(item.degree || "").trim();
 
         if (!institution) {
-          return NextResponse.json(
+          return json(req,
             { message: `Education item at index ${i} requires 'institution'.` },
             { status: 400 }
           );
         }
         if (!degree) {
-          return NextResponse.json(
+          return json(req,
             { message: `Education item at index ${i} requires 'degree'.` },
             { status: 400 }
           );
@@ -529,7 +485,7 @@ export async function PUT(req: Request) {
 
         const status = String(item.currentStatus || "studying").trim();
         if (status && !VALID_EDUCATION_STATUSES.has(status)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid education currentStatus: '${status}'` },
             { status: 400 }
           );
@@ -537,14 +493,14 @@ export async function PUT(req: Request) {
 
         const instType = String(item.institutionType || "university").trim();
         if (instType && !VALID_INSTITUTION_TYPES.has(instType)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid education institutionType: '${instType}'` },
             { status: 400 }
           );
         }
 
         if (item.website && !isValidUrl(String(item.website))) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid website URL in education item '${institution}'.` },
             { status: 400 }
           );
@@ -601,7 +557,7 @@ export async function PUT(req: Request) {
     // -----------------------------------------------------------------------
     if (body.projects !== undefined) {
       if (!Array.isArray(body.projects)) {
-        return NextResponse.json(
+        return json(req,
           { message: "Field 'projects' must be an array." },
           { status: 400 }
         );
@@ -611,7 +567,7 @@ export async function PUT(req: Request) {
       for (let i = 0; i < body.projects.length; i++) {
         const item = body.projects[i];
         if (typeof item !== "object" || item === null || Array.isArray(item)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Project item at index ${i} must be an object.` },
             { status: 400 }
           );
@@ -619,7 +575,7 @@ export async function PUT(req: Request) {
 
         const title = String(item.title || "").trim();
         if (!title) {
-          return NextResponse.json(
+          return json(req,
             { message: `Project item at index ${i} requires 'title'.` },
             { status: 400 }
           );
@@ -627,7 +583,7 @@ export async function PUT(req: Request) {
 
         const pType = String(item.projectType || "academic").trim();
         if (pType && !VALID_PROJECT_TYPES.has(pType)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid projectType: '${pType}'` },
             { status: 400 }
           );
@@ -635,7 +591,7 @@ export async function PUT(req: Request) {
 
         const status = String(item.status || "completed").trim();
         if (status && !VALID_PROJECT_STATUSES.has(status)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid project status: '${status}'` },
             { status: 400 }
           );
@@ -658,7 +614,7 @@ export async function PUT(req: Request) {
         ];
         for (const u of urls) {
           if (u.original && !isValidUrl(String(u.original))) {
-            return NextResponse.json(
+            return json(req,
               {
                 message: `Invalid ${u.name} URL in project '${title}'. Please provide a valid web link starting with https:// (e.g. https://github.com/...) or leave it blank if not hosted online.`,
               },
@@ -716,7 +672,7 @@ export async function PUT(req: Request) {
     // -----------------------------------------------------------------------
     if (body.skills !== undefined) {
       if (!Array.isArray(body.skills)) {
-        return NextResponse.json(
+        return json(req,
           { message: "Field 'skills' must be an array." },
           { status: 400 }
         );
@@ -726,7 +682,7 @@ export async function PUT(req: Request) {
       for (let i = 0; i < body.skills.length; i++) {
         const item = body.skills[i];
         if (typeof item !== "object" || item === null || Array.isArray(item)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Skill item at index ${i} must be an object.` },
             { status: 400 }
           );
@@ -734,7 +690,7 @@ export async function PUT(req: Request) {
 
         const name = String(item.name || "").trim();
         if (!name) {
-          return NextResponse.json(
+          return json(req,
             { message: `Skill item at index ${i} requires 'name'.` },
             { status: 400 }
           );
@@ -776,7 +732,7 @@ export async function PUT(req: Request) {
     // -----------------------------------------------------------------------
     if (body.credentials !== undefined) {
       if (!Array.isArray(body.credentials)) {
-        return NextResponse.json(
+        return json(req,
           { message: "Field 'credentials' must be an array." },
           { status: 400 }
         );
@@ -786,7 +742,7 @@ export async function PUT(req: Request) {
       for (let i = 0; i < body.credentials.length; i++) {
         const item = body.credentials[i];
         if (typeof item !== "object" || item === null || Array.isArray(item)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Credential item at index ${i} must be an object.` },
             { status: 400 }
           );
@@ -795,7 +751,7 @@ export async function PUT(req: Request) {
         const title = String(item.title || "").trim();
         const issuer = String(item.issuer || "").trim();
         if (!title || !issuer) {
-          return NextResponse.json(
+          return json(req,
             { message: `Credential at index ${i} requires 'title' and 'issuer'.` },
             { status: 400 }
           );
@@ -803,37 +759,42 @@ export async function PUT(req: Request) {
 
         const credType = String(item.credentialType || "course_certificate").trim();
         if (credType && !VALID_CREDENTIAL_TYPES.has(credType)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid credentialType: '${credType}'` },
             { status: 400 }
           );
         }
 
         if (item.credentialUrl && !isValidUrl(String(item.credentialUrl))) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid credentialUrl in '${title}'.` },
             { status: 400 }
           );
         }
         if (item.verificationUrl && !isValidUrl(String(item.verificationUrl))) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid verificationUrl in '${title}'.` },
             { status: 400 }
           );
         }
 
-        // Prevent client spoofing of verificationStatus
+        // Prevent client spoofing of verificationStatus. A changed URL
+        // drops a previous issuer decision until certificate verification
+        // records a new one.
         let existingVerification = "self-reported";
         let existingMethod = "self-reported";
+        let existingCertificateId = "";
+        const nextUrl = String(item.verificationUrl || "").trim();
         if (item._id || item.id) {
           const match = profile.credentials.find(
             (c: any) =>
               (c._id && String(c._id) === String(item._id || item.id)) ||
               (c.id && c.id === String(item.id || item._id))
           );
-          if (match) {
+          if (match && String(match.verificationUrl || "").trim() === nextUrl) {
             if (match.verificationStatus) existingVerification = match.verificationStatus;
             if (match.verificationMethod) existingMethod = match.verificationMethod;
+            existingCertificateId = String(match.certificateVerificationId || "");
           }
         }
 
@@ -848,7 +809,7 @@ export async function PUT(req: Request) {
           expirationDate: String(item.expirationDate || "").trim(),
           neverExpires: Boolean(item.neverExpires),
           credentialUrl: String(item.credentialUrl || "").trim(),
-          verificationUrl: String(item.verificationUrl || "").trim(),
+          verificationUrl: nextUrl,
           certificateFile: String(item.certificateFile || "").trim(),
           description: String(item.description || "").trim(),
           relatedSkills: Array.isArray(item.relatedSkills) ? item.relatedSkills : [],
@@ -856,6 +817,7 @@ export async function PUT(req: Request) {
           credentialStatus: (item.credentialStatus as any) || "active",
           verificationStatus: existingVerification as any,
           verificationMethod: existingMethod,
+          certificateVerificationId: existingCertificateId,
         });
       }
 
@@ -867,7 +829,7 @@ export async function PUT(req: Request) {
     // -----------------------------------------------------------------------
     if (body.achievements !== undefined) {
       if (!Array.isArray(body.achievements)) {
-        return NextResponse.json(
+        return json(req,
           { message: "Field 'achievements' must be an array." },
           { status: 400 }
         );
@@ -877,7 +839,7 @@ export async function PUT(req: Request) {
       for (let i = 0; i < body.achievements.length; i++) {
         const item = body.achievements[i];
         if (typeof item !== "object" || item === null || Array.isArray(item)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Achievement item at index ${i} must be an object.` },
             { status: 400 }
           );
@@ -885,7 +847,7 @@ export async function PUT(req: Request) {
 
         const title = String(item.title || "").trim();
         if (!title) {
-          return NextResponse.json(
+          return json(req,
             { message: `Achievement at index ${i} requires 'title'.` },
             { status: 400 }
           );
@@ -893,14 +855,14 @@ export async function PUT(req: Request) {
 
         const cat = String(item.category || "academic").trim();
         if (cat && !VALID_ACHIEVEMENT_CATEGORIES.has(cat)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid achievement category: '${cat}'` },
             { status: 400 }
           );
         }
 
         if (item.proofUrl && !isValidUrl(String(item.proofUrl))) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid proofUrl in achievement '${title}'.` },
             { status: 400 }
           );
@@ -950,7 +912,7 @@ export async function PUT(req: Request) {
     // -----------------------------------------------------------------------
     if (body.resume !== undefined) {
       if (typeof body.resume !== "object" || body.resume === null || Array.isArray(body.resume)) {
-        return NextResponse.json(
+        return json(req,
           { message: "Field 'resume' must be an object (single resume metadata)." },
           { status: 400 }
         );
@@ -980,7 +942,7 @@ export async function PUT(req: Request) {
       if (r.contentType !== undefined) {
         const ct = String(r.contentType || "application/pdf").trim();
         if (ct && ct !== "application/pdf") {
-          return NextResponse.json(
+          return json(req,
             { message: "Only PDF resumes are supported ('application/pdf')." },
             { status: 400 }
           );
@@ -990,7 +952,7 @@ export async function PUT(req: Request) {
       if (r.fileSize !== undefined) {
         const size = Number(r.fileSize);
         if (isNaN(size) || size < 0 || size > 10 * 1024 * 1024) {
-          return NextResponse.json(
+          return json(req,
             { message: "Resume fileSize must be between 0 and 10MB." },
             { status: 400 }
           );
@@ -1012,7 +974,7 @@ export async function PUT(req: Request) {
 
     if (body.resumeUrl !== undefined) {
       if (body.resumeUrl && !isValidUrl(String(body.resumeUrl))) {
-        return NextResponse.json(
+        return json(req,
           { message: "Invalid resumeUrl." },
           { status: 400 }
         );
@@ -1028,7 +990,7 @@ export async function PUT(req: Request) {
     // -----------------------------------------------------------------------
     if (body.media !== undefined) {
       if (!Array.isArray(body.media)) {
-        return NextResponse.json(
+        return json(req,
           { message: "Field 'media' must be an array." },
           { status: 400 }
         );
@@ -1038,7 +1000,7 @@ export async function PUT(req: Request) {
       for (let i = 0; i < body.media.length; i++) {
         const item = body.media[i];
         if (typeof item !== "object" || item === null || Array.isArray(item)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Media item at index ${i} must be an object.` },
             { status: 400 }
           );
@@ -1047,14 +1009,14 @@ export async function PUT(req: Request) {
         const mediaUrl = String(item.mediaUrl || item.url || "").trim();
         const title = String(item.title || "").trim();
         if (!mediaUrl || !title) {
-          return NextResponse.json(
+          return json(req,
             { message: `Media item at index ${i} requires 'mediaUrl' and 'title'.` },
             { status: 400 }
           );
         }
 
         if (!isValidUrl(mediaUrl)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid mediaUrl in '${title}'.` },
             { status: 400 }
           );
@@ -1062,7 +1024,7 @@ export async function PUT(req: Request) {
 
         const mType = String(item.mediaType || "image").trim();
         if (mType && !VALID_MEDIA_TYPES.has(mType)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid mediaType: '${mType}'` },
             { status: 400 }
           );
@@ -1070,7 +1032,7 @@ export async function PUT(req: Request) {
 
         const cat = String(item.category || "project").trim();
         if (cat && !VALID_MEDIA_CATEGORIES.has(cat)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid media category: '${cat}'` },
             { status: 400 }
           );
@@ -1104,7 +1066,7 @@ export async function PUT(req: Request) {
 
     if (body.mediaUrls !== undefined && body.media === undefined) {
       if (!Array.isArray(body.mediaUrls)) {
-        return NextResponse.json(
+        return json(req,
           { message: "mediaUrls must be an array of strings." },
           { status: 400 }
         );
@@ -1117,7 +1079,7 @@ export async function PUT(req: Request) {
     // -----------------------------------------------------------------------
     if (body.links !== undefined) {
       if (!Array.isArray(body.links)) {
-        return NextResponse.json(
+        return json(req,
           { message: "Field 'links' must be an array." },
           { status: 400 }
         );
@@ -1127,7 +1089,7 @@ export async function PUT(req: Request) {
       for (let i = 0; i < body.links.length; i++) {
         const item = body.links[i];
         if (typeof item !== "object" || item === null || Array.isArray(item)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Link item at index ${i} must be an object.` },
             { status: 400 }
           );
@@ -1136,14 +1098,14 @@ export async function PUT(req: Request) {
         const platform = String(item.platform || item.label || "").trim();
         const url = String(item.url || "").trim();
         if (!platform || !url) {
-          return NextResponse.json(
+          return json(req,
             { message: `Link item at index ${i} requires 'platform' and 'url'.` },
             { status: 400 }
           );
         }
 
         if (!isValidUrl(url)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid URL '${url}' for platform '${platform}'.` },
             { status: 400 }
           );
@@ -1151,7 +1113,7 @@ export async function PUT(req: Request) {
 
         const cat = String(item.category || "professional").trim();
         if (cat && !VALID_LINK_CATEGORIES.has(cat)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid link category: '${cat}'` },
             { status: 400 }
           );
@@ -1159,7 +1121,7 @@ export async function PUT(req: Request) {
 
         const vis = String(item.visibility || "public").trim();
         if (vis && !VALID_VISIBILITIES.has(vis)) {
-          return NextResponse.json(
+          return json(req,
             { message: `Invalid link visibility: '${vis}'` },
             { status: 400 }
           );
@@ -1184,7 +1146,7 @@ export async function PUT(req: Request) {
     // Contacts safe nested merge
     if (body.contacts !== undefined) {
       if (typeof body.contacts !== "object" || body.contacts === null || Array.isArray(body.contacts)) {
-        return NextResponse.json(
+        return json(req,
           { message: "Field 'contacts' must be an object." },
           { status: 400 }
         );
@@ -1239,7 +1201,7 @@ export async function PUT(req: Request) {
 
     const serialized = serializeProfile(profile, true);
 
-    return NextResponse.json(
+    return json(req,
       {
         success: true,
         message: "Student profile saved to MongoDB successfully.",
@@ -1249,12 +1211,12 @@ export async function PUT(req: Request) {
     );
   } catch (error: unknown) {
     if (error instanceof mongoose.Error.ValidationError) {
-      return NextResponse.json(
+      return json(req,
         { message: "Validation error: " + error.message, details: error.errors },
         { status: 400 }
       );
     }
     const message = error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ message }, { status: 500 });
+    return json(req, { message }, { status: 500 });
   }
 }

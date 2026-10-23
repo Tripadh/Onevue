@@ -16,6 +16,8 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+Certificate submission is authenticated on this backend and forwarded to the certificate verification service. The LLM service is not used to decide whether a certificate is authentic. See `.env.example` for `MONGODB_URI`, `CERTIFICATE_SERVICE_URL`, `CERTIFICATE_SERVICE_TOKEN`, `LLM_SERVICE_URL`, and `LLM_SERVICE_API_KEY`. Start the certificate service from `certificate-verification` with `PORT=3001`, and the LLM service from `llm-service` on port 8000.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

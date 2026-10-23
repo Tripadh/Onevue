@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Multipart framing sits on top of the 10 MB PDF limit. The route still
+    // rejects a file larger than 10 MB; this only lets that check see the body.
+    proxyClientMaxBodySize: "11mb",
+  },
   allowedDevOrigins: [
     '127.0.0.1',
     'localhost',
@@ -10,26 +15,8 @@ const nextConfig: NextConfig = {
     'localhost:8080',
     '10.101.3.132',
   ],
-  async headers() {
-
-    return [
-      {
-        source: "/api/:path*",
-        headers: [
-          { key: "Access-Control-Allow-Credentials", value: "true" },
-          { key: "Access-Control-Allow-Origin", value: "*" },
-          { key: "Access-Control-Allow-Methods", value: "GET,DELETE,PATCH,POST,PUT,OPTIONS" },
-          { key: "Access-Control-Allow-Headers", value: "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization" },
-
-        ]
-      }
-    ]
-  },
   cacheComponents: true,
   partialPrefetching: true,
-  experimental: {
-    agentUpgrade: "security",
-  },
   turbopack: {
     rules: {
       "*.css": {

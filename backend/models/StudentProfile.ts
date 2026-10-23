@@ -164,6 +164,7 @@ export interface IStudentCredential {
   credentialStatus?: "active" | "expired" | "revoked" | "pending_review";
   verificationStatus?: "pending" | "verified" | "rejected" | "self-reported";
   verificationMethod?: string;
+  certificateVerificationId?: string;
 }
 
 export type AchievementCategory =
@@ -608,6 +609,7 @@ const CredentialSubSchema = new Schema(
       default: "self-reported",
     },
     verificationMethod: { type: String, default: "self-reported", trim: true, maxlength: 100 },
+    certificateVerificationId: { type: String, default: "", trim: true, maxlength: 64 },
   },
   { _id: true }
 );

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
+import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
 import connectToDatabase from "../../../../lib/db";
 import User, { DiscoverySourceType } from "../../../../models/User";
-import { isJwtConfigError, resolveJwtSecret } from "../../../../lib/auth";
 
 const ALLOWED_DISCOVERY_SOURCES: DiscoverySourceType[] = [
   "google_search",
@@ -20,15 +20,19 @@ const ALLOWED_DISCOVERY_SOURCES: DiscoverySourceType[] = [
   "other",
 ];
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { status: 200 });
+function json(req: Request, body: unknown, init?: { status?: number }) {
+  return applyCorsHeaders(NextResponse.json(body, init), req.headers.get("origin"));
+}
+
+export function OPTIONS(req: Request) {
+  return preflightResponse(req.headers.get("origin"));
 }
 
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get("authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json(
+      return json(req,
         { message: "Authentication required." },
         { status: 401 }
       );
@@ -39,16 +43,10 @@ export async function POST(req: Request) {
     try {
       decoded = jwt.verify(
         token,
-        resolveJwtSecret()
+        process.env.JWT_SECRET || "fallback_secret"
       ) as { id: string; email: string };
-    } catch (error) {
-      if (isJwtConfigError(error)) {
-        return NextResponse.json(
-          { message: "Server authentication is not configured." },
-          { status: 500 }
-        );
-      }
-      return NextResponse.json(
+    } catch {
+      return json(req,
         { message: "Invalid or expired session token." },
         { status: 401 }
       );
@@ -58,7 +56,7 @@ export async function POST(req: Request) {
     const { discoverySource, otherDetails } = body;
 
     if (!discoverySource) {
-      return NextResponse.json(
+      return json(req,
         { message: "Please select how you discovered OneVue." },
         { status: 400 }
       );
@@ -67,7 +65,7 @@ export async function POST(req: Request) {
     const canonicalSource = String(discoverySource).trim().toLowerCase() as DiscoverySourceType;
 
     if (!ALLOWED_DISCOVERY_SOURCES.includes(canonicalSource)) {
-      return NextResponse.json(
+      return json(req,
         {
           message: `Invalid discovery source. Must be one of the supported options.`,
         },
@@ -79,13 +77,13 @@ export async function POST(req: Request) {
     if (canonicalSource === "other") {
       const details = String(otherDetails || "").trim();
       if (!details) {
-        return NextResponse.json(
+        return json(req,
           { message: "Please specify where you discovered OneVue." },
           { status: 400 }
         );
       }
       if (details.length > 500) {
-        return NextResponse.json(
+        return json(req,
           { message: "Additional details cannot exceed 500 characters." },
           { status: 400 }
         );
@@ -97,7 +95,7 @@ export async function POST(req: Request) {
     const user = await User.findById(decoded.id);
 
     if (!user) {
-      return NextResponse.json(
+      return json(req,
         { message: "User not found." },
         { status: 404 }
       );
@@ -123,7 +121,7 @@ export async function POST(req: Request) {
     );
 
     if (!updatedUser) {
-      return NextResponse.json(
+      return json(req,
         { message: "Failed to update user survey." },
         { status: 500 }
       );
@@ -136,11 +134,11 @@ export async function POST(req: Request) {
         identity: user.identity,
         surveyCompleted: true,
       },
-      resolveJwtSecret(),
+      process.env.JWT_SECRET || "fallback_secret",
       { expiresIn: "7d" }
     );
 
-    return NextResponse.json(
+    return json(req,
       {
         message: "Survey response saved successfully",
         token: newToken,
@@ -163,6 +161,6 @@ export async function POST(req: Request) {
     );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ message }, { status: 500 });
+    return json(req, { message }, { status: 500 });
   }
 }

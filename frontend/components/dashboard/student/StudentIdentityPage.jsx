@@ -3,10 +3,202 @@ const { useState: sUseState, useEffect: sUseEffect, useMemo: sUseMemo, useRef: s
 const { useLocation: sUseLocation, useNavigate: sUseNavigate, Link: sLink } = ReactRouterDOM;
 const StudentIcons = window.StudentIcons || {};
 
+function studentApiBase() {
+  return (window.OV_ENV && window.OV_ENV.API_BASE) || 'http://localhost:3000/api';
+}
+
+function studentAuthToken(session) {
+  return (session && session.token) || (window.OV && window.OV.core && window.OV.core.db && window.OV.core.db.get('session') && window.OV.core.db.get('session').token) || '';
+}
+
+function canonicalCredlyBadgeUrl(value) {
+  const match = String(value || '').trim().match(/^https:\/\/www\.credly\.com\/badges\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i);
+  if (!match) return '';
+  return 'https://www.credly.com/badges/' + match[1].toLowerCase();
+}
+
+function credentialStatusLabel(status) {
+  if (status === 'verified') return 'Verified';
+  if (status === 'pending') return 'Pending verification';
+  if (status === 'rejected') return 'Not verified';
+  return 'Self-reported';
+}
+
+const RESUME_FIELD_LABELS = {
+  headline: 'Headline',
+  email: 'Email',
+  phone: 'Phone',
+  summary: 'Summary',
+  name: 'Name',
+  institution: 'Institution',
+  degree: 'Degree',
+  fieldOfStudy: 'Field of study',
+  startDate: 'Start',
+  endDate: 'End',
+  grade: 'Grade',
+  company: 'Company',
+  title: 'Title',
+  location: 'Location',
+  isCurrent: 'Current',
+  responsibilities: 'Responsibilities',
+  description: 'Description',
+  technologies: 'Technologies',
+  links: 'Link',
+  platform: 'Platform',
+  url: 'URL',
+};
+
+const RESUME_SKILL_CATEGORIES = [
+  'Programming Languages',
+  'Frontend',
+  'Backend',
+  'Databases',
+  'AI / ML',
+  'Cloud / DevOps',
+  'Tools',
+  'Other Skills',
+];
+
+const RESUME_SKILL_LEVELS = ['Familiar', 'Beginner', 'Intermediate', 'Advanced', 'Expert'];
+
+function resumeRowsByEntry(rows) {
+  const groups = [];
+  const index = new Map();
+  (rows || []).forEach((row) => {
+    const key = String(row.entryIndex);
+    if (!index.has(key)) {
+      const group = { entryIndex: row.entryIndex, rows: [] };
+      index.set(key, group);
+      groups.push(group);
+    }
+    index.get(key).rows.push(row);
+  });
+  return groups;
+}
+
+function resumeRowSelectable(row, entryRows) {
+  if (!row || row.section === 'experience') return false;
+  if (row.section === 'skills') return row.field === 'name' && Boolean(row.value);
+  if (!row.applicable) return false;
+  const fields = new Set((entryRows || []).filter((item) => item.applicable).map((item) => item.field));
+  if (row.section === 'education') return fields.has('institution') && fields.has('degree');
+  if (row.section === 'projects') return fields.has('name');
+  if (row.section === 'socialLinks') return fields.has('platform') && fields.has('url');
+  return true;
+}
+
+function ResumeExtractionReview({
+  review,
+  selection,
+  onToggle,
+  skillExtras,
+  onSkillExtra,
+  issuerExtras,
+  onIssuer,
+  applying,
+  onApply,
+  onDiscard,
+}) {
+  const sections = (review && review.sections) || [];
+  const selectedCount = Object.keys(selection || {}).filter((id) => selection[id]).length;
+  return (
+    <div className="glass" style={{ padding: 22, borderRadius: 18, display: 'grid', gap: 16, border: '1px solid var(--line)' }}>
+      <div>
+        <h3 style={{ fontSize: 18, margin: 0 }}>Review extracted fields</h3>
+        <p className="muted" style={{ fontSize: 13.5, margin: '6px 0 0' }}>
+          {review.warning || 'Extracted information stays unsaved until you choose the fields to keep.'}
+        </p>
+      </div>
+      {Array.isArray(review.warnings) && review.warnings.length > 0 && (
+        <div style={{ display: 'grid', gap: 4 }}>
+          {review.warnings.slice(0, 4).map((warning, index) => (
+            <p key={warning.path || index} className="faint" style={{ fontSize: 12.5, margin: 0 }}>
+              {warning.message}
+            </p>
+          ))}
+        </div>
+      )}
+      {sections.length === 0 ? (
+        <p className="muted" style={{ margin: 0 }}>No fields were found in this PDF.</p>
+      ) : sections.map((section) => (
+        <div key={section.id} style={{ display: 'grid', gap: 10 }}>
+          <h4 style={{ fontSize: 15, margin: 0 }}>{section.label}</h4>
+          {resumeRowsByEntry(section.rows).map((entry) => {
+            const skillSelected = section.id === 'skills' && entry.rows.some((row) => selection[row.id]);
+            const credentialSelected = section.id === 'credentials' && entry.rows.some((row) => selection[row.id]);
+            const skillExtra = skillExtras[entry.entryIndex] || { category: 'Other Skills', proficiency: 'Intermediate' };
+            return (
+              <div key={section.id + '-' + entry.entryIndex} style={{ display: 'grid', gap: 8, padding: '4px 0 8px' }}>
+                {entry.rows.map((row) => {
+                  const selectable = resumeRowSelectable(row, entry.rows);
+                  return (
+                    <label key={row.id} style={{ display: 'grid', gridTemplateColumns: '22px 1fr', gap: 10, alignItems: 'start', cursor: selectable ? 'pointer' : 'default' }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(selection[row.id])}
+                        disabled={!selectable}
+                        onChange={(event) => onToggle(row, entry.rows, event.target.checked)}
+                        style={{ marginTop: 3 }}
+                      />
+                      <span>
+                        <span style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <strong style={{ fontSize: 13.5 }}>{RESUME_FIELD_LABELS[row.field] || row.field}</strong>
+                          {row.confidence && <span className="badge" style={{ fontSize: 10 }}>{row.confidence}</span>}
+                          {!selectable && <span className="badge" style={{ fontSize: 10 }}>Shown only</span>}
+                        </span>
+                        <span style={{ display: 'block', fontSize: 13.5, marginTop: 2, whiteSpace: 'pre-wrap' }}>{row.value}</span>
+                        {row.note && <span className="faint" style={{ display: 'block', fontSize: 12, marginTop: 2 }}>{row.note}</span>}
+                      </span>
+                    </label>
+                  );
+                })}
+                {skillSelected && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginLeft: 32 }}>
+                    <Select
+                      label="Category"
+                      value={skillExtra.category}
+                      onChange={(event) => onSkillExtra(entry.entryIndex, { ...skillExtra, category: event.target.value })}
+                      options={RESUME_SKILL_CATEGORIES.map((category) => ({ value: category, label: category }))}
+                    />
+                    <Select
+                      label="Proficiency"
+                      value={skillExtra.proficiency}
+                      onChange={(event) => onSkillExtra(entry.entryIndex, { ...skillExtra, proficiency: event.target.value })}
+                      options={RESUME_SKILL_LEVELS.map((level) => ({ value: level, label: level }))}
+                    />
+                  </div>
+                )}
+                {credentialSelected && (
+                  <div style={{ marginLeft: 32 }}>
+                    <Input
+                      label="Issuer *"
+                      value={issuerExtras[entry.entryIndex] || ''}
+                      onChange={(event) => onIssuer(entry.entryIndex, event.target.value)}
+                      placeholder="Who issued this certificate?"
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <Button variant="primary" loading={applying} disabled={applying || selectedCount === 0} onClick={onApply}>
+          Save selected fields
+        </Button>
+        <Button variant="ghost" disabled={applying} onClick={onDiscard}>
+          Discard extraction
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /* =========================================================================
    PAGE 2: Complete Student Identity Page (All 9 Modules)
    ========================================================================= */
-function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfile }) {
+function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileReplaced, loadingProfile }) {
   const toast = useToast();
   const [activeSection, setActiveSection] = sUseState(() => {
     try {
@@ -191,7 +383,13 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
   // Resume state (Module 7: Single slot)
   const [resumeData, setResumeData] = sUseState(null);
   const [resumeUploading, setResumeUploading] = sUseState(false);
+  const [resumeApplying, setResumeApplying] = sUseState(false);
   const [resumeRoleInput, setResumeRoleInput] = sUseState('');
+  const [resumeReview, setResumeReview] = sUseState(null);
+  const [resumeSelection, setResumeSelection] = sUseState({});
+  const [resumeSkillExtras, setResumeSkillExtras] = sUseState({});
+  const [resumeIssuers, setResumeIssuers] = sUseState({});
+  const [verifyingCredId, setVerifyingCredId] = sUseState('');
   const resumeFileRef = sUseRef(null);
 
   // Sync state when studentProfile is loaded
@@ -670,7 +868,17 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
     }
     setIsSubmitting(true);
     const skillsArr = credForm.relatedSkills.split(',').map((s) => s.trim()).filter(Boolean);
-    const payload = { ...credForm, relatedSkills: skillsArr, verificationStatus: 'self-reported' };
+    const credlyUrl = canonicalCredlyBadgeUrl(credForm.verificationUrl);
+    const previous = editingCredIdx !== null ? credentialsList[editingCredIdx] : null;
+    const sameCredly = Boolean(previous && credlyUrl && canonicalCredlyBadgeUrl(previous.verificationUrl) === credlyUrl);
+    const payload = {
+      ...credForm,
+      verificationUrl: credlyUrl || credForm.verificationUrl.trim(),
+      relatedSkills: skillsArr,
+      verificationStatus: credlyUrl ? (sameCredly ? (previous.verificationStatus || 'pending') : 'pending') : 'self-reported',
+      verificationMethod: credlyUrl ? 'certificate-service' : 'self-reported',
+      certificateVerificationId: sameCredly ? (previous.certificateVerificationId || '') : '',
+    };
     let updatedList;
     if (editingCredIdx !== null) {
       updatedList = credentialsList.map((item, idx) =>
@@ -680,11 +888,117 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
       updatedList = [...credentialsList, { id: 'crd_' + Date.now(), ...payload }];
     }
     const success = await onSaveToDb({ credentials: updatedList });
-    setIsSubmitting(false);
-    if (success) {
-      setCredentialsList(updatedList);
-      setCredModalOpen(false);
+    if (!success) {
+      setIsSubmitting(false);
+      return;
     }
+    setCredentialsList(updatedList);
+    setCredModalOpen(false);
+    if (credlyUrl) {
+      const result = await verifyCredlyCertificate(credlyUrl);
+      toast.push({
+        title: result.ok ? 'Certificate check' : 'Verification unavailable',
+        body: result.message,
+        tone: result.ok ? (result.status === 'VERIFIED' ? 'success' : 'info') : 'error',
+      });
+    } else if (credForm.verificationUrl.trim()) {
+      toast.push({
+        title: 'Saved as self-reported',
+        body: 'Only a Credly badge link can be checked by the certificate service.',
+        tone: 'info',
+      });
+    }
+    setIsSubmitting(false);
+  };
+
+  const verifyCredlyCertificate = async (url) => {
+    const token = studentAuthToken(session);
+    // #region agent log
+    fetch('http://127.0.0.1:7577/ingest/1354e522-854d-4243-9c84-d52a865eb030',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'20b1df'},body:JSON.stringify({sessionId:'20b1df',runId:'post-fix',hypothesisId:'E',location:'StudentIdentityPage.jsx:verify-start',message:'student started certificate check',data:{signedIn:Boolean(token),credlyUrl:/^https:\/\/www\.credly\.com\/badges\/[0-9a-f-]{36}\/?$/i.test(url)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    if (!token) {
+      return { ok: false, message: 'Please sign in to verify a certificate.' };
+    }
+    const headers = {
+      Authorization: 'Bearer ' + token,
+      'Content-Type': 'application/json',
+    };
+    const api = studentApiBase();
+    try {
+      const submitted = await fetch(api + '/student/certificates', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ url }),
+      });
+      const submittedBody = await submitted.json().catch(() => ({}));
+      // #region agent log
+      fetch('http://127.0.0.1:7577/ingest/1354e522-854d-4243-9c84-d52a865eb030',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'20b1df'},body:JSON.stringify({sessionId:'20b1df',runId:'pre-fix',hypothesisId:'E',location:'StudentIdentityPage.jsx:verify',message:'student certificate submit returned',data:{status:submitted.status,hasMessage:Boolean(submittedBody&&submittedBody.message),credlyUrl:/^https:\/\/www\.credly\.com\/badges\/[0-9a-f-]{36}\/?$/i.test(url)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      if (!submitted.ok) {
+        return { ok: false, message: submittedBody.message || 'Certificate verification could not start.' };
+      }
+      const certificateId = submittedBody.certificate && submittedBody.certificate.id;
+      if (!certificateId) {
+        return { ok: false, message: 'The certificate service did not return a record.' };
+      }
+      const earnerEmail = String((contactsState && contactsState.email) || (session && session.user && session.user.email) || '').trim();
+      const verifyBody = /^[^@\s]+@[^@\s]+$/.test(earnerEmail) ? { earnerEmail } : {};
+      const checked = await fetch(api + '/student/certificates/' + certificateId + '/verify', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(verifyBody),
+      });
+      const checkedBody = await checked.json().catch(() => ({}));
+      if (!checked.ok) {
+        return { ok: false, message: checkedBody.message || 'The certificate could not be checked.' };
+      }
+      const refreshed = await fetch(api + '/student/profile', {
+        headers: { Authorization: 'Bearer ' + token },
+      });
+      const profileBody = await refreshed.json().catch(() => ({}));
+      if (refreshed.ok && profileBody.profile && onProfileReplaced) {
+        onProfileReplaced(profileBody.profile);
+      }
+      const status = checkedBody.certificate && checkedBody.certificate.status;
+      if (status === 'VERIFIED') {
+        return { ok: true, status, message: 'The issuer confirmed this credential. It is linked to your student identity.' };
+      }
+      if (status === 'UNVERIFIED') {
+        return { ok: true, status, message: 'The issuer did not confirm this credential.' };
+      }
+      return { ok: true, status, message: 'The check is still pending. You can run it again from this credential.' };
+    } catch (err) {
+      return { ok: false, message: 'Could not reach the certificate verification service.' };
+    }
+  };
+
+  const handleVerifyCredential = async (idx) => {
+    const item = credentialsList[idx];
+    const url = canonicalCredlyBadgeUrl(item && (item.verificationUrl || item.credentialUrl));
+    if (!url) {
+      toast.push({ title: 'Credly link required', body: 'Add a https://www.credly.com/badges/... link before verifying.', tone: 'error' });
+      return;
+    }
+    const credKey = String((item && (item.id || item._id)) || idx);
+    setVerifyingCredId(credKey);
+    if (String(item.verificationUrl || '').trim() !== url) {
+      const updatedList = credentialsList.map((entry, entryIndex) => (
+        entryIndex === idx ? { ...entry, verificationUrl: url } : entry
+      ));
+      const saved = await onSaveToDb({ credentials: updatedList });
+      if (!saved) {
+        setVerifyingCredId('');
+        return;
+      }
+      setCredentialsList(updatedList);
+    }
+    const result = await verifyCredlyCertificate(url);
+    setVerifyingCredId('');
+    toast.push({
+      title: result.ok ? 'Certificate check' : 'Verification unavailable',
+      body: result.message,
+      tone: result.ok ? (result.status === 'VERIFIED' ? 'success' : 'info') : 'error',
+    });
   };
 
   const handleDeleteCred = async (idx) => {
@@ -772,32 +1086,187 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
 
     if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
       toast.push({ title: 'Invalid File', body: 'Only PDF format is accepted for resumes.', tone: 'error' });
+      if (resumeFileRef.current) resumeFileRef.current.value = '';
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
       toast.push({ title: 'File Too Large', body: 'Resume must not exceed 10 MB.', tone: 'error' });
+      if (resumeFileRef.current) resumeFileRef.current.value = '';
+      return;
+    }
+
+    const token = studentAuthToken(session);
+    if (!token) {
+      toast.push({ title: 'Authentication missing', body: 'Please sign in before extracting a resume.', tone: 'error' });
+      if (resumeFileRef.current) resumeFileRef.current.value = '';
       return;
     }
 
     setResumeUploading(true);
-    // Simulate safe upload & metadata extraction
-    setTimeout(async () => {
+    const form = new FormData();
+    form.append('file', file, 'resume.pdf');
+    try {
+      const res = await fetch(studentApiBase() + '/student/resume/extract', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token },
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.push({ title: 'Resume extraction failed', body: data.message || 'The resume extractor could not read this PDF.', tone: 'error' });
+        return;
+      }
       const metadata = {
         fileName: file.name,
         fileSize: file.size,
         contentType: 'application/pdf',
-        storageKey: `resumes/${session?.user?.id || 'std'}_${Date.now()}.pdf`,
+        storageKey: '',
         uploadedAt: new Date().toISOString(),
         resumeName: file.name.replace(/\.pdf$/i, ''),
         targetRole: resumeRoleInput || 'Software Engineer',
       };
-      const success = await onSaveToDb({ resume: metadata, resumeFileName: file.name });
+      const saved = await onSaveToDb({ resume: metadata, resumeFileName: file.name });
+      if (saved) setResumeData(metadata);
+      const nextSelection = {};
+      (data.rows || []).forEach((row) => {
+        const entryRows = (data.rows || []).filter((item) => item.section === row.section && item.entryIndex === row.entryIndex);
+        if (resumeRowSelectable(row, entryRows) && (row.confidence === 'high' || row.confidence === 'medium')) {
+          nextSelection[row.id] = true;
+        }
+      });
+      setResumeReview(data);
+      setResumeSelection(nextSelection);
+      setResumeSkillExtras({});
+      setResumeIssuers({});
+      toast.push({ title: 'Resume read', body: 'Review the extracted fields, then save the ones you want on your identity.', tone: 'success' });
+    } catch (err) {
+      toast.push({ title: 'Resume extraction failed', body: 'Could not reach the resume extractor.', tone: 'error' });
+    } finally {
       setResumeUploading(false);
-      if (success) {
-        setResumeData(metadata);
-        toast.push({ title: 'Resume Uploaded', body: `${file.name} saved successfully.`, tone: 'success' });
+      if (resumeFileRef.current) resumeFileRef.current.value = '';
+    }
+  };
+
+  const handleToggleResumeRow = (row, entryRows, checked) => {
+    setResumeSelection((current) => {
+      const next = { ...current, [row.id]: checked };
+      if (!checked) return next;
+      const required = row.section === 'education'
+        ? ['institution', 'degree']
+        : row.section === 'socialLinks'
+          ? ['platform', 'url']
+          : row.section === 'projects'
+            ? ['name']
+            : [];
+      required.forEach((field) => {
+        const match = entryRows.find((item) => item.field === field && resumeRowSelectable(item, entryRows));
+        if (match) next[match.id] = true;
+      });
+      return next;
+    });
+  };
+
+  const handleApplyResume = async () => {
+    if (!resumeReview || !resumeReview.reviewId) return;
+    const groups = new Map();
+    (resumeReview.rows || []).forEach((row) => {
+      if (!resumeSelection[row.id]) return;
+      const entryRows = (resumeReview.rows || []).filter((item) => item.section === row.section && item.entryIndex === row.entryIndex);
+      if (!resumeRowSelectable(row, entryRows)) return;
+      const key = row.section + ':' + row.entryIndex;
+      if (!groups.has(key)) {
+        groups.set(key, { section: row.section, index: row.entryIndex, fields: [] });
       }
-    }, 600);
+      const group = groups.get(key);
+      if (!group.fields.includes(row.field)) group.fields.push(row.field);
+    });
+    const selections = [];
+    for (const group of groups.values()) {
+      const entryRows = (resumeReview.rows || []).filter((item) => item.section === group.section && item.entryIndex === group.index);
+      const required = group.section === 'education'
+        ? ['institution', 'degree']
+        : group.section === 'socialLinks'
+          ? ['platform', 'url']
+          : group.section === 'projects'
+            ? ['name']
+            : [];
+      required.forEach((field) => {
+        const match = entryRows.find((item) => item.field === field && resumeRowSelectable(item, entryRows));
+        if (match && !group.fields.includes(field)) group.fields.push(field);
+      });
+      if (group.section === 'skills') {
+        const extra = resumeSkillExtras[group.index] || { category: 'Other Skills', proficiency: 'Intermediate' };
+        group.category = extra.category;
+        group.proficiency = extra.proficiency;
+      }
+      if (group.section === 'credentials') {
+        const issuer = String(resumeIssuers[group.index] || '').trim();
+        if (!issuer) {
+          toast.push({ title: 'Issuer required', body: 'Add an issuer before saving a certificate found on the resume.', tone: 'error' });
+          return;
+        }
+        group.issuer = issuer;
+      }
+      selections.push(group);
+    }
+    if (selections.length === 0) {
+      toast.push({ title: 'Nothing selected', body: 'Choose at least one field the profile can store.', tone: 'error' });
+      return;
+    }
+    const token = studentAuthToken(session);
+    if (!token) {
+      toast.push({ title: 'Authentication missing', body: 'Please sign in before saving extracted fields.', tone: 'error' });
+      return;
+    }
+    setResumeApplying(true);
+    try {
+      const res = await fetch(studentApiBase() + '/student/resume/apply', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reviewId: resumeReview.reviewId, selections }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.push({ title: 'Could not save fields', body: data.message || 'The extracted fields were not saved.', tone: 'error' });
+        return;
+      }
+      if (data.profile && onProfileReplaced) onProfileReplaced(data.profile);
+      const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
+      toast.push({
+        title: 'Identity updated',
+        body: skipped > 0
+          ? 'Selected resume fields were saved. ' + skipped + ' already matched your profile.'
+          : 'Selected resume fields were saved to your student identity.',
+        tone: 'success',
+      });
+      setResumeReview(null);
+      setResumeSelection({});
+    } catch (err) {
+      toast.push({ title: 'Could not save fields', body: 'Could not reach the resume extractor.', tone: 'error' });
+    } finally {
+      setResumeApplying(false);
+    }
+  };
+
+  const handleDiscardResumeReview = async () => {
+    const reviewId = resumeReview && resumeReview.reviewId;
+    const token = studentAuthToken(session);
+    setResumeReview(null);
+    setResumeSelection({});
+    setResumeSkillExtras({});
+    setResumeIssuers({});
+    if (!reviewId || !token) return;
+    try {
+      await fetch(studentApiBase() + '/student/resume/reviews/' + reviewId, {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + token },
+      });
+    } catch (err) {
+      // The local review is already closed. A failed discard only leaves it to expire on the server.
+    }
   };
 
   const handleRemoveResume = async () => {
@@ -1485,7 +1954,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
             <div>
               <h2 className="h-sub" style={{ fontSize: 20, margin: 0 }}>Academic Credentials & Certifications</h2>
               <p className="muted" style={{ fontSize: 13.5, margin: '2px 0 0' }}>
-                Course completion certificates, professional licenses, and verified accreditations.
+                Course completion certificates, professional licenses, and verified accreditations. A Credly badge link is checked by the certificate service.
               </p>
             </div>
             <Button size="sm" variant="primary" icon={<Icon.plus />} onClick={handleOpenAddCred}>
@@ -1496,7 +1965,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
           {credentialsList.length === 0 ? (
             <EmptyState
               title="No Credentials Logged Yet"
-              body="Add Coursera, AWS, university registrar certificates, or formal licenses."
+              body="Add Coursera, AWS, university registrar certificates, or formal licenses. Credly badge links can be verified."
               action={<Button size="sm" variant="primary" icon={<Icon.plus />} onClick={handleOpenAddCred}>Add Credential</Button>}
             />
           ) : (
@@ -1510,8 +1979,8 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
                         <span className="badge" style={{ textTransform: 'capitalize', fontSize: 11 }}>
                           {(crd.credentialType || 'certificate').replace('_', ' ')}
                         </span>
-                        <span className="badge badge-verified" style={{ fontSize: 11 }}>
-                          {crd.verificationStatus || 'Self-reported'}
+                        <span className={crd.verificationStatus === 'verified' ? 'badge badge-verified' : 'badge'} style={{ fontSize: 11 }}>
+                          {credentialStatusLabel(crd.verificationStatus)}
                         </span>
                       </div>
                       <p className="muted" style={{ fontSize: 14, margin: '4px 0 0' }}>
@@ -1523,7 +1992,17 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
                         </span>
                       )}
                     </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {canonicalCredlyBadgeUrl(crd.verificationUrl || crd.credentialUrl) && crd.verificationStatus !== 'verified' && (
+                        <Button
+                          size="sm"
+                          variant="glass"
+                          loading={verifyingCredId === String(crd.id || crd._id || idx)}
+                          onClick={() => handleVerifyCredential(idx)}
+                        >
+                          Verify certificate
+                        </Button>
+                      )}
                       <Button size="sm" variant="ghost" onClick={() => handleOpenEditCred(idx)}>
                         <StudentIcons.edit /> Edit
                       </Button>
@@ -1634,9 +2113,17 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
               <span className="badge badge-verified" style={{ fontSize: 11 }}>Exactly 1 Resume Slot</span>
             </div>
             <p className="muted" style={{ fontSize: 13.5, margin: '4px 0 0' }}>
-              OneVue maintains exactly one canonical resume per student. Uploading a replacement automatically updates the active CV.
+              One resume slot. Choosing a PDF sends it to the resume extractor. Fields stay off your identity until you save the ones you want.
             </p>
           </div>
+
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            ref={resumeFileRef}
+            style={{ display: 'none' }}
+            onChange={handleResumeFileSelect}
+          />
 
           {resumeData && resumeData.fileName ? (
             <div
@@ -1679,6 +2166,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
                   <Button
                     size="sm"
                     variant="glass"
+                    loading={resumeUploading}
                     onClick={() => {
                       if (resumeFileRef.current) resumeFileRef.current.click();
                     }}
@@ -1723,16 +2211,9 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
               </div>
               <h3 style={{ fontSize: 18, margin: 0 }}>Upload Your Student Resume</h3>
               <p className="muted" style={{ fontSize: 13.5, margin: 0, maxWidth: 460 }}>
-                Attach your PDF resume (max 10MB). It will be linked directly to your verified profile for recruiters.
+                Attach your PDF resume (max 10MB). The extractor reads it, then you choose which identity fields to keep.
               </p>
               <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-                <input
-                  type="file"
-                  accept="application/pdf"
-                  ref={resumeFileRef}
-                  style={{ display: 'none' }}
-                  onChange={handleResumeFileSelect}
-                />
                 <Button
                   variant="primary"
                   loading={resumeUploading}
@@ -1744,6 +2225,25 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
                 </Button>
               </div>
             </div>
+          )}
+
+          {resumeUploading && (
+            <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Reading the PDF with the resume extractor…</p>
+          )}
+
+          {resumeReview && (
+            <ResumeExtractionReview
+              review={resumeReview}
+              selection={resumeSelection}
+              onToggle={handleToggleResumeRow}
+              skillExtras={resumeSkillExtras}
+              onSkillExtra={(entryIndex, extra) => setResumeSkillExtras((current) => ({ ...current, [entryIndex]: extra }))}
+              issuerExtras={resumeIssuers}
+              onIssuer={(entryIndex, issuer) => setResumeIssuers((current) => ({ ...current, [entryIndex]: issuer }))}
+              applying={resumeApplying}
+              onApply={handleApplyResume}
+              onDiscard={handleDiscardResumeReview}
+            />
           )}
         </section>
       )}
@@ -2135,7 +2635,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
             <Input label="Issue Date" value={credForm.issueDate} onChange={(e) => setCredForm({ ...credForm, issueDate: e.target.value })} placeholder="e.g. May 2025" />
             <Input label="Credential ID" value={credForm.credentialId} onChange={(e) => setCredForm({ ...credForm, credentialId: e.target.value })} placeholder="e.g. ABC-123456" />
           </div>
-          <Input label="Verification URL" value={credForm.verificationUrl} onChange={(e) => setCredForm({ ...credForm, verificationUrl: e.target.value })} placeholder="https://coursera.org/verify/..." />
+          <Input label="Verification URL" hint="A Credly badge link (https://www.credly.com/badges/...) is checked by the certificate service. Other links stay self-reported." value={credForm.verificationUrl} onChange={(e) => setCredForm({ ...credForm, verificationUrl: e.target.value })} placeholder="https://www.credly.com/badges/..." />
           <Button block variant="primary" loading={isSubmitting} onClick={handleSaveCredModal}>
             Save Credential Record
           </Button>

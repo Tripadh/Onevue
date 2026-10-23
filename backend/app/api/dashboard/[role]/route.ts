@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
+import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
 import connectToDatabase from "../../../../lib/db";
 import User, { IdentityType } from "../../../../models/User";
-import { isJwtConfigError, resolveJwtSecret } from "../../../../lib/auth";
 
 const VALID_IDENTITIES: IdentityType[] = [
   "student",
@@ -12,8 +12,12 @@ const VALID_IDENTITIES: IdentityType[] = [
   "business",
 ];
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { status: 200 });
+function json(req: Request, body: unknown, init?: { status?: number }) {
+  return applyCorsHeaders(NextResponse.json(body, init), req.headers.get("origin"));
+}
+
+export function OPTIONS(req: Request) {
+  return preflightResponse(req.headers.get("origin"));
 }
 
 export async function GET(
@@ -25,7 +29,7 @@ export async function GET(
     const requestedRole = (role || "").toLowerCase() as IdentityType;
 
     if (!VALID_IDENTITIES.includes(requestedRole)) {
-      return NextResponse.json(
+      return json(req,
         { message: `Invalid dashboard identity: ${role}` },
         { status: 400 }
       );
@@ -33,7 +37,7 @@ export async function GET(
 
     const authHeader = req.headers.get("authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json(
+      return json(req,
         { message: "Authentication required. Please provide a valid Bearer token." },
         { status: 401 }
       );
@@ -44,16 +48,10 @@ export async function GET(
     try {
       decoded = jwt.verify(
         token,
-        resolveJwtSecret()
+        process.env.JWT_SECRET || "fallback_secret"
       ) as { id: string; email: string; identity?: string };
-    } catch (error) {
-      if (isJwtConfigError(error)) {
-        return NextResponse.json(
-          { message: "Server authentication is not configured." },
-          { status: 500 }
-        );
-      }
-      return NextResponse.json(
+    } catch {
+      return json(req,
         { message: "Invalid or expired session token." },
         { status: 401 }
       );
@@ -63,7 +61,7 @@ export async function GET(
     const user = await User.findById(decoded.id);
 
     if (!user) {
-      return NextResponse.json(
+      return json(req,
         { message: "Authenticated user no longer exists." },
         { status: 401 }
       );
@@ -73,7 +71,7 @@ export async function GET(
 
     // Enforce role-based authorization: user can only access their own role dashboard
     if (userRole !== requestedRole) {
-      return NextResponse.json(
+      return json(req,
         {
           message: `Access denied. Your identity is '${userRole}', but this dashboard is reserved for '${requestedRole}'.`,
           requiredRole: requestedRole,
@@ -92,7 +90,7 @@ export async function GET(
       business: { title: "Business Dashboard", defaultAudience: "partner", checklistCount: 5 },
     };
 
-    return NextResponse.json(
+    return json(req,
       {
         authorized: true,
         role: requestedRole,
@@ -108,6 +106,6 @@ export async function GET(
     );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ message }, { status: 500 });
+    return json(req, { message }, { status: 500 });
   }
 }

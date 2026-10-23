@@ -1,0 +1,599 @@
+{
+  "dataset_version": "1.0.0",
+  "mode": "offline_synthetic",
+  "disclaimer": "Synthetic offline evaluation baseline. High grounding scores measure evidence support in source text and annotations; they do not prove real-world factual correctness.",
+  "evaluated_at": "2026-10-12T04:53:07.295245+00:00",
+  "cases_evaluated": 13,
+  "deterministic": {
+    "cases_evaluated": 13,
+    "email_metrics": {
+      "field_name": "email",
+      "true_positives": 12,
+      "false_positives": 0,
+      "false_negatives": 0,
+      "precision": {
+        "name": "email_precision",
+        "value": 1.0,
+        "numerator": 12.0,
+        "denominator": 12,
+        "definition": "TP / (TP + FP)",
+        "description": "Precision for email. Denominator is total predicted email count."
+      },
+      "recall": {
+        "name": "email_recall",
+        "value": 1.0,
+        "numerator": 12.0,
+        "denominator": 12,
+        "definition": "TP / (TP + FN)",
+        "description": "Recall for email. Denominator is total expected email count."
+      },
+      "f1": {
+        "name": "email_f1",
+        "value": 1.0,
+        "numerator": 24.0,
+        "denominator": 24,
+        "definition": "2 * (Precision * Recall) / (Precision + Recall)",
+        "description": "Harmonic mean of precision and recall for email."
+      }
+    },
+    "phone_metrics": {
+      "field_name": "phone",
+      "true_positives": 11,
+      "false_positives": 0,
+      "false_negatives": 0,
+      "precision": {
+        "name": "phone_precision",
+        "value": 1.0,
+        "numerator": 11.0,
+        "denominator": 11,
+        "definition": "TP / (TP + FP)",
+        "description": "Precision for phone. Denominator is total predicted phone count."
+      },
+      "recall": {
+        "name": "phone_recall",
+        "value": 1.0,
+        "numerator": 11.0,
+        "denominator": 11,
+        "definition": "TP / (TP + FN)",
+        "description": "Recall for phone. Denominator is total expected phone count."
+      },
+      "f1": {
+        "name": "phone_f1",
+        "value": 1.0,
+        "numerator": 22.0,
+        "denominator": 22,
+        "definition": "2 * (Precision * Recall) / (Precision + Recall)",
+        "description": "Harmonic mean of precision and recall for phone."
+      }
+    },
+    "url_metrics": {
+      "field_name": "url",
+      "true_positives": 13,
+      "false_positives": 1,
+      "false_negatives": 0,
+      "precision": {
+        "name": "url_precision",
+        "value": 0.9286,
+        "numerator": 13.0,
+        "denominator": 14,
+        "definition": "TP / (TP + FP)",
+        "description": "Precision for url. Denominator is total predicted url count."
+      },
+      "recall": {
+        "name": "url_recall",
+        "value": 1.0,
+        "numerator": 13.0,
+        "denominator": 13,
+        "definition": "TP / (TP + FN)",
+        "description": "Recall for url. Denominator is total expected url count."
+      },
+      "f1": {
+        "name": "url_f1",
+        "value": 0.963,
+        "numerator": 26.0,
+        "denominator": 27,
+        "definition": "2 * (Precision * Recall) / (Precision + Recall)",
+        "description": "Harmonic mean of precision and recall for url."
+      }
+    }
+  },
+  "pipeline": {
+    "cases_evaluated": 13,
+    "successful_extractions": 12,
+    "partial_extractions": 0,
+    "failed_extractions": 1,
+    "schema_valid_count": 12,
+    "schema_valid_rate": {
+      "name": "schema_valid_rate",
+      "value": 0.9231,
+      "numerator": 12.0,
+      "denominator": 13,
+      "definition": "valid_candidates / total_cases_evaluated",
+      "description": "Proportion of cases producing schema-valid ResumeData."
+    },
+    "name_accuracy": {
+      "name": "name_accuracy",
+      "value": 1.0,
+      "numerator": 12.0,
+      "denominator": 12,
+      "definition": "correct_names / total_expected_names",
+      "description": "Accuracy of extracted candidate profile names."
+    },
+    "date_accuracy": {
+      "name": "date_accuracy",
+      "value": 1.0,
+      "numerator": 28.0,
+      "denominator": 28,
+      "definition": "correct_dates / total_expected_dates",
+      "description": "Accuracy of education and employment date fields."
+    },
+    "skills_metrics": {
+      "field_name": "skills",
+      "true_positives": 20,
+      "false_positives": 0,
+      "false_negatives": 0,
+      "precision": {
+        "name": "skills_precision",
+        "value": 1.0,
+        "numerator": 20.0,
+        "denominator": 20,
+        "definition": "TP / (TP + FP)",
+        "description": "Precision for skills. Denominator is total predicted skills count."
+      },
+      "recall": {
+        "name": "skills_recall",
+        "value": 1.0,
+        "numerator": 20.0,
+        "denominator": 20,
+        "definition": "TP / (TP + FN)",
+        "description": "Recall for skills. Denominator is total expected skills count."
+      },
+      "f1": {
+        "name": "skills_f1",
+        "value": 1.0,
+        "numerator": 40.0,
+        "denominator": 40,
+        "definition": "2 * (Precision * Recall) / (Precision + Recall)",
+        "description": "Harmonic mean of precision and recall for skills."
+      }
+    }
+  },
+  "grounding": {
+    "total_fields_evaluated": 167,
+    "grounded_fields_count": 165,
+    "partially_grounded_count": 0,
+    "unsupported_fields_count": 2,
+    "grounded_rate": {
+      "name": "grounded_rate",
+      "value": 0.988,
+      "numerator": 165.0,
+      "denominator": 167,
+      "definition": "grounded_fields / total_fields_evaluated",
+      "description": "Proportion of candidate fields supported by direct source evidence."
+    },
+    "unsupported_rate": {
+      "name": "unsupported_rate",
+      "value": 0.012,
+      "numerator": 2.0,
+      "denominator": 167,
+      "definition": "unsupported_fields / total_fields_evaluated",
+      "description": "Proportion of candidate fields lacking verified source evidence."
+    },
+    "grounding_precision": {
+      "name": "grounding_precision",
+      "value": 1.0,
+      "numerator": 68.0,
+      "denominator": 68,
+      "definition": "TP / (TP + FP) where target is grounded",
+      "description": "Precision of fields claimed as grounded by the system."
+    },
+    "grounding_recall": {
+      "name": "grounding_recall",
+      "value": 1.0,
+      "numerator": 68.0,
+      "denominator": 68,
+      "definition": "TP / (TP + FN) where target is grounded",
+      "description": "Recall of fields expected to be grounded by ground truth."
+    },
+    "conflict_count": 0
+  },
+  "fallback": {
+    "scenarios_evaluated": 8,
+    "primary_success_count": 1,
+    "primary_success_rate": {
+      "name": "primary_provider_success_rate",
+      "value": 0.125,
+      "numerator": 1.0,
+      "denominator": 8,
+      "definition": "primary_successes / total_scenarios",
+      "description": "Proportion of scenarios succeeding on primary provider alone."
+    },
+    "fallback_activation_count": 5,
+    "eligible_failures_count": 5,
+    "fallback_recovery_count": 3,
+    "recovery_rate": {
+      "name": "fallback_recovery_rate",
+      "value": 0.6,
+      "numerator": 3.0,
+      "denominator": 5,
+      "definition": "fallback_recoveries / eligible_primary_failures",
+      "description": "Proportion of eligible primary failures recovered."
+    },
+    "dual_failure_count": 2,
+    "dual_failure_rate": {
+      "name": "dual_failure_rate",
+      "value": 0.25,
+      "numerator": 2.0,
+      "denominator": 8,
+      "definition": "dual_failures / total_scenarios",
+      "description": "Proportion of scenarios where both providers failed."
+    },
+    "average_attempts_per_request": 1.625
+  },
+  "second_opinion": {
+    "scenarios_evaluated": 9,
+    "strategy_a_baseline": {
+      "strategy_name": "Strategy A: Baseline (Groq Primary + NVIDIA Fallback)",
+      "cases_evaluated": 9,
+      "field_accuracy": {
+        "name": "strategy_a_field_accuracy",
+        "value": 0.8846,
+        "numerator": 46.0,
+        "denominator": 52,
+        "definition": "correct_fields / total_ground_truth_fields",
+        "description": "Field-level accuracy against ground truth for Strategy A."
+      },
+      "unsupported_rate": {
+        "name": "strategy_a_unsupported_rate",
+        "value": 0.0128,
+        "numerator": 1.0,
+        "denominator": 78,
+        "definition": "unsupported_fields / total_candidate_fields",
+        "description": "Proportion of candidate fields unsupported in Strategy A."
+      },
+      "grounding_precision": {
+        "name": "strategy_a_grounding_precision",
+        "value": 0.9872,
+        "numerator": 77.0,
+        "denominator": 78,
+        "definition": "grounded_fields / total_candidate_fields",
+        "description": "Grounding precision for Strategy A."
+      },
+      "grounding_recall": {
+        "name": "strategy_a_grounding_recall",
+        "value": 0.8846,
+        "numerator": 46.0,
+        "denominator": 52,
+        "definition": "grounded_gt_fields / total_ground_truth_fields",
+        "description": "Grounding recall for Strategy A."
+      },
+      "important_field_correction_rate": {
+        "name": "strategy_a_important_field_correction_rate",
+        "value": 0.0,
+        "numerator": 0.0,
+        "denominator": 5,
+        "definition": "corrected_important_fields / erroneous_important_fields",
+        "description": "Baseline does not attempt second-opinion corrections."
+      },
+      "incorrect_change_rate": {
+        "name": "strategy_a_incorrect_change_rate",
+        "value": 0.0,
+        "numerator": 0.0,
+        "denominator": 1,
+        "definition": "incorrect_changes / total_changed_fields",
+        "description": "Baseline does not modify candidates."
+      },
+      "unresolved_conflict_rate": {
+        "name": "strategy_a_unresolved_conflict_rate",
+        "value": 0.0385,
+        "numerator": 3.0,
+        "denominator": 78,
+        "definition": "conflicts / total_candidate_fields",
+        "description": "Unresolved conflict rate for Strategy A."
+      },
+      "provider_calls_per_request": 1.111,
+      "synthetic_latency_ms": 450.0,
+      "estimated_tokens_per_request": 800
+    },
+    "strategy_b_candidate": {
+      "strategy_name": "Strategy B: Candidate (+ Conditional Second Opinion)",
+      "cases_evaluated": 9,
+      "field_accuracy": {
+        "name": "strategy_b_field_accuracy",
+        "value": 0.9038,
+        "numerator": 47.0,
+        "denominator": 52,
+        "definition": "correct_fields / total_ground_truth_fields",
+        "description": "Field-level accuracy against ground truth for Strategy B."
+      },
+      "unsupported_rate": {
+        "name": "strategy_b_unsupported_rate",
+        "value": 0.0,
+        "numerator": 0.0,
+        "denominator": 78,
+        "definition": "unsupported_fields / total_candidate_fields",
+        "description": "Proportion of candidate fields unsupported in Strategy B."
+      },
+      "grounding_precision": {
+        "name": "strategy_b_grounding_precision",
+        "value": 1.0,
+        "numerator": 78.0,
+        "denominator": 78,
+        "definition": "grounded_fields / total_candidate_fields",
+        "description": "Grounding precision for Strategy B."
+      },
+      "grounding_recall": {
+        "name": "strategy_b_grounding_recall",
+        "value": 0.9038,
+        "numerator": 47.0,
+        "denominator": 52,
+        "definition": "grounded_gt_fields / total_ground_truth_fields",
+        "description": "Grounding recall for Strategy B."
+      },
+      "important_field_correction_rate": {
+        "name": "strategy_b_important_field_correction_rate",
+        "value": 0.2,
+        "numerator": 1.0,
+        "denominator": 5,
+        "definition": "corrected_important_fields / erroneous_important_fields",
+        "description": "Important-field correction rate for Strategy B."
+      },
+      "incorrect_change_rate": {
+        "name": "strategy_b_incorrect_change_rate",
+        "value": 0.0,
+        "numerator": 0.0,
+        "denominator": 1,
+        "definition": "incorrect_changes / total_changed_fields",
+        "description": "Proportion of field modifications introducing errors."
+      },
+      "unresolved_conflict_rate": {
+        "name": "strategy_b_unresolved_conflict_rate",
+        "value": 0.0513,
+        "numerator": 4.0,
+        "denominator": 78,
+        "definition": "conflicts / total_candidate_fields",
+        "description": "Unresolved conflict rate for Strategy B."
+      },
+      "provider_calls_per_request": 1.889,
+      "synthetic_latency_ms": 770.0,
+      "estimated_tokens_per_request": 1200
+    },
+    "accuracy_delta": 0.0192,
+    "unsupported_rate_delta": -0.0128,
+    "calls_overhead_pct": 70.03,
+    "latency_overhead_pct": 71.11,
+    "tokens_overhead_pct": 50.0,
+    "recommendation": "DEFERRED / NOT INTEGRATED INTO PRODUCTION PIPELINE",
+    "rationale": "Candidate Strategy B incurs an overhead of +70.0% provider calls and +71.1% synthetic latency (violating acceptance thresholds of <= +30% calls and <= +25% latency). Accuracy gain was +1.9%, which fails the >= +5.0% threshold. Existing deterministic contact extraction and source grounding already prevent hallucinations at zero extra call cost. Per Step 5 guidelines, second opinions are retained only as an offline comparative capability and are NOT enabled in the production extraction path.",
+    "disclaimer": "Synthetic comparative evaluation. Latency and token figures are synthetic mock estimates used for cost/benefit trade-off analysis."
+  },
+  "warnings_by_code": {
+    "MOCK_DATA": 12,
+    "UNSUPPORTED_VALUE": 12,
+    "AMBIGUOUS_DATE": 4
+  },
+  "average_latency_ms": 5.23,
+  "case_summaries": [
+    {
+      "case_id": "case_01_standard_one_column",
+      "name": "Standard One-Column Resume",
+      "category": "standard",
+      "status": "ok",
+      "schema_valid": true,
+      "warnings_count": 2,
+      "warnings": [
+        "MOCK_DATA",
+        "UNSUPPORTED_VALUE"
+      ],
+      "latency_ms": 7,
+      "details": {
+        "provider": "mock",
+        "mock": true
+      }
+    },
+    {
+      "case_id": "case_02_two_column",
+      "name": "Two-Column Resume",
+      "category": "multi_column",
+      "status": "ok",
+      "schema_valid": true,
+      "warnings_count": 2,
+      "warnings": [
+        "MOCK_DATA",
+        "UNSUPPORTED_VALUE"
+      ],
+      "latency_ms": 7,
+      "details": {
+        "provider": "mock",
+        "mock": true
+      }
+    },
+    {
+      "case_id": "case_03_missing_contact",
+      "name": "Missing Contact Details",
+      "category": "missing_contact",
+      "status": "ok",
+      "schema_valid": true,
+      "warnings_count": 1,
+      "warnings": [
+        "MOCK_DATA"
+      ],
+      "latency_ms": 5,
+      "details": {
+        "provider": "mock",
+        "mock": true
+      }
+    },
+    {
+      "case_id": "case_04_multiple_contacts",
+      "name": "Multiple Contact Details",
+      "category": "contacts",
+      "status": "ok",
+      "schema_valid": true,
+      "warnings_count": 2,
+      "warnings": [
+        "MOCK_DATA",
+        "UNSUPPORTED_VALUE"
+      ],
+      "latency_ms": 5,
+      "details": {
+        "provider": "mock",
+        "mock": true
+      }
+    },
+    {
+      "case_id": "case_05_date_ranges",
+      "name": "Chronological Date Ranges",
+      "category": "dates",
+      "status": "ok",
+      "schema_valid": true,
+      "warnings_count": 2,
+      "warnings": [
+        "MOCK_DATA",
+        "UNSUPPORTED_VALUE"
+      ],
+      "latency_ms": 8,
+      "details": {
+        "provider": "mock",
+        "mock": true
+      }
+    },
+    {
+      "case_id": "case_06_current_employment",
+      "name": "Current Employment",
+      "category": "current_job",
+      "status": "ok",
+      "schema_valid": true,
+      "warnings_count": 2,
+      "warnings": [
+        "MOCK_DATA",
+        "UNSUPPORTED_VALUE"
+      ],
+      "latency_ms": 5,
+      "details": {
+        "provider": "mock",
+        "mock": true
+      }
+    },
+    {
+      "case_id": "case_07_multiple_projects_skills",
+      "name": "Multiple Projects and Skills",
+      "category": "rich_content",
+      "status": "ok",
+      "schema_valid": true,
+      "warnings_count": 2,
+      "warnings": [
+        "MOCK_DATA",
+        "UNSUPPORTED_VALUE"
+      ],
+      "latency_ms": 6,
+      "details": {
+        "provider": "mock",
+        "mock": true
+      }
+    },
+    {
+      "case_id": "case_08_portfolio_and_repos",
+      "name": "Portfolio and Repository Link Classification",
+      "category": "urls",
+      "status": "ok",
+      "schema_valid": true,
+      "warnings_count": 2,
+      "warnings": [
+        "MOCK_DATA",
+        "UNSUPPORTED_VALUE"
+      ],
+      "latency_ms": 5,
+      "details": {
+        "provider": "mock",
+        "mock": true
+      }
+    },
+    {
+      "case_id": "case_09_links_text_vs_embedded",
+      "name": "Text URLs vs Embedded PDF Links",
+      "category": "links",
+      "status": "ok",
+      "schema_valid": true,
+      "warnings_count": 1,
+      "warnings": [
+        "MOCK_DATA"
+      ],
+      "latency_ms": 5,
+      "details": {
+        "provider": "mock",
+        "mock": true
+      }
+    },
+    {
+      "case_id": "case_10_ambiguous_dates",
+      "name": "Ambiguous Dates Handling",
+      "category": "ambiguous_dates",
+      "status": "ok",
+      "schema_valid": true,
+      "warnings_count": 7,
+      "warnings": [
+        "MOCK_DATA",
+        "UNSUPPORTED_VALUE",
+        "AMBIGUOUS_DATE",
+        "AMBIGUOUS_DATE",
+        "AMBIGUOUS_DATE",
+        "AMBIGUOUS_DATE",
+        "UNSUPPORTED_VALUE"
+      ],
+      "latency_ms": 4,
+      "details": {
+        "provider": "mock",
+        "mock": true
+      }
+    },
+    {
+      "case_id": "case_11_repeated_info",
+      "name": "Repeated Information and Deduplication",
+      "category": "deduplication",
+      "status": "ok",
+      "schema_valid": true,
+      "warnings_count": 2,
+      "warnings": [
+        "MOCK_DATA",
+        "UNSUPPORTED_VALUE"
+      ],
+      "latency_ms": 5,
+      "details": {
+        "provider": "mock",
+        "mock": true
+      }
+    },
+    {
+      "case_id": "case_12_contradictory_data",
+      "name": "Contradictory Candidate Data",
+      "category": "repair",
+      "status": "ok",
+      "schema_valid": true,
+      "warnings_count": 3,
+      "warnings": [
+        "MOCK_DATA",
+        "UNSUPPORTED_VALUE",
+        "UNSUPPORTED_VALUE"
+      ],
+      "latency_ms": 5,
+      "details": {
+        "provider": "mock",
+        "mock": true
+      }
+    },
+    {
+      "case_id": "case_13_insufficient_text",
+      "name": "Insufficient Extractable Text (Scanned/Empty)",
+      "category": "limits",
+      "status": "failed",
+      "schema_valid": false,
+      "warnings_count": 0,
+      "warnings": [],
+      "latency_ms": 1,
+      "details": {
+        "error_code": "SCANNED_PDF"
+      }
+    }
+  ]
+}

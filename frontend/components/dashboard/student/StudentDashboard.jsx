@@ -174,6 +174,7 @@ function StudentDashboard({ session }) {
               session={session}
               studentProfile={studentProfile}
               onSaveToDb={saveStudentProfileToDb}
+              onProfileReplaced={setStudentProfile}
               loadingProfile={loadingProfile}
             />
           )}

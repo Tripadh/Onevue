@@ -7,34 +7,28 @@ import User from "../models/User";
    ========================================================================= */
 
 export class JwtConfigError extends Error {
-  readonly status = 500;
-
   constructor() {
-    super("Server authentication is not configured.");
+    super("JWT secret is not configured.");
     this.name = "JwtConfigError";
   }
 }
 
-export function isJwtConfigError(error: unknown): error is JwtConfigError {
+export function isJwtConfigError(error: unknown): boolean {
   return error instanceof JwtConfigError || (error instanceof Error && error.name === "JwtConfigError");
 }
 
-const INSECURE_JWT_FALLBACK = "fallback_secret";
-
-/**
- * Production refuses a missing secret and the insecure fallback value.
- * Local development and tests may omit JWT_SECRET; those processes set it
- * explicitly when they need a stable signing key.
- */
 export function resolveJwtSecret(): string {
-  const secret = (process.env.JWT_SECRET || "").trim();
+  const secret = process.env.JWT_SECRET;
   if (process.env.NODE_ENV === "production") {
-    if (!secret || secret === INSECURE_JWT_FALLBACK) {
+    if (!secret || secret === "fallback_secret") {
       throw new JwtConfigError();
     }
     return secret;
   }
-  return secret || INSECURE_JWT_FALLBACK;
+  if (typeof secret === "string" && secret.length > 0) {
+    return secret;
+  }
+  return "fallback_secret";
 }
 
 export function verifyJwtToken(token: string, secret: string): { id: string; email: string } {

@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
+import { preflightResponse } from "../../../../../lib/cors";
 import mongoose from "mongoose";
 import connectToDatabase from "../../../../../lib/db";
 import { verifyAuth } from "../../../../../lib/auth";
+import StudentProfile from "../../../../../models/StudentProfile";
 import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
 import PublishedProfileRevision from "../../../../../models/PublishedProfileRevision";
 import { toPublicProfileDTO, computeSnapshotChecksum } from "../../../../../lib/public-profile-dto";
-import { hasPublishableContent, loadWebsiteSource } from "../../../../../lib/domain-profile/website-source";
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { status: 200 });
+export function OPTIONS(req: Request) {
+  return preflightResponse(req.headers.get("origin"));
 }
 
 /* =========================================================================
@@ -27,12 +28,10 @@ export async function POST(req: Request) {
     await connectToDatabase();
 
     // 1. Load canonical profile and website configuration
-    const [websiteSource, config] = await Promise.all([
-      loadWebsiteSource(auth.user),
+    const [profile, config] = await Promise.all([
+      StudentProfile.findOne({ userId: auth.user._id }),
       UserWebsiteConfig.findOne({ userId: auth.user._id }),
     ]);
-    const isStudent = !websiteSource || websiteSource.identity === "student";
-    const profile = websiteSource ? websiteSource.source : null;
 
     // 2. Validate configuration existence and username claim
     if (!config || !config.username) {
@@ -48,17 +47,14 @@ export async function POST(req: Request) {
       );
     }
 
-    // 3. Validate identity profile existence
+    // 3. Validate student profile existence
     if (!profile) {
-      const studentAccount = !auth.user.identity || auth.user.identity === "student";
       return NextResponse.json(
         {
           success: false,
-          message: studentAccount
-            ? "Cannot publish: No student profile record found. Please populate and save your profile first."
-            : "Cannot publish: No identity profile record found. Please populate and save your profile first.",
+          message: "Cannot publish: No student profile record found. Please populate and save your profile first.",
           errors: {
-            profile: studentAccount ? "Student profile record is missing." : "Identity profile record is missing.",
+            profile: "Student profile record is missing.",
           },
         },
         { status: 400 }
@@ -66,8 +62,7 @@ export async function POST(req: Request) {
     }
 
     // 4. Validate minimum publication requirements
-    const preferredName = typeof profile.preferredName === "string" ? profile.preferredName : "";
-    const displayName = preferredName.trim() || (auth.user.name || "").trim();
+    const displayName = (profile.preferredName || "").trim() || (auth.user.name || "").trim();
     if (!displayName) {
       return NextResponse.json(
         {
@@ -81,30 +76,20 @@ export async function POST(req: Request) {
       );
     }
 
-    const studentDoc = profile as {
-      headline?: string;
-      bio?: string;
-      education?: unknown[];
-      projects?: unknown[];
-      skills?: unknown[];
-    };
-    const hasContent = isStudent
-      ? Boolean(
-          (studentDoc.headline && studentDoc.headline.trim()) ||
-            (studentDoc.bio && studentDoc.bio.trim()) ||
-            (Array.isArray(studentDoc.education) && studentDoc.education.length > 0) ||
-            (Array.isArray(studentDoc.projects) && studentDoc.projects.length > 0) ||
-            (Array.isArray(studentDoc.skills) && studentDoc.skills.length > 0)
-        )
-      : hasPublishableContent(profile);
+    const hasContent = Boolean(
+      (profile.headline && profile.headline.trim()) ||
+        (profile.bio && profile.bio.trim()) ||
+        (Array.isArray(profile.education) && profile.education.length > 0) ||
+        (Array.isArray(profile.projects) && profile.projects.length > 0) ||
+        (Array.isArray(profile.skills) && profile.skills.length > 0)
+    );
 
     if (!hasContent) {
       return NextResponse.json(
         {
           success: false,
-          message: isStudent
-            ? "Publication validation failed: Profile must contain at least a headline, bio, education, project, or skill before publishing."
-            : "Publication validation failed: Add a headline, bio, or at least one profile section before publishing.",
+          message:
+            "Publication validation failed: Profile must contain at least a headline, bio, education, project, or skill before publishing.",
           errors: {
             content: "At least one identity section must contain saved information.",
           },

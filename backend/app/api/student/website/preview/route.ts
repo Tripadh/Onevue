@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
+import { preflightResponse } from "../../../../../lib/cors";
 import connectToDatabase from "../../../../../lib/db";
 import { verifyAuth } from "../../../../../lib/auth";
+import StudentProfile from "../../../../../models/StudentProfile";
 import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
 import { toPublicProfileDTO } from "../../../../../lib/public-profile-dto";
-import { loadWebsiteSource } from "../../../../../lib/domain-profile/website-source";
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { status: 200 });
+export function OPTIONS(req: Request) {
+  return preflightResponse(req.headers.get("origin"));
 }
 
 /* =========================================================================
@@ -23,29 +24,23 @@ export async function GET(req: Request) {
 
     await connectToDatabase();
 
-    const [websiteSource, config] = await Promise.all([
-      loadWebsiteSource(auth.user),
+    const [profile, config] = await Promise.all([
+      StudentProfile.findOne({ userId: auth.user._id }),
       UserWebsiteConfig.findOne({ userId: auth.user._id }),
     ]);
 
-    if (!websiteSource) {
-      const isStudent = !auth.user.identity || auth.user.identity === "student";
+    if (!profile) {
       return NextResponse.json(
         {
           success: false,
-          message: isStudent
-            ? "Student identity profile has not yet been initialized. Please save your profile first."
-            : "Your identity profile has not been saved yet. Please save your profile first.",
+          message: "Student identity profile has not yet been initialized. Please save your profile first.",
           errors: {
-            profile: isStudent
-              ? "No student profile found for this account."
-              : "No identity profile found for this account.",
+            profile: "No student profile found for this account.",
           },
         },
         { status: 400 }
       );
     }
-    const profile = websiteSource.source;
 
     // Fallback username for preview if student hasn't claimed a website username yet
     const resolvedUsername =

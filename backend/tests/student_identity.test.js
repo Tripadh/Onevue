@@ -1,6 +1,6 @@
 /**
  * OneVue — Student Identity Comprehensive Regression Test Suite
- * 
+ *
  * Tests:
  * 1. Authentication and ownership enforcement
  * 2. Private email separation (contacts.email !== login email)
@@ -33,13 +33,18 @@ require.extensions['.ts'] = function(module, filename) {
 };
 
 const mongoose = require(path.join(projectRoot, 'node_modules', 'mongoose'));
-const jwt = require(path.join(projectRoot, 'node_modules', 'jsonwebtoken'));
 
-const envFile = fs.readFileSync(path.join(projectRoot, '.env.local'), 'utf8');
-const match = envFile.match(/MONGODB_URI="([^"]+)"/);
-const uri = match[1];
-const jwtMatch = envFile.match(/JWT_SECRET="([^"]+)"/);
-const jwtSecret = jwtMatch ? jwtMatch[1] : 'fallback_secret';
+// Next.js loads .env, .env.local, and .env.development* with its own parser.
+// A quoted-only regex misses unquoted values and crashes before any test runs.
+const { loadEnvConfig } = require(path.join(projectRoot, 'node_modules', '@next', 'env'));
+const { combinedEnv } = loadEnvConfig(projectRoot, true, { info() {}, error() {} });
+const uri = combinedEnv.MONGODB_URI || process.env.MONGODB_URI;
+const jwtSecret = combinedEnv.JWT_SECRET || process.env.JWT_SECRET || 'fallback_secret';
+if (!uri) {
+  throw new Error('MONGODB_URI is not set. Define it in backend/.env.local.');
+}
+process.env.MONGODB_URI = uri;
+process.env.JWT_SECRET = jwtSecret;
 
 let User, StudentProfile;
 

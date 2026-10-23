@@ -1,6 +1,6 @@
 /**
  * OneVue Student Identity — Database Integrity Check & Migration Utility
- * 
+ *
  * Usage:
  *   node backend/scripts/integrity_and_migration.js --check
  *   node backend/scripts/integrity_and_migration.js --dry-run

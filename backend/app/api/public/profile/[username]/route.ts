@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
+import { preflightResponse } from "../../../../../lib/cors";
 import connectToDatabase from "../../../../../lib/db";
 import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
 import PublishedProfileRevision from "../../../../../models/PublishedProfileRevision";
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { status: 200 });
+export function OPTIONS(req: Request) {
+  return preflightResponse(req.headers.get("origin"));
 }
 
 /* =========================================================================
@@ -89,10 +90,6 @@ export async function GET(
             themeMode: "system",
             visibleSections: ["about", "education", "projects", "skills", "achievements", "contact"],
           },
-        },
-        analytics: {
-          resourceId: String(config._id),
-          resourceType: "portfolio",
         },
       },
       { status: 200 }
