@@ -13,6 +13,8 @@ import FreelancerProfile from "../../models/FreelancerProfile";
 import CreatorProfile from "../../models/CreatorProfile";
 import BusinessProfile from "../../models/BusinessProfile";
 import { projectPublicDomainProfile } from "./public-projection";
+import { deliveryPath } from "../storage/asset-refs";
+import { isAssetId } from "../storage/keys";
 
 type Row = Record<string, unknown>;
 
@@ -66,6 +68,112 @@ function toPlain(doc: unknown): Row | null {
 
 function str(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+interface Delivery {
+  mode: "publish" | "preview";
+  ownerId: string;
+}
+
+function assetUrl(assetId: unknown, delivery: Delivery): string {
+  const id = str(assetId);
+  if (!isAssetId(id) || !/^[a-f0-9]{24}$/i.test(delivery.ownerId)) return "";
+  return deliveryPath(id, delivery.ownerId, delivery.mode);
+}
+
+function addMedia(source: Row, id: string, title: string, url: string, mediaType = "image") {
+  if (!url) return;
+  const media = rows(source.media);
+  media.push({
+    id,
+    title: title || "Portfolio file",
+    mediaUrl: url,
+    mediaType,
+    category: "project",
+    visibility: "public",
+  });
+  source.media = media;
+}
+
+function attachUploadedMedia(projected: Row, source: Row, delivery: Delivery) {
+  const media = rows(source.media);
+  rows(projected.workSamples).forEach((sample) => {
+    const url = assetUrl(sample.assetId, delivery);
+    if (!url) return;
+    const existing = media.find((item) => str(item.mediaUrl) === str(sample.url) || str(item.title) === str(sample.title));
+    if (existing) existing.mediaUrl = url;
+    else {
+      media.push({
+        id: `sample_${str(sample.assetId)}`,
+        title: str(sample.title) || "Work sample",
+        mediaUrl: url,
+        mediaType: "image",
+        category: "work-sample",
+        visibility: "public",
+      });
+    }
+  });
+  if (media.length) source.media = media;
+  rows(projected.portfolio).forEach((item, idx) => {
+    addMedia(source, `portfolio_${idx}_${str(item.assetId)}`, str(item.title) || "Portfolio image", assetUrl(item.assetId, delivery));
+  });
+  rows(projected.featuredContent).forEach((item, idx) => {
+    addMedia(source, `featured_${idx}_${str(item.assetId)}`, str(item.title) || "Featured image", assetUrl(item.assetId, delivery));
+  });
+  rows(projected.products).forEach((item, idx) => {
+    addMedia(source, `product_${idx}_${str(item.assetId)}`, str(item.name) || "Product image", assetUrl(item.assetId, delivery));
+  });
+  rows(projected.caseStudies).forEach((item, idx) => {
+    addMedia(source, `case_${idx}_${str(item.assetId)}`, str(item.title) || "Case study image", assetUrl(item.assetId, delivery));
+  });
+  addMedia(source, "media_kit", "Media kit", assetUrl(block(projected.mediaKit).assetId, delivery), "document");
+  const logo = assetUrl(block(projected.branding).assetId, delivery);
+  if (logo) source.profilePhoto = logo;
+}
+
+function presentStudent(plain: Row, delivery: Delivery): Row {
+  const copy: Row = { ...plain };
+  const projects = rows(copy.projects).map((project) => ({ ...project }));
+  const media = rows(copy.media).map((item) => ({ ...item }));
+  projects.forEach((project, idx) => {
+    const url = assetUrl(project.assetId, delivery);
+    if (url) {
+      media.push({
+        id: `project_asset_${idx}`,
+        title: str(project.title) || "Project image",
+        mediaUrl: url,
+        mediaType: "image",
+        category: "project",
+        visibility: "public",
+      });
+    }
+    delete project.assetId;
+  });
+  for (const item of media) {
+    const url = assetUrl(item.assetId, delivery);
+    if (url && item.visibility !== "private") item.mediaUrl = url;
+    delete item.assetId;
+  }
+  copy.projects = projects;
+  copy.media = media;
+  if (copy.resume && typeof copy.resume === "object") {
+    const resume = { ...(copy.resume as Row) };
+    delete resume.assetId;
+    delete resume.storageKey;
+    copy.resume = resume;
+  }
+  copy.achievements = rows(copy.achievements).map((item) => {
+    const next = { ...item };
+    delete next.assetId;
+    delete next.evidenceStorageKey;
+    return next;
+  });
+  copy.credentials = rows(copy.credentials).map((item) => {
+    const next = { ...item };
+    delete next.assetId;
+    return next;
+  });
+  return copy;
 }
 
 function rows(value: unknown): Row[] {
@@ -168,7 +276,30 @@ function professionalSource(p: Row): Row {
         liveUrl: str(item.url),
         technologies: [],
       })),
-    achievements: experience,
+    achievements: [
+      ...experience,
+      ...rows(p.achievements)
+        .filter((item) => str(item.title))
+        .map((item, idx) => ({
+          id: rowId(item, "achievement", idx),
+          title: str(item.title),
+          category: "other",
+          organization: str(item.organization),
+          date: str(item.date),
+          description: str(item.description),
+          proofUrl: str(item.evidenceUrl),
+        })),
+    ],
+    links: rows(p.socialLinks)
+      .filter((item) => str(item.url))
+      .map((item, idx) => ({
+        id: rowId(item, "social", idx),
+        platform: str(item.platform),
+        url: str(item.url),
+        username: str(item.label),
+        category: "social",
+        visibility: "public",
+      })),
     contacts: {
       email: str(contact.email),
       phone: str(contact.phone),
@@ -183,13 +314,21 @@ function freelancerSource(p: Row): Row {
   const contact = block(p.contact);
   const services = rows(p.services)
     .filter((s) => str(s.name))
-    .map((s, idx) => ({
-      id: rowId(s, "service", idx),
-      title: str(s.name),
-      shortDescription: str(s.description),
-      projectType: "service",
-      technologies: [],
-    }));
+    .map((s, idx) => {
+      const packageLines = rows(s.packages)
+        .filter((pkg) => str(pkg.name))
+        .map((pkg) => {
+          const price = typeof pkg.price === "number" ? `${str(pkg.currency)} ${pkg.price}`.trim() : "";
+          return ["Package: " + str(pkg.name), price, str(pkg.description)].filter(Boolean).join(" — ");
+        });
+      return {
+        id: rowId(s, "service", idx),
+        title: str(s.name),
+        shortDescription: [str(s.description), ...packageLines].filter(Boolean).join("\n"),
+        projectType: "service",
+        technologies: [],
+      };
+    });
   const portfolio = rows(p.portfolio)
     .filter((item) => str(item.title))
     .map((item, idx) => ({
@@ -211,9 +350,24 @@ function freelancerSource(p: Row): Row {
     headline: str(p.headline),
     bio: str(p.bio),
     currentStatus: str(p.availability),
-    careerInterests: str(p.specialization) ? [str(p.specialization)] : [],
+    careerInterests: [str(p.specialization), ...strings(p.engagementTypes)].filter(Boolean),
     skills: [...mapSkills(p.skills, "Skills"), ...technologies],
-    projects: [...services, ...portfolio],
+    projects: [
+      ...services,
+      ...portfolio,
+      ...rows(p.workExperience)
+        .filter((job) => str(job.company) || str(job.jobTitle))
+        .map((job, idx) => ({
+          id: rowId(job, "work", idx),
+          title: [str(job.jobTitle), str(job.company)].filter(Boolean).join(" at "),
+          shortDescription: [str(job.description), ...strings(job.responsibilities)].filter(Boolean).join("\n"),
+          role: str(job.jobTitle),
+          startDate: str(job.startDate),
+          endDate: job.isCurrent ? "" : str(job.endDate),
+          projectType: "freelance",
+          technologies: [],
+        })),
+    ],
     achievements: rows(p.testimonials)
       .filter((t) => str(t.quote))
       .map((t, idx) => ({
@@ -248,7 +402,8 @@ function creatorSource(p: Row): Row {
   const partnershipPublic = visibility.partnershipEmail === "public" && str(contact.partnershipEmail);
   const publicEmail = visibility.email === "public" ? str(contact.email) : "";
   return {
-    headline: str(p.niche),
+    preferredName: str(p.displayName) || undefined,
+    headline: str(p.headline) || str(p.niche),
     bio: str(p.bio),
     careerInterests: strings(p.contentCategories),
     areasOfInterest: strings(p.contentFormats),
@@ -257,13 +412,27 @@ function creatorSource(p: Row): Row {
       .map((f, idx) => ({
         id: rowId(f, "content", idx),
         title: str(f.title),
-        shortDescription: str(f.summary),
+        shortDescription: [str(f.summary), str(f.thumbnailUrl) ? "Thumbnail: " + str(f.thumbnailUrl) : ""].filter(Boolean).join("\n"),
         projectType: str(f.format),
         liveUrl: str(f.url),
         startDate: str(f.publishedAt),
         technologies: str(f.category) ? [str(f.category)] : [],
       })),
-    achievements: rows(p.audienceStats)
+    achievements: [
+      ...rows(p.pastCollaborations)
+        .filter((item) => str(item.organization))
+        .map((item, idx) => ({
+          id: rowId(item, "collab", idx),
+          title: str(item.title) || str(item.organization),
+          category: "other",
+          organization: str(item.organization),
+          date: str(item.date),
+          description: [str(item.description), str(item.outcome) ? "Self-reported outcome: " + str(item.outcome) : ""]
+            .filter(Boolean)
+            .join("\n"),
+          proofUrl: str(item.url),
+        })),
+      ...rows(p.audienceStats)
       .filter((s) => str(s.platform) && typeof s.value === "number")
       .map((s, idx) => ({
         id: rowId(s, "audience", idx),
@@ -272,6 +441,7 @@ function creatorSource(p: Row): Row {
         date: str(s.measuredAt),
         description: str(s.verificationStatus) === "verified" ? "Verified" : "Self-reported",
       })),
+    ],
     links: rows(p.channels)
       .filter((c) => str(c.url))
       .map((c, idx) => ({
@@ -294,19 +464,26 @@ function businessSource(p: Row): Row {
   const contact = block(p.publicContact);
   const location = block(p.location);
   const branding = block(p.branding);
-  const asProject = (projectType: string, prefix: string) => (item: Row, idx: number) => ({
-    id: rowId(item, prefix, idx),
-    title: str(item.name) || str(item.title),
-    shortDescription: str(item.description) || str(item.summary),
-    liveUrl: str(item.url),
-    projectType,
-    technologies: [],
-  });
+  const asProject = (projectType: string, prefix: string) => (item: Row, idx: number) => {
+    const price = typeof item.price === "number" ? [str(item.currency), String(item.price)].filter(Boolean).join(" ") : "";
+    return {
+      id: rowId(item, prefix, idx),
+      title: str(item.name) || str(item.title),
+      shortDescription: [str(item.description) || str(item.summary), price, str(item.imageUrl) ? "Image: " + str(item.imageUrl) : ""].filter(Boolean).join("\n"),
+      liveUrl: str(item.url),
+      projectType,
+      technologies: [],
+    };
+  };
   const headlineParts = [str(p.industry), str(p.organizationType).replace(/_/g, " ")].filter(Boolean);
+  const founded = typeof p.foundedYear === "number" ? "Founded " + String(p.foundedYear) : "";
+  const customers = strings(p.targetCustomers);
   return {
     preferredName: str(p.businessName),
-    headline: headlineParts.join(" · "),
-    bio: [str(p.description), str(p.mission)].filter(Boolean).join("\n\n"),
+    headline: str(p.tagline) || headlineParts.join(" · "),
+    bio: [str(p.description), str(p.mission), founded, str(p.businessModel).replace(/_/g, " "), customers.length ? "Customers: " + customers.join(", ") : ""]
+      .filter(Boolean)
+      .join("\n\n"),
     profilePhoto: str(branding.logoUrl),
     city: str(location.city) || str(contact.city),
     state: str(location.state),
@@ -316,6 +493,19 @@ function businessSource(p: Row): Row {
       ...rows(p.services).filter((i) => str(i.name)).map(asProject("service", "service")),
       ...rows(p.caseStudies).filter((i) => str(i.title)).map(asProject("case-study", "case")),
     ],
+    credentials: rows(p.credentials)
+      .filter((item) => str(item.title))
+      .map((item, idx) => ({
+        id: rowId(item, "credential", idx),
+        title: str(item.title),
+        credentialType: str(item.recordType) === "award" ? "other" : "certification",
+        issuer: str(item.issuer),
+        issueDate: str(item.issueDate),
+        expirationDate: str(item.expirationDate),
+        credentialUrl: str(item.evidenceUrl),
+        description: str(item.description),
+        verificationStatus: str(item.verificationStatus) || "self-reported",
+      })),
     achievements: rows(p.team)
       .filter((m) => str(m.name))
       .map((m, idx) => ({
@@ -350,27 +540,46 @@ const MAPPERS: Record<DomainIdentity, (profile: Row) => Row> = {
 };
 
 /** Maps a stored domain profile into the StudentProfile-shaped record used by toPublicProfileDTO. */
-export function domainProfileToPublicSource(identity: DomainIdentity, profile: unknown): Row {
-  const projected = projectPublicDomainProfile(toPlain(profile) || {});
-  return MAPPERS[identity](projected);
+export function domainProfileToPublicSource(
+  identity: DomainIdentity,
+  profile: unknown,
+  options?: { mode?: "publish" | "preview"; ownerId?: string }
+): Row {
+  const plain = toPlain(profile) || {};
+  const delivery: Delivery = {
+    mode: options?.mode === "preview" ? "preview" : "publish",
+    ownerId: options?.ownerId || str(plain.userId),
+  };
+  const projected = projectPublicDomainProfile(plain);
+  const source = MAPPERS[identity](projected);
+  attachUploadedMedia(projected, source, delivery);
+  return source;
 }
 
 /** Loads the record a user publishes from, or null when the user has not saved a profile yet. */
-export async function loadWebsiteSource(user: SourceUser): Promise<WebsiteSource | null> {
+export async function loadWebsiteSource(
+  user: SourceUser,
+  options?: { mode?: "publish" | "preview" }
+): Promise<WebsiteSource | null> {
   const identity = user.identity || "student";
+  const delivery = { mode: options?.mode === "preview" ? "preview" as const : "publish" as const, ownerId: String(user._id) };
   if (isDomainIdentity(identity)) {
     const doc = toPlain(await asLookup(DOMAIN_MODELS[identity]).findOne({ userId: user._id }));
     if (!doc) return null;
     return {
       identity,
-      source: domainProfileToPublicSource(identity, doc),
+      source: domainProfileToPublicSource(identity, doc, delivery),
       updatedAt: doc.updatedAt as Date | string | undefined,
     };
   }
   const studentDoc = await asLookup(StudentProfile).findOne({ userId: user._id });
   if (!studentDoc) return null;
   const plain = toPlain(studentDoc) || {};
-  return { identity: "student", source: studentDoc as Row, updatedAt: plain.updatedAt as Date | string | undefined };
+  return {
+    identity: "student",
+    source: presentStudent(plain, delivery),
+    updatedAt: plain.updatedAt as Date | string | undefined,
+  };
 }
 
 /** True when the source has at least one section a public website can show. */
@@ -422,11 +631,11 @@ export async function loadCardSeedFields(user: SourceUser): Promise<CardSeedFiel
       return { headline: pick(p.headline), institution: pick(p.specialization), phone: pick(contact.phone) };
     }
     case "creator":
-      return { headline: pick(p.niche, p.bio), institution: pick(strings(p.contentCategories)[0]) };
+      return { headline: pick(p.headline, p.niche, p.bio), institution: pick(strings(p.contentCategories)[0]) };
     case "business": {
       const contact = block(p.publicContact);
       return {
-        headline: pick(p.industry, p.description),
+        headline: pick(p.tagline, p.industry, p.description),
         institution: pick(p.businessName),
         phone: pick(contact.phone),
       };

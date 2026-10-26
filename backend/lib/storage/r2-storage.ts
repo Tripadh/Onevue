@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import {
   ProfilePhotoStorage,
@@ -13,13 +14,15 @@ import {
 import {
   validateProfilePhotoImage,
   detectImageMimeType,
+  detectPdf,
 } from "./validation";
+import { assertSafeObjectKey } from "./keys";
+import { ObjectHead, ObjectPutInput } from "./types";
 
 export class R2StorageProvider implements ProfilePhotoStorage {
   readonly providerName = "r2" as const;
   private readonly client: S3Client;
   private readonly bucketName: string;
-  private readonly publicBaseUrl?: string;
 
   constructor() {
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -42,7 +45,6 @@ export class R2StorageProvider implements ProfilePhotoStorage {
     }
 
     this.bucketName = bucketName!;
-    this.publicBaseUrl = process.env.CLOUDFLARE_R2_PUBLIC_URL?.replace(/\/+$/, "");
 
     this.client = new S3Client({
       region: "auto",
@@ -51,6 +53,9 @@ export class R2StorageProvider implements ProfilePhotoStorage {
         accessKeyId: accessKeyId!,
         secretAccessKey: secretAccessKey!,
       },
+      // R2 rejects the default flexible checksums added in recent AWS SDK releases.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
     });
   }
 
@@ -91,11 +96,7 @@ export class R2StorageProvider implements ProfilePhotoStorage {
   }
 
   public resolveUrl(key: string): string {
-    if (this.publicBaseUrl) {
-      const trimmedKey = key.replace(/^\/+/, "");
-      return `${this.publicBaseUrl}/${trimmedKey}`;
-    }
-    // If no dedicated public domain or worker is configured, fall back to Next.js route proxy
+    // The bucket stays private. Profile photos are served by the app, never by a public R2 URL.
     return `/api/profile/photo/${encodeURIComponent(key)}`;
   }
 
@@ -135,6 +136,73 @@ export class R2StorageProvider implements ProfilePhotoStorage {
       };
     } catch (err: any) {
       if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  private assertObjectKey(key: string): string {
+    assertSafeObjectKey(key);
+    return key;
+  }
+
+  public async putObject(input: ObjectPutInput): Promise<void> {
+    const key = this.assertObjectKey(input.key);
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucketName,
+        Key: key,
+        Body: input.body,
+        ContentType: input.contentType,
+        Metadata: input.metadata,
+      })
+    );
+  }
+
+  public async getObject(key: string): Promise<ProfilePhotoReadResult | null> {
+    try {
+      const safeKey = this.assertObjectKey(key);
+      const response = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucketName, Key: safeKey })
+      );
+      if (!response.Body) return null;
+      const byteArray = await response.Body.transformToByteArray();
+      const buffer = Buffer.from(byteArray);
+      const contentType =
+        response.ContentType ||
+        detectImageMimeType(buffer) ||
+        (detectPdf(buffer) ? "application/pdf" : "application/octet-stream");
+      return { buffer, contentType };
+    } catch (err: unknown) {
+      const error = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+      if (error.name === "NoSuchKey" || error.name === "NotFound" || error.$metadata?.httpStatusCode === 404) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  public async deleteObject(key: string): Promise<boolean> {
+    const safeKey = this.assertObjectKey(key);
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucketName, Key: safeKey }));
+    return true;
+  }
+
+  public async headObject(key: string): Promise<ObjectHead | null> {
+    try {
+      const safeKey = this.assertObjectKey(key);
+      const response = await this.client.send(
+        new HeadObjectCommand({ Bucket: this.bucketName, Key: safeKey })
+      );
+      return {
+        contentType: response.ContentType || "application/octet-stream",
+        size: Number(response.ContentLength || 0),
+        etag: response.ETag,
+      };
+    } catch (err: unknown) {
+      const error = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+      if (error.name === "NoSuchKey" || error.name === "NotFound" || error.$metadata?.httpStatusCode === 404) {
         return null;
       }
       throw err;

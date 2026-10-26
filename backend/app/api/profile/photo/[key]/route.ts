@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getProfilePhotoStorage } from "../../../../../lib/storage";
+import { isAllowedProfilePhotoKey, isServableLegacyPhoto } from "../../../../../lib/storage/legacy-photo";
 
 export async function OPTIONS() {
   return NextResponse.json({}, { status: 200 });
@@ -20,23 +21,36 @@ export async function GET(
       );
     }
 
-    const decodedKey = decodeURIComponent(rawKey);
+    let decodedKey = "";
+    try {
+      decodedKey = decodeURIComponent(rawKey);
+    } catch {
+      return NextResponse.json({ message: "Invalid image identifier." }, { status: 400 });
+    }
 
-    // Basic defense against obvious traversal characters before passing to storage provider
-    if (
-      decodedKey.includes("..") ||
-      decodedKey.includes("/") ||
-      decodedKey.includes("\\") ||
-      decodedKey.includes("\0")
-    ) {
+    if (!isAllowedProfilePhotoKey(decodedKey)) {
       return NextResponse.json(
         { message: "Invalid image identifier." },
         { status: 400 }
       );
     }
 
+    const referenced = await isServableLegacyPhoto(decodedKey);
+    if (!referenced) {
+      return NextResponse.json({ message: "Profile photo not found." }, { status: 404 });
+    }
+
     const storage = getProfilePhotoStorage();
-    const result = await storage.read(decodedKey);
+    let result: { buffer: Buffer; contentType: string } | null = null;
+    try {
+      result = await storage.read(decodedKey);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "";
+      if (/invalid storage key|traversal/i.test(message)) {
+        return NextResponse.json({ message: "Profile photo not found." }, { status: 404 });
+      }
+      throw error;
+    }
 
     if (!result) {
       return NextResponse.json(

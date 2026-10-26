@@ -1,3 +1,5 @@
+import { isAssetPurpose, PURPOSE_POLICIES } from "./purposes";
+
 export const MAX_PROFILE_PHOTO_SIZE = 2 * 1024 * 1024; // 2 MB
 
 export const ALLOWED_MIME_TYPES = [
@@ -112,4 +114,75 @@ export function validateProfilePhotoImage(
     mimeType: detectedMime,
     extension: getExtensionForMimeType(detectedMime),
   };
+}
+
+export function detectPdf(buffer: Buffer): boolean {
+  if (!buffer || buffer.length < 5) return false;
+  return buffer.subarray(0, 5).toString("ascii") === "%PDF-";
+}
+
+export function extensionForMime(mimeType: string): string {
+  switch (mimeType) {
+    case "image/jpeg":
+      return "jpg";
+    case "image/png":
+      return "png";
+    case "image/webp":
+      return "webp";
+    case "application/pdf":
+      return "pdf";
+    default:
+      return "";
+  }
+}
+
+export interface AssetValidationSuccess {
+  valid: true;
+  mimeType: string;
+  extension: string;
+}
+
+export function validateAssetContent(
+  buffer: Buffer,
+  purpose: string,
+  clientMimeType?: string
+): AssetValidationSuccess | ValidationFailure {
+  if (!isAssetPurpose(purpose)) {
+    return { valid: false, error: "Unsupported asset purpose." };
+  }
+  const policy = PURPOSE_POLICIES[purpose];
+  if (!buffer || buffer.length === 0) {
+    return { valid: false, error: "File is empty or missing." };
+  }
+  if (buffer.length > policy.maxBytes) {
+    const limitMb = (policy.maxBytes / (1024 * 1024)).toFixed(0);
+    return {
+      valid: false,
+      error: `File exceeds the ${limitMb} MB limit for ${purpose}.`,
+    };
+  }
+
+  let detected: string | null = detectImageMimeType(buffer);
+  if (!detected && detectPdf(buffer)) detected = "application/pdf";
+  if (!detected || !policy.mimeTypes.includes(detected)) {
+    return {
+      valid: false,
+      error: `Unsupported file type for ${purpose}. Allowed types: ${policy.mimeTypes.join(", ")}.`,
+    };
+  }
+  if (
+    clientMimeType &&
+    policy.mimeTypes.includes(clientMimeType) &&
+    clientMimeType !== detected
+  ) {
+    return {
+      valid: false,
+      error: `File content (${detected}) does not match supplied format (${clientMimeType}).`,
+    };
+  }
+  const extension = extensionForMime(detected);
+  if (!extension) {
+    return { valid: false, error: "Unsupported file type." };
+  }
+  return { valid: true, mimeType: detected, extension };
 }

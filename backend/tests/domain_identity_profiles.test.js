@@ -8,9 +8,13 @@ const path = require("path");
 const fs = require("fs");
 
 const projectRoot = path.resolve(__dirname, "..");
-const envFile = fs.readFileSync(path.join(projectRoot, ".env.local"), "utf8");
-const uri = envFile.match(/MONGODB_URI="([^"]+)"/)[1];
-const jwtSecret = (envFile.match(/JWT_SECRET="([^"]+)"/) || [])[1] || "fallback_secret";
+const { loadEnvConfig } = require(path.join(projectRoot, "node_modules", "@next", "env"));
+const { combinedEnv } = loadEnvConfig(projectRoot, true, { info() {}, error() {} });
+const uri = combinedEnv.MONGODB_URI || process.env.MONGODB_URI;
+const jwtSecret = combinedEnv.JWT_SECRET || process.env.JWT_SECRET || "fallback_secret";
+if (!uri) {
+  throw new Error("MONGODB_URI is not set. Define it in backend/.env.local.");
+}
 
 process.env.MONGODB_URI = uri;
 process.env.JWT_SECRET = jwtSecret;
@@ -409,5 +413,200 @@ describe("Domain identity profiles", { concurrency: 1 }, () => {
       ],
     }));
     assert.equal(response.status, 400);
+  });
+
+  test("additive identity fields persist without replacing unrelated sections", async () => {
+    const websiteSource = require(path.join(projectRoot, "lib", "domain-profile", "website-source.ts"));
+
+    const professional = await makeUser("professional");
+    const savedProfessional = await routes.professional.PUT(request(professional.token, {
+      headline: "Engineer",
+      userId: professional.user._id.toString(),
+      currentEmployment: { company: "Acme", jobTitle: "Engineer", achievements: ["Role result"] },
+      achievements: [{ id: "ach_1", title: "Talk", organization: "Conf", date: "2024-04-01", evidenceUrl: "https://example.com/talk" }],
+      socialLinks: [{ id: "soc_1", platform: "GitHub", url: "https://github.com/ada", label: "Code" }],
+      contact: { linkedin: "https://www.linkedin.com/in/ada", website: "https://ada.example" },
+    }));
+    assert.equal(savedProfessional.status, 200);
+    const professionalBody = await savedProfessional.json();
+    assert.equal(professionalBody.profile.achievements[0].id, "ach_1");
+    assert.equal(professionalBody.profile.socialLinks[0].label, "Code");
+    assert.equal(String(professionalBody.profile.userId), professional.user._id.toString());
+    assert.equal(await ProfessionalProfile.countDocuments({ userId: professional.user._id }), 1);
+
+    const roleOnly = await routes.professional.PUT(request(professional.token, {
+      currentEmployment: { achievements: ["Role result", "Second"] },
+    }));
+    assert.equal(roleOnly.status, 200);
+    const professionalDoc = await ProfessionalProfile.findOne({ userId: professional.user._id });
+    assert.equal(professionalDoc.achievements[0].title, "Talk");
+    assert.deepEqual(professionalDoc.currentEmployment.achievements, ["Role result", "Second"]);
+    assert.equal(professionalDoc.socialLinks[0].url, "https://github.com/ada");
+    assert.equal(professionalDoc.contact.linkedin, "https://www.linkedin.com/in/ada");
+
+    const badLink = await routes.professional.PUT(request(professional.token, {
+      socialLinks: [{ id: "soc_2", platform: "X", url: "javascript:alert(1)" }],
+    }));
+    assert.equal(badLink.status, 400);
+    assert.equal((await ProfessionalProfile.findOne({ userId: professional.user._id })).socialLinks.length, 1);
+
+    const legacyProfessional = await routes.professional.PUT(request(professional.token, { headline: "Still valid" }));
+    assert.equal(legacyProfessional.status, 200);
+
+    const emptyProfessional = websiteSource.domainProfileToPublicSource("professional", {
+      headline: "Engineer",
+      currentEmployment: { jobTitle: "Engineer", company: "Acme" },
+    });
+    assert.deepEqual(emptyProfessional.achievements.map((item) => item.title), ["Engineer at Acme"]);
+    assert.deepEqual(emptyProfessional.links, []);
+    const fullProfessional = websiteSource.domainProfileToPublicSource("professional", professionalDoc.toObject());
+    assert.ok(fullProfessional.achievements.some((item) => item.title === "Talk"));
+    assert.equal(fullProfessional.links[0].url, "https://github.com/ada");
+
+    const freelancer = await makeUser("freelancer");
+    const savedFreelancer = await routes.freelancer.PUT(request(freelancer.token, {
+      availability: "limited",
+      engagementTypes: ["hourly", "retainer"],
+      services: [{
+        id: "svc_1",
+        name: "Audit",
+        pricingModel: "hourly",
+        currency: "USD",
+        rateMin: 50,
+        rateMax: 90,
+        packages: [{ id: "pkg_1", name: "Starter", price: 400, currency: "USD", features: ["Report"] }],
+      }],
+      workExperience: [{ id: "job_1", company: "Acme", jobTitle: "Designer", startDate: "2022-01-01", isCurrent: true }],
+    }));
+    assert.equal(savedFreelancer.status, 200);
+    const freelancerBody = await savedFreelancer.json();
+    assert.deepEqual(freelancerBody.profile.engagementTypes, ["hourly", "retainer"]);
+    assert.equal(freelancerBody.profile.services[0].packages[0].price, 400);
+    assert.equal(freelancerBody.profile.availability, "limited");
+
+    const keptPackage = await routes.freelancer.PUT(request(freelancer.token, {
+      services: [{ id: "svc_1", name: "Audit renamed" }],
+    }));
+    assert.equal(keptPackage.status, 200);
+    const freelancerDoc = await FreelancerProfile.findOne({ userId: freelancer.user._id });
+    assert.equal(freelancerDoc.services[0].name, "Audit renamed");
+    assert.equal(freelancerDoc.services[0].packages[0].id, "pkg_1");
+    assert.equal(freelancerDoc.services[0].rateMin, 50);
+    assert.equal(freelancerDoc.workExperience[0].company, "Acme");
+    assert.equal(freelancerDoc.availability, "limited");
+
+    const badEngagement = await routes.freelancer.PUT(request(freelancer.token, { engagementTypes: ["forever"] }));
+    assert.equal(badEngagement.status, 400);
+    const badExperience = await routes.freelancer.PUT(request(freelancer.token, {
+      workExperience: [{ id: "job_2", company: "Acme", jobTitle: "Lead", startDate: "2024-02-01", endDate: "2024-01-01" }],
+    }));
+    assert.equal(badExperience.status, 400);
+    const currentWithEnd = await routes.freelancer.PUT(request(freelancer.token, {
+      workExperience: [{ id: "job_2", company: "Acme", jobTitle: "Lead", isCurrent: true, endDate: "2024-06-01" }],
+    }));
+    assert.equal(currentWithEnd.status, 400);
+    const packageWithoutCurrency = await routes.freelancer.PUT(request(freelancer.token, {
+      services: [{ id: "svc_1", name: "Audit renamed", packages: [{ id: "pkg_2", name: "Quoted", price: 10 }] }],
+    }));
+    assert.equal(packageWithoutCurrency.status, 400);
+    assert.equal((await FreelancerProfile.findOne({ userId: freelancer.user._id })).services[0].packages[0].id, "pkg_1");
+
+    const creator = await makeUser("creator");
+    const savedCreator = await routes.creator.PUT(request(creator.token, {
+      displayName: "Ada Essays",
+      headline: "Long-form reporting",
+      niche: "Writing",
+      bio: "Original bio",
+      collaboration: { openToCollab: true, preferences: "Editorial", brandSafetyNotes: "No politics" },
+      featuredContent: [{ id: "feat_1", title: "Film", url: "https://video.example/film", thumbnailUrl: "https://cdn.example/film.jpg" }],
+      pastCollaborations: [{ id: "col_1", organization: "Northwind", title: "Spring drop", outcome: "Self-reported launch" }],
+    }));
+    assert.equal(savedCreator.status, 200);
+    const creatorBody = await savedCreator.json();
+    assert.equal(creatorBody.profile.displayName, "Ada Essays");
+    assert.equal(creatorBody.profile.featuredContent[0].thumbnailUrl, "https://cdn.example/film.jpg");
+    assert.equal(creatorBody.profile.collaboration.openToCollab, true);
+
+    const preferencesOnly = await routes.creator.PUT(request(creator.token, {
+      collaboration: { preferences: "Updated preferences" },
+    }));
+    assert.equal(preferencesOnly.status, 200);
+    const creatorDoc = await CreatorProfile.findOne({ userId: creator.user._id });
+    assert.equal(creatorDoc.displayName, "Ada Essays");
+    assert.equal(creatorDoc.niche, "Writing");
+    assert.equal(creatorDoc.collaboration.openToCollab, true);
+    assert.equal(creatorDoc.collaboration.preferences, "Updated preferences");
+    assert.equal(creatorDoc.collaboration.brandSafetyNotes, "No politics");
+    assert.equal(creatorDoc.pastCollaborations[0].organization, "Northwind");
+
+    const badThumb = await routes.creator.PUT(request(creator.token, {
+      featuredContent: [{ id: "feat_1", title: "Film", url: "https://video.example/film", thumbnailUrl: "javascript:alert(1)" }],
+    }));
+    assert.equal(badThumb.status, 400);
+    const oldFeatured = await routes.creator.PUT(request(creator.token, {
+      featuredContent: [{ id: "feat_2", title: "Essay", url: "https://ada.example/essay" }],
+    }));
+    assert.equal(oldFeatured.status, 200);
+    const creatorSource = websiteSource.domainProfileToPublicSource("creator", { niche: "Writing", bio: "Original bio" });
+    assert.equal(creatorSource.headline, "Writing");
+    assert.equal(creatorSource.preferredName, undefined);
+
+    const business = await makeUser("business");
+    const savedBusiness = await routes.business.PUT(request(business.token, {
+      businessName: "Northwind",
+      mission: "Make useful tools",
+      tagline: "Tools for studios",
+      foundedYear: 2014,
+      businessModel: "b2b",
+      targetCustomers: ["Studios"],
+      products: [{ id: "prod_1", name: "Lamp", description: "A lamp", price: 80, currency: "USD", imageUrl: "https://cdn.example/lamp.jpg" }],
+      credentials: [{ id: "cred_1", recordType: "award", title: "Design prize", issuer: "Museum", issueDate: "2023-01-01" }],
+      registration: { registrationNumber: "REG-SECRET" },
+    }));
+    assert.equal(savedBusiness.status, 200);
+    const businessBody = await savedBusiness.json();
+    assert.equal(businessBody.profile.credentials[0].verificationStatus, "self-reported");
+    assert.equal(businessBody.profile.foundedYear, 2014);
+    assert.equal(businessBody.profile.mission, "Make useful tools");
+
+    const missionOnly = await routes.business.PUT(request(business.token, { mission: "Updated mission" }));
+    assert.equal(missionOnly.status, 200);
+    const businessDoc = await BusinessProfile.findOne({ userId: business.user._id });
+    assert.equal(businessDoc.mission, "Updated mission");
+    assert.equal(businessDoc.tagline, "Tools for studios");
+    assert.equal(businessDoc.foundedYear, 2014);
+    assert.equal(businessDoc.products[0].price, 80);
+    assert.equal(businessDoc.registration.registrationNumber, "REG-SECRET");
+
+    const futureYear = await routes.business.PUT(request(business.token, { foundedYear: 2999 }));
+    assert.equal(futureYear.status, 400);
+    const quoteProduct = await routes.business.PUT(request(business.token, {
+      products: [{ id: "prod_2", name: "Custom", description: "Quoted on request" }],
+    }));
+    assert.equal(quoteProduct.status, 200);
+    const pricedWithoutCurrency = await routes.business.PUT(request(business.token, {
+      products: [{ id: "prod_3", name: "Chair", price: 20 }],
+    }));
+    assert.equal(pricedWithoutCurrency.status, 400);
+    const spoofedCredential = await routes.business.PUT(request(business.token, {
+      credentials: [{ id: "cred_2", title: "ISO", verificationStatus: "verified" }],
+    }));
+    assert.equal(spoofedCredential.status, 400);
+    assert.equal((await BusinessProfile.findOne({ userId: business.user._id })).credentials[0].verificationStatus, "self-reported");
+    assert.equal((await BusinessProfile.findOne({ userId: business.user._id })).foundedYear, 2014);
+
+    const oldBusiness = websiteSource.domainProfileToPublicSource("business", {
+      businessName: "Northwind",
+      industry: "Design",
+      organizationType: "studio",
+      mission: "Make useful tools",
+    });
+    assert.equal(oldBusiness.headline.includes("Tools for studios"), false);
+    assert.equal(oldBusiness.credentials.length, 0);
+    const newBusiness = websiteSource.domainProfileToPublicSource("business", businessDoc.toObject());
+    assert.equal(newBusiness.headline, "Tools for studios");
+    assert.match(newBusiness.bio, /2014/);
+    assert.equal(newBusiness.credentials[0].credentialType, "other");
+    assert.match(newBusiness.projects[0].shortDescription, /Image: https:\/\/cdn.example\/lamp.jpg/);
   });
 });

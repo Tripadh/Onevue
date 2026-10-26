@@ -1,7 +1,7 @@
 /* =========================================================================
    Business Identity Page
    ========================================================================= */
-function BusinessIdentityPage({ onSaved }) {
+function BusinessIdentityPage({ session, onSaved }) {
   return (
     <div style={{ display: 'grid', gap: 24 }}>
       <div>
@@ -12,7 +12,7 @@ function BusinessIdentityPage({ onSaved }) {
         </p>
       </div>
 
-      <IdentityProfileEditor identity="business" onSaved={onSaved} />
+      <IdentityProfileEditor identity="business" session={session} onSaved={onSaved} />
     </div>
   );
 }

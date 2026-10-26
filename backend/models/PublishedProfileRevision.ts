@@ -15,6 +15,8 @@ export interface IPublishedProfileRevision {
   snapshot: PublicProfileDTO_v1;
   checksum: string;
   publishedAt: Date;
+  publicAssetIds?: string[];
+  legacyPhotoKeys?: string[];
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -62,6 +64,14 @@ const PublishedProfileRevisionSchema = new Schema(
       type: Date,
       default: Date.now,
       index: true,
+    },
+    publicAssetIds: {
+      type: [{ type: String, match: /^ast_[a-f0-9]{24}$/ }],
+      default: [],
+    },
+    legacyPhotoKeys: {
+      type: [String],
+      default: [],
     },
   },
   {

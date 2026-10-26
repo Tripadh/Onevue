@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { preflightResponse } from "../../../../../lib/cors";
 import connectToDatabase from "../../../../../lib/db";
 import { verifyAuth } from "../../../../../lib/auth";
-import StudentProfile from "../../../../../models/StudentProfile";
 import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
 import { toPublicProfileDTO } from "../../../../../lib/public-profile-dto";
+import { loadWebsiteSource } from "../../../../../lib/domain-profile/website-source";
 
 export function OPTIONS(req: Request) {
   return preflightResponse(req.headers.get("origin"));
@@ -24,23 +24,30 @@ export async function GET(req: Request) {
 
     await connectToDatabase();
 
-    const [profile, config] = await Promise.all([
-      StudentProfile.findOne({ userId: auth.user._id }),
+    const [website, config] = await Promise.all([
+      loadWebsiteSource(auth.user, { mode: "preview" }),
       UserWebsiteConfig.findOne({ userId: auth.user._id }),
     ]);
 
-    if (!profile) {
+    if (!website) {
+      const domainIdentity = auth.user.identity && auth.user.identity !== "student";
       return NextResponse.json(
         {
           success: false,
-          message: "Student identity profile has not yet been initialized. Please save your profile first.",
+          message: domainIdentity
+            ? "Identity profile has not yet been initialized. Please save your profile first."
+            : "Student identity profile has not yet been initialized. Please save your profile first.",
           errors: {
-            profile: "No student profile found for this account.",
+            profile: domainIdentity
+              ? "No identity profile found for this account."
+              : "No student profile found for this account.",
           },
         },
         { status: 400 }
       );
     }
+
+    const profile = website.source;
 
     // Fallback username for preview if student hasn't claimed a website username yet
     const resolvedUsername =

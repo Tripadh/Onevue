@@ -9,16 +9,22 @@ import {
 import {
   validateProfilePhotoImage,
   detectImageMimeType,
+  detectPdf,
 } from "./validation";
+import { assertSafeObjectKey } from "./keys";
+import { ObjectHead, ObjectPutInput } from "./types";
 
 export class LocalStorageProvider implements ProfilePhotoStorage {
   readonly providerName = "local" as const;
   private readonly storageDir: string;
+  private readonly objectRoot: string;
 
-  constructor(customStorageDir?: string) {
+  constructor(customStorageDir?: string, customObjectRoot?: string) {
     this.storageDir =
       customStorageDir ||
       path.resolve(process.cwd(), "storage", "profile-photos");
+    this.objectRoot =
+      customObjectRoot || path.resolve(process.cwd(), "storage", "objects");
 
     // Ensure the storage directory exists
     try {
@@ -122,6 +128,85 @@ export class LocalStorageProvider implements ProfilePhotoStorage {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         return null;
       }
+      throw err;
+    }
+  }
+
+  private resolveObjectFile(key: string): string {
+    assertSafeObjectKey(key);
+    const resolved = path.resolve(this.objectRoot, ...key.split("/"));
+    const root = path.resolve(this.objectRoot);
+    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+      throw new Error("Invalid object key.");
+    }
+    return resolved;
+  }
+
+  private async ensureObjectRoot(): Promise<void> {
+    await fs.promises.mkdir(this.objectRoot, { recursive: true });
+  }
+
+  public async putObject(input: ObjectPutInput): Promise<void> {
+    const filePath = this.resolveObjectFile(input.key);
+    await this.ensureObjectRoot();
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.promises.writeFile(filePath, input.body);
+    await fs.promises.writeFile(
+      `${filePath}.meta.json`,
+      JSON.stringify({ contentType: input.contentType, size: input.body.length })
+    );
+  }
+
+  public async getObject(key: string): Promise<ProfilePhotoReadResult | null> {
+    try {
+      const filePath = this.resolveObjectFile(key);
+      const buffer = await fs.promises.readFile(filePath);
+      let contentType = "application/octet-stream";
+      try {
+        const meta = JSON.parse(await fs.promises.readFile(`${filePath}.meta.json`, "utf8")) as {
+          contentType?: string;
+        };
+        if (meta.contentType) contentType = meta.contentType;
+      } catch {
+        contentType = detectImageMimeType(buffer) || (detectPdf(buffer) ? "application/pdf" : contentType);
+      }
+      return { buffer, contentType };
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw err;
+    }
+  }
+
+  public async deleteObject(key: string): Promise<boolean> {
+    try {
+      const filePath = this.resolveObjectFile(key);
+      await fs.promises.unlink(filePath);
+      await fs.promises.unlink(`${filePath}.meta.json`).catch((err: NodeJS.ErrnoException) => {
+        if (err.code !== "ENOENT") throw err;
+      });
+      return true;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw err;
+    }
+  }
+
+  public async headObject(key: string): Promise<ObjectHead | null> {
+    try {
+      const filePath = this.resolveObjectFile(key);
+      const stat = await fs.promises.stat(filePath);
+      let contentType = "application/octet-stream";
+      try {
+        const meta = JSON.parse(await fs.promises.readFile(`${filePath}.meta.json`, "utf8")) as {
+          contentType?: string;
+        };
+        if (meta.contentType) contentType = meta.contentType;
+      } catch {
+        contentType = "application/octet-stream";
+      }
+      return { contentType, size: stat.size };
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw err;
     }
   }

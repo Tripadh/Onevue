@@ -33,6 +33,11 @@ export interface IUser {
   password?: string;
   name: string;
   identity?: IdentityType;
+  username?: string | null;
+  bio?: string | null;
+  location?: string | null;
+  profilePhotoKey?: string | null;
+  profilePhotoUpdatedAt?: Date | null;
   onboarding?: IOnboarding;
   createdAt?: Date;
   updatedAt?: Date;
@@ -116,6 +121,17 @@ const UserSchema = new Schema(
       lowercase: true,
       trim: true,
     },
+    username: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      maxlength: 30,
+      default: undefined,
+    },
+    bio: { type: String, trim: true, maxlength: 500, default: "" },
+    location: { type: String, trim: true, maxlength: 100, default: "" },
+    profilePhotoKey: { type: String, default: null },
+    profilePhotoUpdatedAt: { type: Date, default: null },
     onboarding: {
       type: OnboardingSchema,
       default: () => ({ surveyCompleted: false, survey: null }),
@@ -126,7 +142,10 @@ const UserSchema = new Schema(
   }
 );
 
-if (models.User && !models.User.schema.paths["onboarding.surveyCompleted"]) {
+if (
+  models.User &&
+  (!models.User.schema.paths["onboarding.surveyCompleted"] || !models.User.schema.paths.profilePhotoKey)
+) {
   delete (models as Record<string, unknown>).User;
 }
 

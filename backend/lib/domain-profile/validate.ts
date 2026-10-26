@@ -156,6 +156,14 @@ function sanitizeScalar(spec: ScalarField, value: unknown, path: string): unknow
       }
       return trimmed;
     }
+    case "assetId": {
+      const trimmed = asTrimmedString(value, path);
+      if (!trimmed) return "";
+      if (!/^ast_[a-f0-9]{24}$/.test(trimmed)) {
+        throw new ProfileValidationError(`Field '${path}' is not a valid asset reference.`);
+      }
+      return trimmed;
+    }
     case "currency": {
       const trimmed = asTrimmedString(value, path).toUpperCase();
       if (!trimmed) return "";
@@ -181,6 +189,16 @@ function sanitizeScalar(spec: ScalarField, value: unknown, path: string): unknow
     case "boolean": {
       if (typeof value !== "boolean") {
         throw new ProfileValidationError(`Field '${path}' must be true or false.`);
+      }
+      return value;
+    }
+    case "year": {
+      if (typeof value !== "number" || !Number.isInteger(value)) {
+        throw new ProfileValidationError(`Field '${path}' must be a whole year.`);
+      }
+      const maxYear = new Date().getUTCFullYear();
+      if (value < spec.min || value > maxYear) {
+        throw new ProfileValidationError(`Field '${path}' must be between ${spec.min} and ${maxYear}.`);
       }
       return value;
     }
@@ -225,12 +243,15 @@ function emptyScalar(spec: ScalarField): unknown {
     case "date":
     case "hex":
     case "storageKey":
+    case "assetId":
     case "currency":
       return "";
     case "enum":
       return spec.allowEmpty ? "" : (spec.defaultValue ?? spec.values[0] ?? "");
     case "number":
       return spec.defaultValue ?? 0;
+    case "year":
+      return "";
     case "boolean":
       return spec.defaultValue ?? false;
     case "stringList":
@@ -259,6 +280,25 @@ function enforceRules(rules: RuleName[] | undefined, record: Record<string, unkn
   if (rules.includes("engagementRate")) {
     if (record.metric === "engagement_rate" && typeof record.value === "number" && record.value > 100) {
       throw new ProfileValidationError(`Field '${path}.value' cannot exceed 100 for engagement_rate.`);
+    }
+  }
+  if (rules.includes("expiryOrder")) {
+    const issued = typeof record.issueDate === "string" ? record.issueDate : "";
+    const expires = typeof record.expirationDate === "string" ? record.expirationDate : "";
+    if (issued && expires && expires < issued) {
+      throw new ProfileValidationError(`Field '${path}.expirationDate' cannot be earlier than issueDate.`);
+    }
+  }
+  if (rules.includes("priceCurrency")) {
+    const price = record.price;
+    const currency = typeof record.currency === "string" ? record.currency.trim() : "";
+    if (typeof price === "number" && !currency) {
+      throw new ProfileValidationError(`Field '${path}.currency' is required when a price is set.`);
+    }
+  }
+  if (rules.includes("currentEnd")) {
+    if (record.isCurrent === true && typeof record.endDate === "string" && record.endDate) {
+      throw new ProfileValidationError(`Field '${path}.endDate' cannot be set on a current role.`);
     }
   }
 }
@@ -386,6 +426,14 @@ function applyCollection(
 
     for (const [key, fieldSpec] of Object.entries(spec.fields)) {
       const present = Object.prototype.hasOwnProperty.call(item, key) && item[key] !== undefined;
+      if (fieldSpec.kind === "collection") {
+        if (!present) {
+          record[key] = existing && Array.isArray(existing[key]) ? existing[key] : [];
+          continue;
+        }
+        record[key] = applyCollection(existing?.[key], item[key], fieldSpec, `${itemPath}.${key}`);
+        continue;
+      }
       if (!present) {
         if (existing && existing[key] !== undefined && existing[key] !== null) {
           record[key] = existing[key];
@@ -398,7 +446,7 @@ function applyCollection(
         if ("required" in fieldSpec && fieldSpec.required) {
           throw new ProfileValidationError(`Field '${itemPath}.${key}' is required.`);
         }
-        if (fieldSpec.kind === "number") continue;
+        if (fieldSpec.kind === "number" || fieldSpec.kind === "year") continue;
         record[key] = emptyScalar(fieldSpec);
         continue;
       }

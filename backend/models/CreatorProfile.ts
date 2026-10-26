@@ -2,6 +2,7 @@ import { Schema, model, models } from "mongoose";
 import {
   AUDIENCE_METRICS,
   AUDIENCE_SOURCES,
+  COLLABORATION_TYPES,
   CONTENT_FORMATS,
   VERIFICATION_STATUSES,
 } from "../lib/domain-profile/constants";
@@ -16,6 +17,22 @@ const FeaturedSchema = new Schema(
     category: text(80),
     publishedAt: text(10),
     summary: text(1000),
+    thumbnailUrl: text(500),
+    assetId: text(32),
+  },
+  { _id: true }
+);
+
+const PastCollaborationSchema = new Schema(
+  {
+    id: stableId,
+    organization: text(150, true),
+    title: text(150),
+    description: text(2000),
+    collaborationType: { type: String, enum: [...COLLABORATION_TYPES], default: "sponsored" },
+    date: text(10),
+    url: text(500),
+    outcome: text(500),
   },
   { _id: true }
 );
@@ -48,7 +65,7 @@ const AudienceSchema = new Schema(
 );
 
 const MediaKitSchema = new Schema(
-  { summary: text(2000), kitUrl: text(500) },
+  { summary: text(2000), kitUrl: text(500), assetId: text(32) },
   { _id: false }
 );
 
@@ -87,6 +104,8 @@ const ContactSchema = new Schema(
 const CreatorProfileSchema = new Schema(
   {
     userId: userIdField,
+    displayName: text(80),
+    headline: text(200),
     bio: text(3000),
     niche: text(150),
     featuredContent: limitedArray(FeaturedSchema, 30),
@@ -112,6 +131,7 @@ const CreatorProfileSchema = new Schema(
       type: CollaborationSchema,
       default: () => ({ openToCollab: false, preferences: "", brandSafetyNotes: "" }),
     },
+    pastCollaborations: limitedArray(PastCollaborationSchema, 30),
     sponsorship: {
       type: SponsorshipSchema,
       default: () => ({ available: false, currency: "", notes: "" }),

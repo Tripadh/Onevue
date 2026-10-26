@@ -142,7 +142,7 @@ function CreatorDashboard({ session }) {
             />
           )}
           {activeNavId === 'identity' && (
-            <CreatorIdentityPage onSaved={setIdentityProfile} />
+            <CreatorIdentityPage session={session} onSaved={setIdentityProfile} />
           )}
           {activeNavId === 'visiting-card' && window.StudentVisitingCardPage && (
             <window.StudentVisitingCardPage

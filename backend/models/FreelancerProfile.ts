@@ -1,14 +1,44 @@
 import { Schema, model, models } from "mongoose";
-import { FREELANCER_AVAILABILITY, PRICING_MODELS, TESTIMONIAL_ATTRIBUTION, CONTACT_CHANNELS } from "../lib/domain-profile/constants";
+import { ENGAGEMENT_TYPES, FREELANCER_AVAILABILITY, PRICING_MODELS, TESTIMONIAL_ATTRIBUTION, CONTACT_CHANNELS } from "../lib/domain-profile/constants";
 import {
   limitedArray,
   skillSchema,
+  stringList,
   text,
   userIdField,
   visibilitySchema,
   workSampleSchema,
   stableId,
 } from "./domain/fragments";
+
+const PackageSchema = new Schema(
+  {
+    id: stableId,
+    name: text(150, true),
+    description: text(2000),
+    features: stringList(200, 20),
+    pricingModel: { type: String, enum: [...PRICING_MODELS], default: "fixed" },
+    currency: text(8),
+    price: { type: Number, min: 0, max: 10000000 },
+    deliveryDays: { type: Number, min: 0, max: 3650 },
+    revisionCount: { type: Number, min: 0, max: 100 },
+  },
+  { _id: true }
+);
+
+const WorkExperienceSchema = new Schema(
+  {
+    id: stableId,
+    company: text(150, true),
+    jobTitle: text(150, true),
+    description: text(2000),
+    responsibilities: stringList(300, 20),
+    startDate: text(10),
+    endDate: text(10),
+    isCurrent: { type: Boolean, default: false },
+  },
+  { _id: true }
+);
 
 const PortfolioSchema = new Schema(
   {
@@ -17,6 +47,7 @@ const PortfolioSchema = new Schema(
     summary: text(2000),
     url: text(500),
     outcome: text(500),
+    assetId: text(32),
   },
   { _id: true }
 );
@@ -31,6 +62,7 @@ const ServiceSchema = new Schema(
     rateMin: { type: Number, min: 0, max: 10000000 },
     rateMax: { type: Number, min: 0, max: 10000000 },
     deliveryDays: { type: Number, min: 0, max: 3650 },
+    packages: limitedArray(PackageSchema, 8),
   },
   { _id: true }
 );
@@ -67,7 +99,16 @@ const FreelancerProfileSchema = new Schema(
     bio: text(3000),
     specialization: text(150),
     availability: { type: String, enum: [...FREELANCER_AVAILABILITY], default: "available" },
+    engagementTypes: {
+      type: [{ type: String, enum: [...ENGAGEMENT_TYPES], trim: true }],
+      default: [],
+      validate: {
+        validator: (arr: unknown[]) => Array.isArray(arr) && arr.length <= 8,
+        message: "Cannot exceed 8 engagement types",
+      },
+    },
     services: limitedArray(ServiceSchema, 40),
+    workExperience: limitedArray(WorkExperienceSchema, 30),
     skills: limitedArray(skillSchema(), 60),
     technologies: {
       type: [{ type: String, trim: true, maxlength: 40 }],

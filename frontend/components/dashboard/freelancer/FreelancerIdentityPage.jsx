@@ -1,7 +1,7 @@
 /* =========================================================================
    Freelancer Identity Page
    ========================================================================= */
-function FreelancerIdentityPage({ onSaved }) {
+function FreelancerIdentityPage({ session, onSaved }) {
   return (
     <div style={{ display: 'grid', gap: 24 }}>
       <div>
@@ -12,7 +12,7 @@ function FreelancerIdentityPage({ onSaved }) {
         </p>
       </div>
 
-      <IdentityProfileEditor identity="freelancer" onSaved={onSaved} />
+      <IdentityProfileEditor identity="freelancer" session={session} onSaved={onSaved} />
     </div>
   );
 }

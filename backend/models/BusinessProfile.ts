@@ -1,10 +1,11 @@
 import { Schema, model, models } from "mongoose";
-import { ORG_TYPES, REGISTRATION_STATUSES, RESOURCE_VISIBILITY } from "../lib/domain-profile/constants";
+import { BUSINESS_MODELS, CREDENTIAL_RECORD_TYPES, ORG_TYPES, REGISTRATION_STATUSES, RESOURCE_VISIBILITY, VERIFICATION_STATUSES } from "../lib/domain-profile/constants";
 import { limitedArray, stableId, text, userIdField, visibilitySchema } from "./domain/fragments";
 
 const BrandingSchema = new Schema(
   {
     logoUrl: text(500),
+    assetId: text(32),
     primaryColor: text(7),
     guidelinesUrl: text(500),
   },
@@ -28,6 +29,30 @@ const ProductSchema = new Schema(
     name: text(150, true),
     description: text(2000),
     url: text(500),
+    price: { type: Number, min: 0, max: 10000000 },
+    currency: text(8),
+    imageUrl: text(500),
+    assetId: text(32),
+  },
+  { _id: true }
+);
+
+const CredentialSchema = new Schema(
+  {
+    id: stableId,
+    recordType: { type: String, enum: [...CREDENTIAL_RECORD_TYPES], default: "certification" },
+    title: text(150, true),
+    issuer: text(150),
+    issueDate: text(10),
+    expirationDate: text(10),
+    evidenceUrl: text(500),
+    assetId: text(32),
+    description: text(2000),
+    verificationStatus: {
+      type: String,
+      enum: [...VERIFICATION_STATUSES],
+      default: "self-reported",
+    },
   },
   { _id: true }
 );
@@ -70,6 +95,7 @@ const RegistrationSchema = new Schema(
     jurisdiction: text(120),
     issuedAt: text(10),
     documentStorageKey: text(300),
+    assetId: text(32),
     status: {
       type: String,
       enum: [...REGISTRATION_STATUSES],
@@ -85,6 +111,7 @@ const CaseStudySchema = new Schema(
     title: text(150, true),
     summary: text(2000),
     url: text(500),
+    assetId: text(32),
   },
   { _id: true }
 );
@@ -103,6 +130,7 @@ const BusinessProfileSchema = new Schema(
   {
     userId: userIdField,
     businessName: text(150),
+    tagline: text(160),
     description: text(3000),
     mission: text(2000),
     organizationType: {
@@ -112,6 +140,21 @@ const BusinessProfileSchema = new Schema(
       trim: true,
     },
     industry: text(120),
+    foundedYear: { type: Number, min: 1800, max: 2100 },
+    businessModel: {
+      type: String,
+      enum: ["", ...BUSINESS_MODELS],
+      default: "",
+      trim: true,
+    },
+    targetCustomers: {
+      type: [{ type: String, trim: true, maxlength: 80 }],
+      default: [],
+      validate: {
+        validator: (arr: unknown[]) => Array.isArray(arr) && arr.length <= 20,
+        message: "Cannot exceed 20 target customers",
+      },
+    },
     branding: { type: BrandingSchema, default: () => ({ logoUrl: "", primaryColor: "", guidelinesUrl: "" }) },
     website: text(500),
     publicContact: {
@@ -125,6 +168,7 @@ const BusinessProfileSchema = new Schema(
       }),
     },
     products: limitedArray(ProductSchema, 40),
+    credentials: limitedArray(CredentialSchema, 40),
     services: limitedArray(ServiceSchema, 40),
     team: limitedArray(TeamSchema, 50),
     location: {

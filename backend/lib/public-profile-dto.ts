@@ -207,6 +207,19 @@ export function sanitizeUrl(val: unknown): string | undefined {
   }
 }
 
+/** HTTP(S) links plus stable published asset paths and short-lived owner preview paths. */
+export function sanitizeDeliveryUrl(val: unknown): string | undefined {
+  const external = sanitizeUrl(val);
+  if (external) return external;
+  if (typeof val !== "string") return undefined;
+  const trimmed = val.trim();
+  if (/^\/api\/assets\/public\/ast_[a-f0-9]{24}$/.test(trimmed)) return trimmed;
+  if (/^\/api\/assets\/private\/ast_[a-f0-9]{24}\?exp=\d{1,12}&sig=[a-f0-9]{64}$/.test(trimmed)) {
+    return trimmed;
+  }
+  return undefined;
+}
+
 /**
  * Safe string trimmer with length capping.
  */
@@ -493,7 +506,7 @@ export function toPublicProfileDTO(
     ? raw.media
         .filter((m: any) => m && m.mediaUrl && m.visibility !== "private")
         .map((m: any, idx: number) => {
-          const safeUrl = sanitizeUrl(m.mediaUrl);
+          const safeUrl = sanitizeDeliveryUrl(m.mediaUrl);
           if (!safeUrl) return null;
           return {
             id: String(m.id || m._id || `media_${idx}`),
@@ -561,7 +574,7 @@ export function toPublicProfileDTO(
       initials,
       headline: sanitizeString(raw.headline, 200),
       bio: sanitizeString(raw.bio, 5000),
-      profilePhoto: sanitizeUrl(raw.profilePhoto),
+      profilePhoto: sanitizeDeliveryUrl(raw.profilePhoto),
       location,
       nationality: sanitizeString(raw.nationality, 80),
       currentStatus: sanitizeString(raw.currentStatus, 100),

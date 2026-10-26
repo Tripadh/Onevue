@@ -142,7 +142,7 @@ function FreelancerDashboard({ session }) {
             />
           )}
           {activeNavId === 'identity' && (
-            <FreelancerIdentityPage onSaved={setIdentityProfile} />
+            <FreelancerIdentityPage session={session} onSaved={setIdentityProfile} />
           )}
           {activeNavId === 'visiting-card' && window.StudentVisitingCardPage && (
             <window.StudentVisitingCardPage

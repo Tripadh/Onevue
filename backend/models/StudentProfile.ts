@@ -87,6 +87,7 @@ export interface IStudentProject {
   challengesSolutions?: string;
   metricsResults?: string;
   impact?: string;
+  assetId?: string;
   aiDetails?: {
     dataset?: string;
     algorithms?: string;
@@ -158,6 +159,7 @@ export interface IStudentCredential {
   credentialUrl?: string;
   verificationUrl?: string;
   certificateFile?: string;
+  assetId?: string;
   description?: string;
   relatedSkills?: string[];
   relatedCourse?: string;
@@ -200,6 +202,7 @@ export interface IStudentAchievement {
   proofUrl?: string;
   certificateUrl?: string;
   evidenceStorageKey?: string;
+  assetId?: string;
   relatedProject?: string;
   skillsDemonstrated?: string[];
   verificationStatus?: "pending" | "verified" | "rejected" | "self-reported";
@@ -207,6 +210,7 @@ export interface IStudentAchievement {
 
 export interface IStudentResumeMetadata {
   storageKey?: string;
+  assetId?: string;
   fileName?: string;
   fileSize?: number;
   contentType?: string;
@@ -234,6 +238,7 @@ export interface IStudentMediaItem {
   _id?: Schema.Types.ObjectId | string;
   id?: string;
   mediaUrl: string;
+  assetId?: string;
   mediaType: MediaType;
   title: string;
   description?: string;
@@ -486,6 +491,7 @@ const ProjectSubSchema = new Schema(
     },
     summary: { type: String, default: "", trim: true, maxlength: 1000 },
     link: { type: String, default: "", trim: true, maxlength: 500 },
+    assetId: { type: String, default: "", trim: true, maxlength: 32 },
   },
   { _id: true }
 );
@@ -592,6 +598,7 @@ const CredentialSubSchema = new Schema(
     credentialUrl: { type: String, default: "", trim: true, maxlength: 500 },
     verificationUrl: { type: String, default: "", trim: true, maxlength: 500 },
     certificateFile: { type: String, default: "", trim: true, maxlength: 500 },
+    assetId: { type: String, default: "", trim: true, maxlength: 32 },
     description: { type: String, default: "", trim: true, maxlength: 1000 },
     relatedSkills: {
       type: [{ type: String, trim: true, maxlength: 100 }],
@@ -662,6 +669,7 @@ const AchievementSubSchema = new Schema(
     proofUrl: { type: String, default: "", trim: true, maxlength: 500 },
     certificateUrl: { type: String, default: "", trim: true, maxlength: 500 },
     evidenceStorageKey: { type: String, default: "", trim: true, maxlength: 500 },
+    assetId: { type: String, default: "", trim: true, maxlength: 32 },
     relatedProject: { type: String, default: "", trim: true, maxlength: 100 },
     skillsDemonstrated: {
       type: [{ type: String, trim: true, maxlength: 100 }],
@@ -679,6 +687,7 @@ const AchievementSubSchema = new Schema(
 const ResumeMetadataSubSchema = new Schema(
   {
     storageKey: { type: String, default: "", trim: true, maxlength: 500 },
+    assetId: { type: String, default: "", trim: true, maxlength: 32 },
     fileName: { type: String, default: "", trim: true, maxlength: 255 },
     fileSize: { type: Number, default: 0, min: 0 },
     contentType: { type: String, default: "application/pdf", trim: true, maxlength: 100 },
@@ -705,6 +714,7 @@ const MediaItemSubSchema = new Schema(
       trim: true,
       maxlength: 500,
     },
+    assetId: { type: String, default: "", trim: true, maxlength: 32 },
     mediaType: {
       type: String,
       enum: ["image", "video", "pdf", "presentation", "document", "external_media"],

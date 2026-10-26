@@ -1,7 +1,7 @@
 /* =========================================================================
    Creator Identity Page
    ========================================================================= */
-function CreatorIdentityPage({ onSaved }) {
+function CreatorIdentityPage({ session, onSaved }) {
   return (
     <div style={{ display: 'grid', gap: 24 }}>
       <div>
@@ -12,7 +12,7 @@ function CreatorIdentityPage({ onSaved }) {
         </p>
       </div>
 
-      <IdentityProfileEditor identity="creator" onSaved={onSaved} />
+      <IdentityProfileEditor identity="creator" session={session} onSaved={onSaved} />
     </div>
   );
 }

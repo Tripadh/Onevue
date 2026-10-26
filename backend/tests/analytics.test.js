@@ -48,9 +48,13 @@ describe("analytics pure helpers", () => {
   });
 });
 
-const envFile = fs.readFileSync(path.join(projectRoot, ".env.local"), "utf8");
-const uri = envFile.match(/MONGODB_URI="([^"]+)"/)[1];
-const jwtSecret = (envFile.match(/JWT_SECRET="([^"]+)"/) || [])[1] || "fallback_secret";
+const { loadEnvConfig } = require(path.join(projectRoot, "node_modules", "@next", "env"));
+const { combinedEnv } = loadEnvConfig(projectRoot, true, { info() {}, error() {} });
+const uri = combinedEnv.MONGODB_URI || process.env.MONGODB_URI;
+const jwtSecret = combinedEnv.JWT_SECRET || process.env.JWT_SECRET || "fallback_secret";
+if (!uri) {
+  throw new Error("MONGODB_URI is not set. Define it in backend/.env.local.");
+}
 process.env.MONGODB_URI = uri;
 process.env.JWT_SECRET = jwtSecret;
 process.env.ANALYTICS_HASH_SECRET = "analytics-test-secret";

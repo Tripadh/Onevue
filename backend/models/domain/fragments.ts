@@ -87,6 +87,7 @@ export function certificationSchema() {
       expirationDate: text(10),
       credentialUrl: text(500),
       credentialId: text(100),
+      assetId: text(32),
       verificationStatus: {
         type: String,
         enum: [...VERIFICATION_STATUSES],
@@ -124,6 +125,7 @@ export function portfolioSchema() {
       description: text(2000),
       url: text(500),
       role: text(120),
+      assetId: text(32),
     },
     { _id: true }
   );
@@ -146,6 +148,7 @@ export function workSampleSchema() {
       id: stableId,
       title: text(150, true),
       url: text(500, true),
+      assetId: text(32),
       mediaType: {
         type: String,
         enum: [...MEDIA_SAMPLE_TYPES],

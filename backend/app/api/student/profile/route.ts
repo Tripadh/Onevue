@@ -4,6 +4,9 @@ import * as jwtLib from "jsonwebtoken";
 import mongoose from "mongoose";
 import connectToDatabase from "../../../../lib/db";
 import { ensureStudentProfile } from "../../../../lib/ensure-student-profile";
+import { ProfileValidationError } from "../../../../lib/domain-profile/validate";
+import { assertProfileAssetRefs, type AssetBinding } from "../../../../lib/storage/asset-service";
+import type { AssetPurpose } from "../../../../lib/storage/purposes";
 import User from "../../../../models/User";
 import {
   SKILL_CATEGORIES,
@@ -16,6 +19,16 @@ import {
   IStudentMediaItem,
   IStudentPlatformLink,
 } from "../../../../models/StudentProfile";
+
+function takeAsset(value: unknown, label: string, purpose: AssetPurpose, bucket: AssetBinding[]): string {
+  if (value === undefined || value === null || value === "") return "";
+  const id = String(value).trim();
+  if (!/^ast_[a-f0-9]{24}$/.test(id)) {
+    throw new ProfileValidationError(`Field '${label}' is not a valid asset reference.`);
+  }
+  bucket.push({ assetId: id, purpose });
+  return id;
+}
 
 function json(req: Request, body: unknown, init?: { status?: number }) {
   return applyCorsHeaders(NextResponse.json(body, init), req.headers.get("origin"));
@@ -210,6 +223,7 @@ function serializeProfile(profile: any, isOwner: boolean) {
   // Filter internal storage key from public or non-owner responses
   if (!isOwner && obj.resume) {
     delete obj.resume.storageKey;
+    delete obj.resume.assetId;
   }
 
   // Filter sensitive fields if not owner
@@ -326,6 +340,8 @@ export async function PUT(req: Request) {
         { status: 403 }
       );
     }
+
+    const attachedAssets: AssetBinding[] = [];
 
     // Reject multiple resumes attempt
     if (body.resumes !== undefined) {
@@ -661,6 +677,7 @@ export async function PUT(req: Request) {
           } : undefined,
           summary: String(item.summary || item.shortDescription || "").trim(),
           link: link || liveUrl || repoUrl,
+          assetId: takeAsset(item.assetId, `projects[${i}].assetId`, "portfolio-image", attachedAssets),
         });
       }
 
@@ -811,6 +828,7 @@ export async function PUT(req: Request) {
           credentialUrl: String(item.credentialUrl || "").trim(),
           verificationUrl: nextUrl,
           certificateFile: String(item.certificateFile || "").trim(),
+          assetId: takeAsset(item.assetId, `credentials[${i}].assetId`, "certificate", attachedAssets),
           description: String(item.description || "").trim(),
           relatedSkills: Array.isArray(item.relatedSkills) ? item.relatedSkills : [],
           relatedCourse: String(item.relatedCourse || "").trim(),
@@ -898,6 +916,7 @@ export async function PUT(req: Request) {
           proofUrl: String(item.proofUrl || "").trim(),
           certificateUrl: String(item.certificateUrl || "").trim(),
           evidenceStorageKey: String(item.evidenceStorageKey || "").trim(),
+          assetId: takeAsset(item.assetId, `achievements[${i}].assetId`, "evidence", attachedAssets),
           relatedProject: String(item.relatedProject || "").trim(),
           skillsDemonstrated: Array.isArray(item.skillsDemonstrated) ? item.skillsDemonstrated : [],
           verificationStatus: existingVerification as any,
@@ -938,6 +957,9 @@ export async function PUT(req: Request) {
       }
       if (r.storageKey !== undefined) {
         profile.resume.storageKey = String(r.storageKey || "").trim();
+      }
+      if (r.assetId !== undefined) {
+        profile.resume.assetId = takeAsset(r.assetId, "resume.assetId", "resume", attachedAssets);
       }
       if (r.contentType !== undefined) {
         const ct = String(r.contentType || "application/pdf").trim();
@@ -1042,6 +1064,7 @@ export async function PUT(req: Request) {
           ...(item._id ? { _id: item._id } : {}),
           id: item.id ? String(item.id) : undefined,
           mediaUrl,
+          assetId: takeAsset(item.assetId, `media[${i}].assetId`, "portfolio-media", attachedAssets),
           mediaType: (mType as any) || "image",
           title,
           description: String(item.description || "").trim(),
@@ -1196,6 +1219,8 @@ export async function PUT(req: Request) {
       if (c.portfolio !== undefined) profile.contacts.portfolio = String(c.portfolio || "").trim();
     }
 
+    await assertProfileAssetRefs(String(user._id), attachedAssets);
+
     // Save with Mongoose validation enabled
     await profile.save();
 
@@ -1210,6 +1235,10 @@ export async function PUT(req: Request) {
       { status: 200 }
     );
   } catch (error: unknown) {
+    if (error instanceof ProfileValidationError || (error instanceof Error && error.name === "ProfileValidationError")) {
+      const status = error instanceof ProfileValidationError ? error.status : 400;
+      return json(req, { message: error.message }, { status });
+    }
     if (error instanceof mongoose.Error.ValidationError) {
       return json(req,
         { message: "Validation error: " + error.message, details: error.errors },

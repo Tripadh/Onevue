@@ -6,15 +6,40 @@ import {
   limitedArray,
   portfolioSchema,
   skillSchema,
+  stableId,
   text,
   userIdField,
   visibilitySchema,
 } from "./domain/fragments";
 
+const AchievementSchema = new Schema(
+  {
+    id: stableId,
+    title: text(150, true),
+    description: text(2000),
+    organization: text(150),
+    date: text(10),
+    evidenceUrl: text(500),
+    assetId: text(32),
+  },
+  { _id: true }
+);
+
+const SocialLinkSchema = new Schema(
+  {
+    id: stableId,
+    platform: text(80, true),
+    url: text(500, true),
+    label: text(80),
+  },
+  { _id: true }
+);
+
 const ResumeSchema = new Schema(
   {
     fileName: text(255),
     storageKey: text(300),
+    assetId: text(32),
     contentType: {
       type: String,
       enum: ["", "application/pdf"],
@@ -64,6 +89,8 @@ const ProfessionalProfileSchema = new Schema(
     certifications: limitedArray(certificationSchema(), 30),
     education: limitedArray(educationSchema(), 20),
     portfolio: limitedArray(portfolioSchema(), 30),
+    achievements: limitedArray(AchievementSchema, 40),
+    socialLinks: limitedArray(SocialLinkSchema, 20),
     resume: {
       type: ResumeSchema,
       default: () => ({

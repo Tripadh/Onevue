@@ -1,6 +1,13 @@
 export type DomainIdentity = "professional" | "freelancer" | "creator" | "business";
 
-export type RuleName = "dateOrder" | "rateOrder" | "engagementRate" | "touchUploadedAt";
+export type RuleName =
+  | "dateOrder"
+  | "rateOrder"
+  | "engagementRate"
+  | "touchUploadedAt"
+  | "expiryOrder"
+  | "priceCurrency"
+  | "currentEnd";
 
 export interface ManagedField {
   key: string;
@@ -23,6 +30,7 @@ export type ScalarField =
   | { kind: "date"; required?: boolean }
   | { kind: "hex" }
   | { kind: "storageKey" }
+  | { kind: "assetId" }
   | { kind: "currency" }
   | {
       kind: "number";
@@ -33,7 +41,8 @@ export type ScalarField =
       defaultValue?: number;
     }
   | { kind: "boolean"; defaultValue?: boolean }
-  | { kind: "stringList"; maxItems: number; itemMax: number; enumValues?: readonly string[] };
+  | { kind: "stringList"; maxItems: number; itemMax: number; enumValues?: readonly string[] }
+  | { kind: "year"; min: number };
 
 export interface ObjectField {
   kind: "object";
@@ -45,7 +54,7 @@ export interface ObjectField {
 export interface CollectionField {
   kind: "collection";
   maxItems: number;
-  fields: Record<string, ScalarField>;
+  fields: Record<string, ScalarField | CollectionField>;
   managed?: ManagedField[];
   rules?: RuleName[];
 }

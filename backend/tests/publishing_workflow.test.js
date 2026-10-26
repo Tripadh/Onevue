@@ -446,6 +446,20 @@ describe("OneVue Phase 3 — Publishing, Preview & Revision Workflow", () => {
     assert.equal(rawDump.includes("hashed_password"), false);
   });
 
+  test("4.3 Public profile exposes the portfolio analytics resource without the owner id", async () => {
+    const config = await UserWebsiteConfig.findOne({ userId: user1._id });
+    const res = await publicProfileRoute.GET(new Request(`http://localhost:3000/api/public/profile/${username1}`), {
+      params: Promise.resolve({ username: username1 }),
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.analytics.resourceId, String(config._id));
+    assert.equal(data.analytics.resourceType, "portfolio");
+    const rawDump = JSON.stringify(data);
+    assert.equal(rawDump.includes(String(user1._id)), false);
+    assert.equal(rawDump.includes("objectKey"), false);
+  });
+
   /* =========================================================================
      5. Rollback Tests
      ========================================================================= */

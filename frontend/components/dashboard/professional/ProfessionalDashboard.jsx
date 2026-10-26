@@ -142,7 +142,7 @@ function ProfessionalDashboard({ session }) {
             />
           )}
           {activeNavId === 'identity' && (
-            <ProfessionalIdentityPage onSaved={setIdentityProfile} />
+            <ProfessionalIdentityPage session={session} onSaved={setIdentityProfile} />
           )}
           {activeNavId === 'visiting-card' && window.StudentVisitingCardPage && (
             <window.StudentVisitingCardPage

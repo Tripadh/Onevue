@@ -71,3 +71,26 @@ export const MEDIA_SAMPLE_TYPES = ["image", "video", "pdf", "audio", "link", "ot
 export const REGISTRATION_STATUSES = ["self-reported", "pending", "verified", "rejected"] as const;
 
 export const RESUME_CONTENT_TYPES = ["application/pdf"] as const;
+
+export const ENGAGEMENT_TYPES = ["fixed_price", "hourly", "contract", "retainer", "long_term"] as const;
+
+export const COLLABORATION_TYPES = [
+  "sponsored",
+  "affiliate",
+  "guest",
+  "co_creation",
+  "licensing",
+  "other",
+] as const;
+
+export const BUSINESS_MODELS = [
+  "b2b",
+  "b2c",
+  "b2b2c",
+  "marketplace",
+  "subscription",
+  "services",
+  "other",
+] as const;
+
+export const CREDENTIAL_RECORD_TYPES = ["certification", "award"] as const;

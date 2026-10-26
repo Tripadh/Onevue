@@ -3,10 +3,27 @@ import { preflightResponse } from "../../../../../lib/cors";
 import mongoose from "mongoose";
 import connectToDatabase from "../../../../../lib/db";
 import { verifyAuth } from "../../../../../lib/auth";
-import StudentProfile from "../../../../../models/StudentProfile";
 import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
 import PublishedProfileRevision from "../../../../../models/PublishedProfileRevision";
 import { toPublicProfileDTO, computeSnapshotChecksum } from "../../../../../lib/public-profile-dto";
+import { loadWebsiteSource } from "../../../../../lib/domain-profile/website-source";
+import { collectPublicAssetIds } from "../../../../../lib/storage/asset-refs";
+import { isAllowedProfilePhotoKey } from "../../../../../lib/storage/legacy-photo";
+
+function collectLegacyPhotoKeys(snapshotText: string): string[] {
+  const found = new Set<string>();
+  const pattern = /\/api\/profile\/photo\/([^"\\\s]+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(snapshotText))) {
+    try {
+      const key = decodeURIComponent(match[1]);
+      if (isAllowedProfilePhotoKey(key)) found.add(key);
+    } catch {
+      continue;
+    }
+  }
+  return [...found];
+}
 
 export function OPTIONS(req: Request) {
   return preflightResponse(req.headers.get("origin"));
@@ -27,11 +44,22 @@ export async function POST(req: Request) {
 
     await connectToDatabase();
 
-    // 1. Load canonical profile and website configuration
-    const [profile, config] = await Promise.all([
-      StudentProfile.findOne({ userId: auth.user._id }),
+    // 1. Load the signed-in user's own identity profile and website configuration.
+    //    The request body is ignored so a client cannot select another profile.
+    const [website, config] = await Promise.all([
+      loadWebsiteSource(auth.user),
       UserWebsiteConfig.findOne({ userId: auth.user._id }),
     ]);
+    const profile = website
+      ? (website.source as {
+          preferredName?: string;
+          headline?: string;
+          bio?: string;
+          education?: unknown;
+          projects?: unknown;
+          skills?: unknown;
+        })
+      : null;
 
     // 2. Validate configuration existence and username claim
     if (!config || !config.username) {
@@ -47,14 +75,17 @@ export async function POST(req: Request) {
       );
     }
 
-    // 3. Validate student profile existence
+    // 3. Validate profile existence for the authenticated identity
     if (!profile) {
+      const domainIdentity = auth.user.identity && auth.user.identity !== "student";
       return NextResponse.json(
         {
           success: false,
-          message: "Cannot publish: No student profile record found. Please populate and save your profile first.",
+          message: domainIdentity
+            ? "Cannot publish: No identity profile record found. Please populate and save your profile first."
+            : "Cannot publish: No student profile record found. Please populate and save your profile first.",
           errors: {
-            profile: "Student profile record is missing.",
+            profile: domainIdentity ? "Identity profile record is missing." : "Student profile record is missing.",
           },
         },
         { status: 400 }
@@ -111,8 +142,21 @@ export async function POST(req: Request) {
       user: { name: auth.user.name },
     });
 
+    const snapshotText = JSON.stringify(dto);
+    if (snapshotText.includes("/api/assets/private/")) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Publication refused because the snapshot included a private file reference.",
+        },
+        { status: 500 }
+      );
+    }
+
     // 6. Compute deterministic SHA-256 checksum
     const checksum = computeSnapshotChecksum(dto);
+    const publicAssetIds = collectPublicAssetIds(dto);
+    const legacyPhotoKeys = collectLegacyPhotoKeys(snapshotText);
 
     // 7. Atomic revision creation & pointer activation
     // Determine if MongoDB replica set transactions are supported in this runtime
@@ -147,6 +191,8 @@ export async function POST(req: Request) {
         snapshot: dto,
         checksum,
         publishedAt,
+        publicAssetIds,
+        legacyPhotoKeys,
       });
 
       await revision.save({ session: session || undefined });

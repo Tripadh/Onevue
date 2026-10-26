@@ -91,6 +91,10 @@ export async function GET(
             visibleSections: ["about", "education", "projects", "skills", "achievements", "contact"],
           },
         },
+        analytics: {
+          resourceId: String(config._id),
+          resourceType: "portfolio",
+        },
       },
       { status: 200 }
     );

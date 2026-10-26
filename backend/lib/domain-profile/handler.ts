@@ -5,6 +5,7 @@ import User, { IdentityType } from "../../models/User";
 import { isJwtConfigError, resolveJwtSecret, verifyJwtToken } from "../auth";
 import type { DomainContract } from "./types";
 import { buildDomainUpdate, ProfileValidationError } from "./validate";
+import { assertProfileAssetRefs, collectAssetBindings } from "../storage/asset-service";
 
 interface ProfileDocument {
   toObject: (options?: { versionKey?: boolean }) => Record<string, unknown>;
@@ -206,6 +207,7 @@ export function createDomainProfileHandlers(
       const profile = await ensureDomainProfile(Model, authResult.user._id);
       const existing = profile.toObject({ versionKey: false }) as Record<string, unknown>;
       const $set = buildDomainUpdate(existing, body, contract, authResult.user._id);
+      await assertProfileAssetRefs(String(authResult.user._id), collectAssetBindings($set));
       let updated: ProfileDocument = profile;
       if (Object.keys($set).length > 0) {
         const saved = await Model.findOneAndUpdate(

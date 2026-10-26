@@ -5,6 +5,7 @@ import {
   validateProfilePhotoImage,
   MAX_PROFILE_PHOTO_SIZE,
 } from "../../../../lib/storage";
+import { legacyPhotoRetained } from "../../../../lib/storage/legacy-photo";
 
 export async function OPTIONS() {
   return NextResponse.json({}, { status: 200 });
@@ -85,7 +86,7 @@ export async function POST(req: Request) {
     await user.save();
 
     // 3. Clean up the superseded previous photo if it exists
-    if (oldKey && oldKey !== uploadResult.key) {
+    if (oldKey && oldKey !== uploadResult.key && !(await legacyPhotoRetained(oldKey))) {
       try {
         await storage.delete(oldKey);
       } catch (cleanupErr) {
@@ -139,11 +140,13 @@ export async function DELETE(req: Request) {
     await user.save();
 
     // 2. Remove file from storage
-    const storage = getProfilePhotoStorage();
-    try {
-      await storage.delete(oldKey);
-    } catch (cleanupErr) {
-      console.warn(`Could not delete storage file ${oldKey}:`, cleanupErr);
+    if (!(await legacyPhotoRetained(oldKey))) {
+      const storage = getProfilePhotoStorage();
+      try {
+        await storage.delete(oldKey);
+      } catch (cleanupErr) {
+        console.warn(`Could not delete storage file ${oldKey}:`, cleanupErr);
+      }
     }
 
     return NextResponse.json(

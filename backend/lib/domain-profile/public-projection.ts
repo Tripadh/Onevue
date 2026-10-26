@@ -23,6 +23,18 @@ function stripSensitive(value: unknown): void {
   for (const child of Object.values(record)) stripSensitive(child);
 }
 
+function stripPrivateAssetIds(copy: Record<string, unknown>) {
+  for (const key of ["achievements", "credentials", "certifications"]) {
+    if (!Array.isArray(copy[key])) continue;
+    for (const row of copy[key]) {
+      if (row && typeof row === "object") delete (row as Record<string, unknown>).assetId;
+    }
+  }
+  if (copy.registration && typeof copy.registration === "object") {
+    delete (copy.registration as Record<string, unknown>).assetId;
+  }
+}
+
 function hidePrivateContact(contact: unknown) {
   if (!contact || typeof contact !== "object") return;
   const block = contact as Record<string, unknown>;
@@ -41,6 +53,7 @@ export function projectPublicDomainProfile(profile: unknown): Record<string, unk
   }
   const copy = JSON.parse(JSON.stringify(profile)) as Record<string, unknown>;
   stripSensitive(copy);
+  stripPrivateAssetIds(copy);
   delete copy.userId;
   delete copy.resume;
   hidePrivateContact(copy.contact);

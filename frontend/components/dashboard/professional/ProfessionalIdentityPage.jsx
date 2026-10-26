@@ -1,7 +1,7 @@
 /* =========================================================================
    Professional Identity Page
    ========================================================================= */
-function ProfessionalIdentityPage({ onSaved }) {
+function ProfessionalIdentityPage({ session, onSaved }) {
   return (
     <div style={{ display: 'grid', gap: 24 }}>
       <div>
@@ -12,7 +12,7 @@ function ProfessionalIdentityPage({ onSaved }) {
         </p>
       </div>
 
-      <IdentityProfileEditor identity="professional" onSaved={onSaved} />
+      <IdentityProfileEditor identity="professional" session={session} onSaved={onSaved} />
     </div>
   );
 }

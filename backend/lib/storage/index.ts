@@ -9,8 +9,23 @@ export * from "./r2-storage";
 
 let cachedStorageInstance: ProfilePhotoStorage | null = null;
 
-export function getProfilePhotoStorage(): ProfilePhotoStorage {
+function selectedProvider(): "local" | "r2" {
   const provider = (process.env.PROFILE_PHOTO_STORAGE || "local").toLowerCase().trim();
+  if (provider !== "local" && provider !== "r2") {
+    throw new Error(
+      `Unsupported PROFILE_PHOTO_STORAGE configuration: '${provider}'. Supported values are 'local' or 'r2'.`
+    );
+  }
+  if (process.env.NODE_ENV === "production" && provider !== "r2") {
+    throw new Error(
+      "Production storage requires PROFILE_PHOTO_STORAGE=r2 and Cloudflare R2 credentials. Refusing to use local disk storage in production."
+    );
+  }
+  return provider;
+}
+
+export function getProfilePhotoStorage(): ProfilePhotoStorage {
+  const provider = selectedProvider();
 
   // If already instantiated for the same provider, reuse instance
   if (cachedStorageInstance && cachedStorageInstance.providerName === provider) {
@@ -22,12 +37,11 @@ export function getProfilePhotoStorage(): ProfilePhotoStorage {
     return cachedStorageInstance;
   }
 
-  if (provider === "r2") {
-    cachedStorageInstance = new R2StorageProvider();
-    return cachedStorageInstance;
-  }
+  cachedStorageInstance = new R2StorageProvider();
+  return cachedStorageInstance;
+}
 
-  throw new Error(
-    `Unsupported PROFILE_PHOTO_STORAGE configuration: '${provider}'. Supported values are 'local' or 'r2'.`
-  );
+/** Same provider instance used for profile photos and general objects. */
+export function getObjectStorage(): ProfilePhotoStorage {
+  return getProfilePhotoStorage();
 }

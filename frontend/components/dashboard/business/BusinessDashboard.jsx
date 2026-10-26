@@ -142,7 +142,7 @@ function BusinessDashboard({ session }) {
             />
           )}
           {activeNavId === 'identity' && (
-            <BusinessIdentityPage onSaved={setIdentityProfile} />
+            <BusinessIdentityPage session={session} onSaved={setIdentityProfile} />
           )}
           {activeNavId === 'visiting-card' && window.StudentVisitingCardPage && (
             <window.StudentVisitingCardPage

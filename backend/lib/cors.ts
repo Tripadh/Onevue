@@ -11,7 +11,7 @@ export const ALLOWED_ORIGINS = [
 const ALLOWED_ORIGIN_SET = new Set<string>(ALLOWED_ORIGINS);
 
 export const CORS_ALLOW_METHODS = "GET, POST, PUT, DELETE, OPTIONS";
-export const CORS_ALLOW_HEADERS = "Content-Type, Authorization";
+export const CORS_ALLOW_HEADERS = "Content-Type, Authorization, Idempotency-Key";
 
 export function isAllowedOrigin(origin: string | null): origin is string {
   return typeof origin === "string" && ALLOWED_ORIGIN_SET.has(origin);
