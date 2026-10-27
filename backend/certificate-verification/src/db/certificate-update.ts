@@ -1,10 +1,12 @@
 import {
   CERTIFICATE_STATUSES,
   FAILURE_REASONS,
+  isRecipientMatch,
   type Certificate,
   type CertificateEvidence,
   type CertificateStatus,
   type FailureReason,
+  type RecipientMatch,
 } from "./certificate.js";
 import {
   CertificateRepositoryError,
@@ -162,6 +164,11 @@ export function planCertificateUpdate(
       : patch.evidence === null
         ? null
         : copyEvidence(patch.evidence);
+  const recipientMatch = recipientMatchForStatus(
+    status,
+    current.recipientMatch,
+    patch.recipientMatch,
+  );
 
   if (status === "PENDING") {
     if (patch.verifiedAt !== undefined) {
@@ -186,6 +193,7 @@ export function planCertificateUpdate(
       status: "PENDING",
       verifiedAt: null,
       failureReason: null,
+      recipientMatch,
     };
   }
 
@@ -208,6 +216,7 @@ export function planCertificateUpdate(
       status: "VERIFIED",
       verifiedAt,
       failureReason: null,
+      recipientMatch,
     };
   }
 
@@ -227,5 +236,20 @@ export function planCertificateUpdate(
     status: "UNVERIFIED",
     verifiedAt,
     failureReason: patch.failureReason,
+    recipientMatch,
   };
+}
+
+function recipientMatchForStatus(
+  status: CertificateStatus,
+  current: RecipientMatch | undefined,
+  requested: RecipientMatch | undefined,
+): RecipientMatch {
+  if (status !== "VERIFIED") {
+    return "unchecked";
+  }
+  if (isRecipientMatch(requested)) {
+    return requested;
+  }
+  return isRecipientMatch(current) ? current : "unchecked";
 }

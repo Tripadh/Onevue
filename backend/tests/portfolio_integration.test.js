@@ -38,11 +38,13 @@ if (!require.extensions[".ts"]) {
 const mongoose = require(path.join(projectRoot, "node_modules", "mongoose"));
 const jwt = require(path.join(projectRoot, "node_modules", "jsonwebtoken"));
 
-const envFile = fs.readFileSync(path.join(projectRoot, ".env.local"), "utf8");
-const matchUri = envFile.match(/MONGODB_URI="([^"]+)"/);
-const uri = matchUri[1];
-const matchJwt = envFile.match(/JWT_SECRET="([^"]+)"/);
-const jwtSecret = matchJwt ? matchJwt[1] : "fallback_secret";
+const { loadEnvConfig } = require(path.join(projectRoot, "node_modules", "@next", "env"));
+const { combinedEnv } = loadEnvConfig(projectRoot, true, { info() {}, error() {} });
+const uri = combinedEnv.MONGODB_URI || process.env.MONGODB_URI;
+const jwtSecret = combinedEnv.JWT_SECRET || process.env.JWT_SECRET || "fallback_secret";
+if (!uri) {
+  throw new Error("MONGODB_URI is not set. Define it in backend/.env.local.");
+}
 
 process.env.MONGODB_URI = uri;
 process.env.JWT_SECRET = jwtSecret;

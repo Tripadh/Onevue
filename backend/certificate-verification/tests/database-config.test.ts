@@ -1,23 +1,23 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  assertTestDatabaseUrl,
-  requireDatabaseUrl,
+  assertTestMongoUri,
+  requireMongoUri,
 } from "../src/db/database-config.js";
 
 describe("database configuration", () => {
-  it("requires a database URL and does not echo secrets", () => {
-    assert.throws(() => requireDatabaseUrl({}), /DATABASE_URL is required/);
+  it("requires a MongoDB URI and does not echo secrets", () => {
+    assert.throws(() => requireMongoUri({}), /MONGODB_URI is required/);
     assert.throws(
-      () => requireDatabaseUrl({ DATABASE_URL: "   " }),
+      () => requireMongoUri({ MONGODB_URI: "   " }),
       /will not start with in-memory storage/,
     );
 
-    const secret = "postgresql://user:s3cret-password@db.internal:5432/app";
-    assert.equal(requireDatabaseUrl({ DATABASE_URL: `  ${secret}  ` }), secret);
+    const secret = "mongodb://user:s3cret-password@db.internal:27017/onevue";
+    assert.equal(requireMongoUri({ MONGODB_URI: `  ${secret}  ` }), secret);
 
     try {
-      requireDatabaseUrl({ DATABASE_URL: "" });
+      requireMongoUri({ MONGODB_URI: "" });
     } catch (error) {
       assert.equal(error instanceof Error, true);
       if (error instanceof Error) {
@@ -29,17 +29,17 @@ describe("database configuration", () => {
 
   it("accepts only a test database name for integration tests", () => {
     assert.doesNotThrow(() =>
-      assertTestDatabaseUrl(
-        "postgresql://USER:PASSWORD@localhost:5432/certificate_verification_test",
+      assertTestMongoUri(
+        "mongodb://USER:PASSWORD@localhost:27017/certificate_verification_test",
       ),
     );
     assert.throws(
       () =>
-        assertTestDatabaseUrl(
-          "postgresql://USER:PASSWORD@localhost:5432/certificate_verification",
+        assertTestMongoUri(
+          "mongodb://USER:PASSWORD@localhost:27017/certificate_verification",
         ),
       /contains "test"/,
     );
-    assert.throws(() => assertTestDatabaseUrl("not a url"), /contains "test"/);
+    assert.throws(() => assertTestMongoUri("not a url"), /contains "test"/);
   });
 });

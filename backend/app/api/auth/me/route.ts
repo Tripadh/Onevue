@@ -1,17 +1,22 @@
 import { NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
+import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
 import connectToDatabase from "../../../../lib/db";
 import User from "../../../../models/User";
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { status: 200 });
+function json(req: Request, body: unknown, init?: { status?: number }) {
+  return applyCorsHeaders(NextResponse.json(body, init), req.headers.get("origin"));
+}
+
+export function OPTIONS(req: Request) {
+  return preflightResponse(req.headers.get("origin"));
 }
 
 export async function GET(req: Request) {
   try {
     const authHeader = req.headers.get("authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json(
+      return json(req,
         { message: "Authentication required." },
         { status: 401 }
       );
@@ -25,7 +30,7 @@ export async function GET(req: Request) {
         process.env.JWT_SECRET || "fallback_secret"
       ) as { id: string; email: string };
     } catch {
-      return NextResponse.json(
+      return json(req,
         { message: "Invalid or expired session token." },
         { status: 401 }
       );
@@ -35,13 +40,13 @@ export async function GET(req: Request) {
     const user = await User.findById(decoded.id);
 
     if (!user) {
-      return NextResponse.json(
+      return json(req,
         { message: "User not found." },
         { status: 404 }
       );
     }
 
-    return NextResponse.json(
+    return json(req,
       {
         user: {
           id: user._id,
@@ -56,6 +61,6 @@ export async function GET(req: Request) {
     );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ message }, { status: 500 });
+    return json(req, { message }, { status: 500 });
   }
 }

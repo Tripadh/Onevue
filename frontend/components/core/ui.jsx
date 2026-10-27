@@ -28,10 +28,10 @@ const Icon = {
 };
 
 /* ---------- Button ---------- */
-function Button({ variant = 'primary', size, block, loading, children, className = '', icon, ...rest }) {
+function Button({ variant = 'primary', size, block, loading, children, className = '', icon, disabled, ...rest }) {
   const cls = ['btn', 'btn-' + variant, size && 'btn-' + size, block && 'btn-block', className].filter(Boolean).join(' ');
   return (
-    <button className={cls} disabled={loading || rest.disabled} aria-busy={loading || undefined} {...rest}>
+    <button className={cls} disabled={Boolean(loading || disabled)} aria-busy={loading || undefined} {...rest}>
       {loading ? <span className="spin" aria-hidden="true" /> : null}
       {children}
       {icon && !loading ? icon : null}

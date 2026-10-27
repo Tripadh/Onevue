@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { preflightResponse } from "../../../../../lib/cors";
 import mongoose from "mongoose";
 import connectToDatabase from "../../../../../lib/db";
 import { verifyAuth } from "../../../../../lib/auth";
@@ -7,8 +8,8 @@ import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
 import PublishedProfileRevision from "../../../../../models/PublishedProfileRevision";
 import { toPublicProfileDTO, computeSnapshotChecksum } from "../../../../../lib/public-profile-dto";
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { status: 200 });
+export function OPTIONS(req: Request) {
+  return preflightResponse(req.headers.get("origin"));
 }
 
 /* =========================================================================

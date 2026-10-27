@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import {
-  LOCAL_DEV_USER_ID,
-  type Certificate,
-  type CertificateEvidence,
+import type {
+  Certificate,
+  CertificateEvidence,
+  RecipientMatch,
 } from "./certificate.js";
 import {
   optionalCertificateText,
@@ -17,6 +17,7 @@ import {
   type CreateCertificateInput,
   type CreateCertificateResult,
 } from "./certificate-repository.js";
+import { actingUserId } from "./user-id.js";
 
 function urlKey(userId: string, url: string): string {
   return JSON.stringify(["url", userId, url]);
@@ -61,6 +62,7 @@ function cloneCertificate(certificate: Certificate): Certificate {
     verifiedAt: certificate.verifiedAt,
     attempts: certificate.attempts,
     failureReason: certificate.failureReason,
+    recipientMatch: certificate.recipientMatch,
   };
 }
 
@@ -87,7 +89,7 @@ export class InMemoryCertificateRepository implements CertificateRepository {
       input.credentialId,
       "credentialId",
     );
-    const userId = LOCAL_DEV_USER_ID;
+    const userId = actingUserId(input.userId);
     const existingId = this.findExistingId(userId, url, issuer, credentialId);
 
     if (existingId !== null) {
@@ -110,6 +112,7 @@ export class InMemoryCertificateRepository implements CertificateRepository {
       verifiedAt: null,
       attempts: 0,
       failureReason: null,
+      recipientMatch: "unchecked",
     };
 
     this.records.set(certificate.id, certificate);
@@ -153,6 +156,13 @@ export class InMemoryCertificateRepository implements CertificateRepository {
       throw new CertificateNotFoundError(`Certificate ${id} was not found.`);
     }
 
+    if (
+      patch.expectedUserId !== undefined &&
+      patch.expectedUserId !== current.userId
+    ) {
+      throw new CertificateNotFoundError(`Certificate ${id} was not found.`);
+    }
+
     if (current.status !== "PENDING") {
       throw new InvalidCertificateUpdateError(
         "A final certificate status cannot be changed.",
@@ -188,6 +198,40 @@ export class InMemoryCertificateRepository implements CertificateRepository {
       id,
     );
 
+    return cloneCertificate(next);
+  }
+
+  async recordRecipientMatch(
+    id: string,
+    binding: {
+      userId: string;
+      recipientMatch: RecipientMatch;
+      expectedRecipientMatch: RecipientMatch;
+      expectedAttempts: number;
+    },
+  ): Promise<Certificate> {
+    const current = this.records.get(id);
+    if (current === undefined || current.userId !== binding.userId) {
+      throw new CertificateNotFoundError(`Certificate ${id} was not found.`);
+    }
+    if (
+      current.status !== "VERIFIED" ||
+      current.attempts !== binding.expectedAttempts ||
+      current.recipientMatch !== binding.expectedRecipientMatch
+    ) {
+      throw new InvalidCertificateUpdateError(
+        "The certificate changed before the recipient match was stored.",
+      );
+    }
+    if (
+      binding.recipientMatch === "unchecked" ||
+      current.recipientMatch === "matched" ||
+      current.recipientMatch === binding.recipientMatch
+    ) {
+      return cloneCertificate(current);
+    }
+    const next = { ...current, recipientMatch: binding.recipientMatch };
+    this.records.set(id, next);
     return cloneCertificate(next);
   }
 

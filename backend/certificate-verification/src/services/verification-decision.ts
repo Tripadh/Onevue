@@ -6,6 +6,7 @@ import type {
 import type { CertificatePatch } from "../db/certificate-repository.js";
 import type {
   IssuerNotFoundEvidence,
+  IssuerRejectedEvidence,
   IssuerVerificationResult,
 } from "../adapters/issuer-verification-adapter.js";
 import { matchIssuerEvidence } from "./evidence-matching.js";
@@ -44,6 +45,41 @@ function absentEvidence(
     fetchedAt,
     summary,
   };
+}
+
+function rejectedSummary(failure: IssuerRejectedEvidence["failure"]): string {
+  if (failure === "EXPIRED") {
+    return "Issuer evidence says this credential is expired.";
+  }
+  if (failure === "REVOKED") {
+    return "Issuer evidence says this credential is revoked.";
+  }
+  return "Issuer evidence did not match the submitted recipient.";
+}
+
+function rejectedIdentifiesCertificate(
+  certificate: Certificate,
+  evidence: IssuerRejectedEvidence,
+): boolean {
+  if (
+    evidence.issuer !== "credly" ||
+    !UUID_PATTERN.test(evidence.credentialId) ||
+    !isIso8601Timestamp(evidence.fetchedAt) ||
+    certificate.issuer === null ||
+    certificate.credentialId === null ||
+    certificate.canonicalUrl === null
+  ) {
+    return false;
+  }
+
+  const parsed = parseCertificateUrl(evidence.canonicalUrl);
+  return (
+    parsed.ok &&
+    parsed.value.issuer === certificate.issuer &&
+    parsed.value.credentialId === certificate.credentialId &&
+    parsed.value.canonicalUrl === certificate.canonicalUrl &&
+    evidence.credentialId.toLowerCase() === certificate.credentialId
+  );
 }
 
 function notFoundIdentifiesCertificate(
@@ -93,6 +129,26 @@ export function decideVerificationStatus(
     result.kind === "unsupported"
   ) {
     return { kind: "retryable", reason: result.kind };
+  }
+
+  if (result.kind === "rejected_evidence") {
+    if (!rejectedIdentifiesCertificate(certificate, result.evidence)) {
+      return { kind: "retryable", reason: "unsupported" };
+    }
+
+    return {
+      kind: "unverified",
+      reason: "FIELD_MISMATCH",
+      patch: {
+        status: "UNVERIFIED",
+        verifiedAt,
+        failureReason: "FIELD_MISMATCH",
+        evidence: absentEvidence(
+          result.evidence.fetchedAt,
+          rejectedSummary(result.evidence.failure),
+        ),
+      },
+    };
   }
 
   if (result.kind === "not_found") {
@@ -154,8 +210,14 @@ export function decideVerificationStatus(
         courseName: match.courseName,
         issuedDate: match.issuedDate,
         fetchedAt: match.fetchedAt,
-        summary: "Issuer confirmed the credential.",
+        summary:
+          match.recipientMatch === "matched"
+            ? "Issuer confirmed the credential, and the supplied earner email matches the badge recipient."
+            : match.recipientMatch === "mismatched"
+              ? "Issuer confirmed the credential. The supplied earner email did not match the badge recipient."
+              : "Issuer confirmed the credential.",
       },
+      recipientMatch: match.recipientMatch,
     },
   };
 }

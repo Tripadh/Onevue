@@ -3,9 +3,11 @@ import type {
   CertificateEvidence,
   CertificateStatus,
   FailureReason,
+  RecipientMatch,
 } from "./certificate.js";
 
 export interface CreateCertificateInput {
+  userId?: string;
   url: string;
   canonicalUrl?: string | null;
   issuer?: string | null;
@@ -27,6 +29,8 @@ export interface CertificatePatch {
   status?: CertificateStatus;
   verifiedAt?: string;
   failureReason?: FailureReason | null;
+  recipientMatch?: RecipientMatch;
+  expectedUserId?: string;
 }
 
 export interface CertificateRepository {
@@ -39,6 +43,15 @@ export interface CertificateRepository {
     credentialId: string,
   ): Promise<Certificate | null>;
   update(id: string, patch: CertificatePatch): Promise<Certificate>;
+  recordRecipientMatch(
+    id: string,
+    binding: {
+      userId: string;
+      recipientMatch: RecipientMatch;
+      expectedRecipientMatch: RecipientMatch;
+      expectedAttempts: number;
+    },
+  ): Promise<Certificate>;
 }
 
 export class CertificateRepositoryError extends Error {

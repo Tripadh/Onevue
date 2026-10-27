@@ -183,6 +183,52 @@ describe("decideVerificationStatus", () => {
     }
   });
 
+  it("records expired, revoked, and recipient mismatches as unverified", () => {
+    for (const failure of [
+      "EXPIRED",
+      "REVOKED",
+      "RECIPIENT_MISMATCH",
+    ] as const) {
+      const decision = decideVerificationStatus(
+        pending(),
+        {
+          kind: "rejected_evidence",
+          evidence: {
+            issuer: "credly",
+            credentialId: CREDENTIAL_ID,
+            canonicalUrl: URL,
+            fetchedAt: FETCHED_AT,
+            failure,
+          },
+        },
+        DECISION_TIME,
+      );
+      assert.equal(decision.kind, "unverified", failure);
+      if (decision.kind === "unverified") {
+        assert.equal(decision.patch.status, "UNVERIFIED");
+        assert.equal(decision.patch.failureReason, "FIELD_MISMATCH");
+        assert.equal(decision.patch.evidence?.found, false);
+        assert.equal(decision.patch.evidence?.holderName, null);
+      }
+    }
+
+    const unrelated = decideVerificationStatus(
+      pending(),
+      {
+        kind: "rejected_evidence",
+        evidence: {
+          issuer: "credly",
+          credentialId: OTHER_ID,
+          canonicalUrl: `https://www.credly.com/badges/${OTHER_ID}`,
+          fetchedAt: FETCHED_AT,
+          failure: "REVOKED",
+        },
+      },
+      DECISION_TIME,
+    );
+    assert.equal(unrelated.kind, "retryable");
+  });
+
   it("rejects a new status when the certificate is already final", () => {
     const decision = decideVerificationStatus(
       pending({ status: "VERIFIED", verifiedAt: DECISION_TIME }),

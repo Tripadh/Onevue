@@ -1,13 +1,23 @@
+import {
+  completeCredlyEvidence,
+  readCredlyAssertion,
+  type CredlyEvidenceContext,
+} from "./credly-open-badges.js";
 import type {
   IssuerVerificationAdapter,
   IssuerVerificationInput,
   IssuerVerificationResult,
 } from "./issuer-verification-adapter.js";
+import { isIso8601Timestamp } from "../utils/iso-timestamp.js";
 import {
   assessCredlyUrl,
   assessResolvedAddresses,
-  redirectStaysOnCredential,
 } from "../utils/issuer-request-guard.js";
+import {
+  assessCredlyEvidenceUrl,
+  credlyAssertionUrl,
+  evidenceUrlsMatch,
+} from "../validation/credly-evidence-url.js";
 
 export const CREDLY_REQUEST_TIMEOUT_MS = 5_000;
 export const CREDLY_MAX_RESPONSE_BYTES = 1_048_576;
@@ -26,6 +36,7 @@ export interface CredlyTransportRequest {
   issuer: "credly";
   credentialId: string;
   canonicalUrl: string;
+  evidenceUrl: string;
   timeoutMs: number;
   maxResponseBytes: number;
 }
@@ -50,7 +61,15 @@ export interface CredlyTransport {
   exchange(request: CredlyTransportRequest): Promise<CredlyTransportResult>;
 }
 
-const JSON_MEDIA_TYPE = "application/json";
+const JSON_MEDIA_TYPES = new Set(["application/json", "application/ld+json"]);
+
+export interface CredlyVerificationLog {
+  event: "credly_verification";
+  outcome: string;
+  credentialId: string;
+}
+
+export type CredlyVerificationLogger = (event: CredlyVerificationLog) => void;
 
 export function isSupportedIssuerContentType(
   contentType: string | null | undefined,
@@ -62,12 +81,15 @@ export function isSupportedIssuerContentType(
     return false;
   }
   const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase();
-  return mediaType === JSON_MEDIA_TYPE;
+  return mediaType !== undefined && JSON_MEDIA_TYPES.has(mediaType);
 }
 
 export interface CredlyAdapterOptions {
   transport?: CredlyTransport;
   permitOutbound?: boolean;
+  now?: () => Date;
+  log?: boolean;
+  logger?: CredlyVerificationLogger;
 }
 
 export function interpretCredlyResponseBody(
@@ -100,29 +122,40 @@ export function interpretCredlyResponseBody(
   };
 }
 
+type HttpDocument =
+  | { type: "json"; bodyText: string }
+  | { type: "result"; result: IssuerVerificationResult };
+
 function interpretTransportResult(
   result: CredlyTransportResult,
-  canonicalUrl: string,
-): IssuerVerificationResult {
+  evidenceUrl: string,
+  context: CredlyEvidenceContext,
+): HttpDocument {
   if (result.type === "timeout") {
-    return { kind: "timeout" };
+    return { type: "result", result: { kind: "timeout" } };
   }
   if (result.type === "rate_limited") {
-    return { kind: "rate_limited" };
+    return { type: "result", result: { kind: "rate_limited" } };
   }
   if (result.type === "unavailable") {
-    return { kind: "issuer_unavailable" };
+    return { type: "result", result: { kind: "issuer_unavailable" } };
   }
   if (result.type === "blocked" || result.type === "unsupported_content") {
     return {
-      kind: "unsupported",
-      reason: CREDLY_EVIDENCE_UNSUPPORTED_REASON,
+      type: "result",
+      result: {
+        kind: "unsupported",
+        reason: CREDLY_EVIDENCE_UNSUPPORTED_REASON,
+      },
     };
   }
   if (result.type === "too_large") {
     return {
-      kind: "malformed",
-      reason: "Credly response body is empty, too large, or not valid JSON.",
+      type: "result",
+      result: {
+        kind: "malformed",
+        reason: "Credly response body is empty, too large, or not valid JSON.",
+      },
     };
   }
 
@@ -132,40 +165,113 @@ function interpretTransportResult(
   ) {
     if (
       result.redirectUrl !== undefined &&
-      !redirectStaysOnCredential(canonicalUrl, result.redirectUrl)
+      evidenceUrlsMatch(evidenceUrl, result.redirectUrl)
     ) {
       return {
-        kind: "unsupported",
-        reason: "Redirect target failed the Credly URL allowlist.",
+        type: "result",
+        result: { kind: "unsupported", reason: CREDLY_REDIRECT_REASON },
       };
     }
-    return { kind: "unsupported", reason: CREDLY_REDIRECT_REASON };
+    return {
+      type: "result",
+      result: {
+        kind: "unsupported",
+        reason: "Redirect target failed the Credly URL allowlist.",
+      },
+    };
   }
 
   if (result.status === 408) {
-    return { kind: "timeout" };
+    return { type: "result", result: { kind: "timeout" } };
   }
   if (result.status === 429) {
-    return { kind: "rate_limited" };
+    return { type: "result", result: { kind: "rate_limited" } };
+  }
+  if (result.status === 401 || result.status === 403) {
+    return { type: "result", result: { kind: "issuer_unavailable" } };
   }
   if (result.status >= 500 && result.status <= 599) {
-    return { kind: "issuer_unavailable" };
+    return { type: "result", result: { kind: "issuer_unavailable" } };
+  }
+  if (result.status === 410) {
+    const evidence = assessCredlyEvidenceUrl(evidenceUrl, context.credentialId);
+    if (evidence.ok && evidence.target.kind === "assertion") {
+      return {
+        type: "result",
+        result: {
+          kind: "rejected_evidence",
+          evidence: {
+            issuer: "credly",
+            credentialId: context.credentialId,
+            canonicalUrl: context.canonicalUrl,
+            fetchedAt: context.fetchedAt,
+            failure: "REVOKED",
+          },
+        },
+      };
+    }
   }
   if (result.status !== 200) {
     return {
-      kind: "unsupported",
-      reason: `Credly HTTP ${result.status} is not authoritative evidence about this credential.`,
+      type: "result",
+      result: {
+        kind: "unsupported",
+        reason: `Credly HTTP ${result.status} is not authoritative evidence about this credential.`,
+      },
     };
   }
 
   if (!isSupportedIssuerContentType(result.contentType)) {
     return {
-      kind: "unsupported",
-      reason: CREDLY_EVIDENCE_UNSUPPORTED_REASON,
+      type: "result",
+      result: {
+        kind: "unsupported",
+        reason: CREDLY_EVIDENCE_UNSUPPORTED_REASON,
+      },
     };
   }
 
-  return interpretCredlyResponseBody(result.bodyText);
+  return { type: "json", bodyText: result.bodyText };
+}
+
+function parseJsonBody(
+  bodyText: string,
+):
+  | { ok: true; value: unknown }
+  | { ok: false; result: IssuerVerificationResult } {
+  const inspected = interpretCredlyResponseBody(bodyText);
+  if (inspected.kind === "malformed") {
+    return { ok: false, result: inspected };
+  }
+  try {
+    return { ok: true, value: JSON.parse(bodyText) as unknown };
+  } catch {
+    return {
+      ok: false,
+      result: {
+        kind: "malformed",
+        reason: "Credly response body is empty, too large, or not valid JSON.",
+      },
+    };
+  }
+}
+
+function logOutcome(
+  logger: CredlyVerificationLogger | undefined,
+  credentialId: string,
+  result: IssuerVerificationResult,
+): IssuerVerificationResult {
+  if (logger !== undefined && /^[0-9a-f-]{36}$/i.test(credentialId)) {
+    logger({
+      event: "credly_verification",
+      outcome:
+        result.kind === "rejected_evidence"
+          ? result.evidence.failure
+          : result.kind,
+      credentialId: credentialId.toLowerCase(),
+    });
+  }
+  return result;
 }
 
 export function createCredlyAdapter(
@@ -173,6 +279,13 @@ export function createCredlyAdapter(
 ): IssuerVerificationAdapter {
   const permitOutbound = options.permitOutbound === true;
   const transport = options.transport;
+  const logger =
+    options.logger ??
+    (options.log === true
+      ? (event: CredlyVerificationLog) => {
+          console.info(JSON.stringify(event));
+        }
+      : undefined);
 
   return {
     issuer: "credly",
@@ -185,25 +298,142 @@ export function createCredlyAdapter(
       }
 
       if (!permitOutbound || transport === undefined) {
-        return { kind: "unsupported", reason: CREDLY_NETWORK_DISABLED_REASON };
+        return logOutcome(logger, assessment.target.credentialId, {
+          kind: "unsupported",
+          reason: CREDLY_NETWORK_DISABLED_REASON,
+        });
       }
 
       if (transport.resolvesDns !== true) {
         const addresses = assessResolvedAddresses(input.resolvedAddresses);
         if (!addresses.ok) {
-          return { kind: "unsupported", reason: addresses.reason };
+          return logOutcome(logger, assessment.target.credentialId, {
+            kind: "unsupported",
+            reason: addresses.reason,
+          });
         }
       }
 
-      const outcome = await transport.exchange({
-        method: "GET",
-        issuer: assessment.target.issuer,
+      const now = (options.now ?? (() => new Date()))();
+      if (!isIso8601Timestamp(now.toISOString())) {
+        return logOutcome(logger, assessment.target.credentialId, {
+          kind: "malformed",
+          reason: "Verification clock did not produce an ISO 8601 timestamp.",
+        });
+      }
+      const context: CredlyEvidenceContext = {
         credentialId: assessment.target.credentialId,
         canonicalUrl: assessment.target.canonicalUrl,
-        timeoutMs: CREDLY_REQUEST_TIMEOUT_MS,
-        maxResponseBytes: CREDLY_MAX_RESPONSE_BYTES,
-      });
-      return interpretTransportResult(outcome, assessment.target.canonicalUrl);
+        fetchedAt: now.toISOString(),
+        now,
+        ...(input.expectedRecipientEmail === undefined
+          ? {}
+          : { expectedRecipientEmail: input.expectedRecipientEmail }),
+      };
+      const assertionUrl = credlyAssertionUrl(assessment.target.credentialId);
+
+      let assertionOutcome: CredlyTransportResult;
+      try {
+        assertionOutcome = await transport.exchange({
+          method: "GET",
+          issuer: assessment.target.issuer,
+          credentialId: assessment.target.credentialId,
+          canonicalUrl: assessment.target.canonicalUrl,
+          evidenceUrl: assertionUrl,
+          timeoutMs: CREDLY_REQUEST_TIMEOUT_MS,
+          maxResponseBytes: CREDLY_MAX_RESPONSE_BYTES,
+        });
+      } catch {
+        return logOutcome(logger, assessment.target.credentialId, {
+          kind: "issuer_unavailable",
+        });
+      }
+
+      const assertionHttp = interpretTransportResult(
+        assertionOutcome,
+        assertionUrl,
+        context,
+      );
+      if (assertionHttp.type === "result") {
+        return logOutcome(
+          logger,
+          assessment.target.credentialId,
+          assertionHttp.result,
+        );
+      }
+
+      const assertionJson = parseJsonBody(assertionHttp.bodyText);
+      if (!assertionJson.ok) {
+        return logOutcome(
+          logger,
+          assessment.target.credentialId,
+          assertionJson.result,
+        );
+      }
+
+      const assertion = readCredlyAssertion(assertionJson.value, context);
+      if (assertion.type === "result") {
+        return logOutcome(
+          logger,
+          assessment.target.credentialId,
+          assertion.result,
+        );
+      }
+
+      const badgeClassTarget = assessCredlyEvidenceUrl(assertion.badgeClassUrl);
+      if (
+        !badgeClassTarget.ok ||
+        badgeClassTarget.target.kind !== "badge_class"
+      ) {
+        return logOutcome(logger, assessment.target.credentialId, {
+          kind: "unsupported",
+          reason: "Credly badge class URL is outside the issuer allowlist.",
+        });
+      }
+
+      let classOutcome: CredlyTransportResult;
+      try {
+        classOutcome = await transport.exchange({
+          method: "GET",
+          issuer: assessment.target.issuer,
+          credentialId: assessment.target.credentialId,
+          canonicalUrl: assessment.target.canonicalUrl,
+          evidenceUrl: assertion.badgeClassUrl,
+          timeoutMs: CREDLY_REQUEST_TIMEOUT_MS,
+          maxResponseBytes: CREDLY_MAX_RESPONSE_BYTES,
+        });
+      } catch {
+        return logOutcome(logger, assessment.target.credentialId, {
+          kind: "issuer_unavailable",
+        });
+      }
+
+      const classHttp = interpretTransportResult(
+        classOutcome,
+        assertion.badgeClassUrl,
+        context,
+      );
+      if (classHttp.type === "result") {
+        return logOutcome(
+          logger,
+          assessment.target.credentialId,
+          classHttp.result,
+        );
+      }
+      const classJson = parseJsonBody(classHttp.bodyText);
+      if (!classJson.ok) {
+        return logOutcome(
+          logger,
+          assessment.target.credentialId,
+          classJson.result,
+        );
+      }
+
+      return logOutcome(
+        logger,
+        assessment.target.credentialId,
+        completeCredlyEvidence(assertionJson.value, classJson.value, context),
+      );
     },
   };
 }

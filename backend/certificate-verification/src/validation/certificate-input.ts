@@ -29,7 +29,15 @@ export const certificateIdSchema = z.strictObject({
   id: z.uuid("id must be a UUID."),
 });
 
-export const verifyCertificateBodySchema = z.strictObject({});
+export const verifyCertificateBodySchema = z.strictObject({
+  earnerEmail: z
+    .string()
+    .trim()
+    .min(3, "earnerEmail must be an email address.")
+    .max(254, "earnerEmail must be at most 254 characters.")
+    .regex(/^[^@\s]+@[^@\s]+$/, "earnerEmail must be an email address.")
+    .optional(),
+});
 
 export const emptyQuerySchema = z.strictObject({});
 

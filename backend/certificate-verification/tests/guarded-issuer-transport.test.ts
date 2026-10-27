@@ -27,6 +27,7 @@ function request(
     issuer: "credly",
     credentialId: CREDENTIAL_ID,
     canonicalUrl: URL,
+    evidenceUrl: `https://api.credly.com/v1/obi/v2/badge_assertions/${CREDENTIAL_ID}`,
     timeoutMs: 50,
     maxResponseBytes: 64,
     ...overrides,
@@ -61,18 +62,48 @@ describe("guarded issuer transport", () => {
 
     const result = await transport.exchange(request());
 
-    assert.equal(resolvedHost, "www.credly.com");
+    assert.equal(resolvedHost, "api.credly.com");
     assert.equal(targets.length, 1);
     assert.equal(targets[0]?.address, "8.8.8.8");
     assert.equal(targets[0]?.family, 4);
-    assert.equal(targets[0]?.servername, "www.credly.com");
-    assert.equal(targets[0]?.path, `/badges/${CREDENTIAL_ID}`);
+    assert.equal(targets[0]?.servername, "api.credly.com");
+    assert.equal(
+      targets[0]?.path,
+      `/v1/obi/v2/badge_assertions/${CREDENTIAL_ID}`,
+    );
     assert.deepEqual(result, {
       type: "response",
       status: 200,
       bodyText: '{"status":"VERIFIED"}',
       contentType: "application/json",
     });
+  });
+
+  it("blocks evidence URLs outside the Open Badges allowlist", async () => {
+    let connected = false;
+    const transport = createGuardedIssuerTransport({
+      async resolve() {
+        return [{ address: "8.8.8.8", family: 4 }];
+      },
+      async connect() {
+        connected = true;
+        throw new Error("connected");
+      },
+    });
+    const evidenceUrls = [
+      `https://www.credly.com/badges/${CREDENTIAL_ID}`,
+      `https://api.credly.com/v1/public_badges/${CREDENTIAL_ID}`,
+      `https://api.credly.com/v1/organizations/${CREDENTIAL_ID}/badges/${CREDENTIAL_ID}`,
+      `http://api.credly.com/v1/obi/v2/badge_assertions/${CREDENTIAL_ID}`,
+      `https://user:pass@api.credly.com/v1/obi/v2/badge_assertions/${CREDENTIAL_ID}`,
+      `https://api.credly.com/v1/obi/v2/badge_assertions/${CREDENTIAL_ID}/../admin`,
+    ];
+
+    for (const evidenceUrl of evidenceUrls) {
+      const result = await transport.exchange(request({ evidenceUrl }));
+      assert.deepEqual(result, { type: "blocked" }, evidenceUrl);
+    }
+    assert.equal(connected, false);
   });
 
   it("does not connect when any resolved address is non-public", async () => {
@@ -297,17 +328,17 @@ describe("guarded issuer transport", () => {
     const target: PinnedConnectionTarget = {
       address: "8.8.8.8",
       family: 4,
-      servername: "www.credly.com",
-      path: `/badges/${CREDENTIAL_ID}`,
+      servername: "api.credly.com",
+      path: `/v1/obi/v2/badge_assertions/${CREDENTIAL_ID}`,
       timeoutMs: 5000,
       maxResponseBytes: 1024,
       signal: new AbortController().signal,
     };
     const options = buildPinnedRequestOptions(target);
 
-    assert.equal(options.servername, "www.credly.com");
-    assert.equal(options.host, "www.credly.com");
-    assert.equal(options.path, `/badges/${CREDENTIAL_ID}`);
+    assert.equal(options.servername, "api.credly.com");
+    assert.equal(options.host, "api.credly.com");
+    assert.equal(options.path, `/v1/obi/v2/badge_assertions/${CREDENTIAL_ID}`);
     assert.equal(options.port, 443);
     assert.equal(options.rejectUnauthorized, true);
     assert.equal(options.autoSelectFamily, false);
@@ -332,7 +363,7 @@ describe("guarded issuer transport", () => {
     assert.throws(() =>
       buildPinnedRequestOptions({
         ...target,
-        servername: "evil.example" as "www.credly.com",
+        servername: "evil.example" as "api.credly.com",
       }),
     );
   });
@@ -385,8 +416,8 @@ describe("guarded issuer transport", () => {
     const response = await connector.connect({
       address: "1.1.1.1",
       family: 4,
-      servername: "www.credly.com",
-      path: `/badges/${CREDENTIAL_ID}`,
+      servername: "api.credly.com",
+      path: `/v1/obi/v2/badge_assertions/${CREDENTIAL_ID}`,
       timeoutMs: 1000,
       maxResponseBytes: 100,
       signal: new AbortController().signal,

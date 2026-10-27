@@ -15,7 +15,10 @@ import {
   assessCredlyUrl,
   isPublicIpAddress,
 } from "../utils/issuer-request-guard.js";
-import { credlyIssuer } from "../validation/issuers.js";
+import {
+  CREDLY_EVIDENCE_HOSTNAME,
+  assessCredlyEvidenceUrl,
+} from "../validation/credly-evidence-url.js";
 
 export interface ResolvedSocketAddress {
   address: string;
@@ -29,7 +32,7 @@ export interface HostnameResolver {
 export interface PinnedConnectionTarget {
   address: string;
   family: 4 | 6;
-  servername: typeof credlyIssuer.hostname;
+  servername: typeof CREDLY_EVIDENCE_HOSTNAME;
   path: string;
   timeoutMs: number;
   maxResponseBytes: number;
@@ -51,7 +54,7 @@ export interface GuardedIssuerTransportOptions {
   connect?: PinnedConnector["connect"];
 }
 
-const JSON_MEDIA_TYPE = "application/json";
+const JSON_MEDIA_TYPE = "application/json, application/ld+json";
 
 export interface PinnedHttpsOptions extends https.RequestOptions {
   autoSelectFamily: false;
@@ -61,7 +64,7 @@ export function buildPinnedRequestOptions(
   target: PinnedConnectionTarget,
 ): PinnedHttpsOptions {
   if (
-    target.servername !== credlyIssuer.hostname ||
+    target.servername !== CREDLY_EVIDENCE_HOSTNAME ||
     !isPublicIpAddress(target.address) ||
     (target.family === 4 && target.address.includes(":")) ||
     (target.family === 6 && !target.address.includes(":"))
@@ -130,7 +133,7 @@ export function createPinnedConnector(
 async function defaultResolve(
   hostname: string,
 ): Promise<readonly ResolvedSocketAddress[]> {
-  if (hostname !== credlyIssuer.hostname) {
+  if (hostname !== CREDLY_EVIDENCE_HOSTNAME) {
     return [];
   }
   const records = await lookup(hostname, { all: true, verbatim: true });
@@ -248,10 +251,6 @@ function withDeadline<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-function canonicalPath(credentialId: string): string {
-  return `/${credlyIssuer.badgeSegment}/${credentialId}`;
-}
-
 export function createGuardedIssuerTransport(
   options: GuardedIssuerTransportOptions = {},
 ): CredlyTransport {
@@ -264,10 +263,18 @@ export function createGuardedIssuerTransport(
       request: CredlyTransportRequest,
     ): Promise<CredlyTransportResult> {
       const assessment = assessCredlyUrl(request.canonicalUrl);
+      const evidence = assessCredlyEvidenceUrl(
+        request.evidenceUrl,
+        request.credentialId,
+      );
       if (
         !assessment.ok ||
+        !evidence.ok ||
         assessment.target.canonicalUrl !== request.canonicalUrl ||
         assessment.target.credentialId !== request.credentialId ||
+        evidence.target.hostname !== CREDLY_EVIDENCE_HOSTNAME ||
+        (evidence.target.kind === "assertion" &&
+          evidence.target.credentialId !== request.credentialId) ||
         request.method !== "GET" ||
         !Number.isFinite(request.timeoutMs) ||
         request.timeoutMs <= 0 ||
@@ -278,10 +285,10 @@ export function createGuardedIssuerTransport(
         return { type: "blocked" };
       }
 
-      const path = canonicalPath(assessment.target.credentialId);
+      const path = evidence.target.path;
       let addresses: readonly ResolvedSocketAddress[];
       try {
-        addresses = await resolve(credlyIssuer.hostname);
+        addresses = await resolve(CREDLY_EVIDENCE_HOSTNAME);
       } catch {
         return { type: "unavailable" };
       }
@@ -308,7 +315,7 @@ export function createGuardedIssuerTransport(
           connect({
             address: selected.address,
             family: selected.family,
-            servername: credlyIssuer.hostname,
+            servername: CREDLY_EVIDENCE_HOSTNAME,
             path,
             timeoutMs: request.timeoutMs,
             maxResponseBytes: request.maxResponseBytes,

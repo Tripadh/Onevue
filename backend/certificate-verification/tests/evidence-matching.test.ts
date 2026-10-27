@@ -50,6 +50,7 @@ describe("matchIssuerEvidence", () => {
       courseName: "Systems",
       issuedDate: "2026-01-15",
       fetchedAt: FETCHED_AT,
+      recipientMatch: "unchecked",
     });
   });
 
@@ -70,6 +71,7 @@ describe("matchIssuerEvidence", () => {
       courseName: "Systems",
       issuedDate: "2026-01-15",
       fetchedAt: FETCHED_AT,
+      recipientMatch: "unchecked",
     });
   });
 
@@ -88,6 +90,7 @@ describe("matchIssuerEvidence", () => {
       courseName: "Systems Design",
       issuedDate: "2026-01-15",
       fetchedAt: FETCHED_AT,
+      recipientMatch: "unchecked",
     });
   });
 
@@ -115,6 +118,22 @@ describe("matchIssuerEvidence", () => {
     );
 
     assert.deepEqual(match, { outcome: "mismatch", fields: ["issuer"] });
+  });
+
+  it("matches a hosted badge when the recipient was not disclosed", () => {
+    const match = matchIssuerEvidence(
+      certificate(),
+      evidence({
+        holderName: "",
+        recipientDisclosed: false,
+        issuerName: "Example Issuer",
+      }),
+    );
+    assert.equal(match.outcome, "match");
+    if (match.outcome === "match") {
+      assert.equal(match.holderName, null);
+      assert.equal(match.courseName, "Systems");
+    }
   });
 
   it("keeps missing holder, course, or date evidence unverifiable", () => {

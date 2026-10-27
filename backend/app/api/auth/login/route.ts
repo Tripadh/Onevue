@@ -1,30 +1,38 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
 import connectToDatabase from "../../../../lib/db";
 import User, { IdentityType } from "../../../../models/User";
 
-export async function OPTIONS() {
-  return NextResponse.json({}, { status: 200 });
+function json(req: Request, body: unknown, init: { status: number }) {
+  return applyCorsHeaders(
+    NextResponse.json(body, init),
+    req.headers.get("origin")
+  );
+}
+
+export function OPTIONS(req: Request) {
+  return preflightResponse(req.headers.get("origin"));
 }
 
 export async function POST(req: Request) {
   try {
-    await connectToDatabase();
-
     const { email, password } = await req.json();
 
     if (!email || !password) {
-      return NextResponse.json(
+      return json(req,
         { message: "Please provide both email and password" },
         { status: 400 }
       );
     }
 
+    await connectToDatabase();
+
     const user = await User.findOne({ email }).select("+password");
 
     if (!user) {
-      return NextResponse.json(
+      return json(req,
         { message: "Invalid email or password" },
         { status: 401 }
       );
@@ -33,7 +41,7 @@ export async function POST(req: Request) {
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
-      return NextResponse.json(
+      return json(req,
         { message: "Invalid email or password" },
         { status: 401 }
       );
@@ -53,7 +61,7 @@ export async function POST(req: Request) {
       { expiresIn: "7d" }
     );
 
-    return NextResponse.json(
+    return json(req,
       {
         message: "Login successful",
         token,
@@ -69,7 +77,7 @@ export async function POST(req: Request) {
     );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json(
+    return json(req,
       { message },
       { status: 500 }
     );

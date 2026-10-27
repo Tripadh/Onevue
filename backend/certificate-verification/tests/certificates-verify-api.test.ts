@@ -31,6 +31,7 @@ const CERTIFICATE_FIELDS = [
   "failureReason",
   "id",
   "issuer",
+  "recipientMatch",
   "status",
   "submittedAt",
   "url",

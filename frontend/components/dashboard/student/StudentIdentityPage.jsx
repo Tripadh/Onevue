@@ -6,7 +6,7 @@ const StudentIcons = window.StudentIcons || {};
 /* =========================================================================
    PAGE 2: Complete Student Identity Page (All 9 Modules)
    ========================================================================= */
-function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfile }) {
+function StudentIdentityPage({ session, studentProfile, profileError, onRetryProfile, onRefreshProfile, onSaveToDb, loadingProfile }) {
   const toast = useToast();
   const [activeSection, setActiveSection] = sUseState(() => {
     try {
@@ -48,6 +48,9 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
   const [projectsList, setProjectsList] = sUseState([]);
   const [skillsList, setSkillsList] = sUseState([]);
   const [credentialsList, setCredentialsList] = sUseState([]);
+  const [certificateDecisions, setCertificateDecisions] = sUseState({});
+  const [earnerEmails, setEarnerEmails] = sUseState({});
+  const [certificateLoadingId, setCertificateLoadingId] = sUseState('');
   const [achievementsList, setAchievementsList] = sUseState([]);
   const [mediaList, setMediaList] = sUseState([]);
   const [linksList, setLinksList] = sUseState([]);
@@ -192,7 +195,15 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
   const [resumeData, setResumeData] = sUseState(null);
   const [resumeUploading, setResumeUploading] = sUseState(false);
   const [resumeRoleInput, setResumeRoleInput] = sUseState('');
+  const [resumeReview, setResumeReview] = sUseState(null);
+  const [resumeReviewEdits, setResumeReviewEdits] = sUseState({});
+  const [resumeExtractError, setResumeExtractError] = sUseState('');
+  const [resumeApplyError, setResumeApplyError] = sUseState('');
+  const [resumeApplying, setResumeApplying] = sUseState(false);
+  const resumeSkillCategories = ['Programming Languages', 'Frontend', 'Backend', 'Databases', 'AI / ML', 'Cloud / DevOps', 'Tools', 'Other Skills'];
+  const resumeSkillProficiencies = ['Familiar', 'Beginner', 'Intermediate', 'Advanced', 'Expert'];
   const resumeFileRef = sUseRef(null);
+  const resumeBusyRef = sUseRef(false);
 
   // Sync state when studentProfile is loaded
   sUseEffect(() => {
@@ -261,6 +272,36 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
       }
     }
   }, [studentProfile]);
+
+  const certificateIds = credentialsList
+    .map((item) => item.certificateVerificationId)
+    .filter(Boolean)
+    .join(',');
+
+  sUseEffect(() => {
+    if (!certificateIds) return undefined;
+    let cancelled = false;
+    const ids = certificateIds.split(',');
+    setCertificateLoadingId(ids[0] || '');
+    (async () => {
+      const next = {};
+      for (const id of ids) {
+        try {
+          const body = await window.OV.services.credentials.getCertificate(id);
+          next[id] = body.certificate;
+        } catch (error) {
+          next[id] = { error: error.message || 'Could not load verification status.' };
+        }
+      }
+      if (!cancelled) {
+        setCertificateDecisions((current) => ({ ...current, ...next }));
+        setCertificateLoadingId('');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [certificateIds]);
 
   const sectionsList = [
     { id: 'profile', label: '1. Personal Profile' },
@@ -679,11 +720,128 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
     } else {
       updatedList = [...credentialsList, { id: 'crd_' + Date.now(), ...payload }];
     }
-    const success = await onSaveToDb({ credentials: updatedList });
+    const saved = await onSaveToDb({ credentials: updatedList });
+    if (!saved) {
+      setIsSubmitting(false);
+      return;
+    }
+    let nextList = window.OV.services.credentials.credentialsFromSave(updatedList, saved);
+    const verificationUrl = credForm.verificationUrl.trim();
+    toast.push({
+      title: 'Credential saved',
+      body: verificationUrl
+        ? 'Verification URL saved. Open Edit to see it again after a reload.'
+        : 'Credential record saved.',
+      tone: 'success',
+    });
+    const preparedUrl = verificationUrl
+      ? window.OV.services.credentials.classifyCertificateUrl(verificationUrl)
+      : null;
+    if (preparedUrl && !preparedUrl.ok) {
+      toast.push({
+        title: 'Automatic verification not submitted',
+        body: preparedUrl.message,
+        tone: 'info',
+      });
+    } else if (preparedUrl && preparedUrl.ok) {
+      try {
+        const result = await window.OV.services.credentials.submitCertificate(preparedUrl.url);
+        const certificate = result && result.certificate;
+        if (!certificate || !certificate.id || !certificate.status) {
+          throw new Error('Certificate verification returned an unexpected response.');
+        }
+        nextList = nextList.map((item) => (
+          String(item.verificationUrl || '').trim() === verificationUrl
+            ? { ...item, certificateVerificationId: certificate.id }
+            : item
+        ));
+        setCertificateDecisions((current) => ({ ...current, [certificate.id]: certificate }));
+        toast.push({
+          title: result.created ? 'Certificate submitted' : 'Certificate already submitted',
+          body: 'Verification status: ' + certificate.status,
+          tone: 'success',
+        });
+      } catch (error) {
+        toast.push({
+          title: 'Certificate not submitted',
+          body: error.message || 'Certificate verification is unavailable.',
+          tone: 'error',
+        });
+      }
+    }
+    setCredentialsList(nextList);
     setIsSubmitting(false);
-    if (success) {
-      setCredentialsList(updatedList);
-      setCredModalOpen(false);
+    setCredModalOpen(false);
+  };
+
+  const handleVerifyCertificate = async (credential, idx) => {
+    if (certificateLoadingId) return;
+    const prepared = window.OV.services.credentials.prepareCertificateSubmission(credential);
+    if (!prepared.ok) {
+      toast.push({
+        title: prepared.title,
+        body: prepared.message,
+        tone: 'error',
+      });
+      return;
+    }
+    const url = prepared.url;
+    const cardKey = String(credential.certificateVerificationId || credential.id || credential._id || idx);
+    setCertificateLoadingId(cardKey);
+    try {
+      let id = String(credential.certificateVerificationId || '').trim();
+      if (!id) {
+        if (prepared.source === 'credentialUrl') {
+          const withUrl = credentialsList.map((item, itemIdx) => (
+            itemIdx === idx ? { ...item, verificationUrl: url } : item
+          ));
+          const saved = await onSaveToDb({ credentials: withUrl });
+          if (!saved) return;
+          setCredentialsList(withUrl);
+        }
+        const submitted = await window.OV.services.credentials.submitCertificate(url);
+        const created = submitted && submitted.certificate;
+        if (!created || !created.id) {
+          throw new Error('Certificate verification returned an unexpected response.');
+        }
+        id = created.id;
+      }
+      setCredentialsList((current) => current.map((item, itemIdx) => (
+        itemIdx === idx
+          ? { ...item, certificateVerificationId: id, verificationUrl: item.verificationUrl || url }
+          : item
+      )));
+      const earnerEmail = String(earnerEmails[cardKey] || '').trim();
+      const result = await window.OV.services.credentials.verifyCertificate(id, earnerEmail);
+      const certificate = result && result.certificate;
+      if (!certificate || !certificate.status) {
+        throw new Error('Certificate verification returned an unexpected response.');
+      }
+      const display = window.OV.services.credentials.displayCertificateStatus(certificate);
+      setCertificateDecisions((current) => ({ ...current, [id]: certificate }));
+      if (typeof onRefreshProfile === 'function') {
+        await onRefreshProfile();
+      }
+      toast.push({
+        title: display.verified ? 'Credential verified' : 'Credential not verified',
+        body: display.label + '. ' + display.detail,
+        tone: display.verified ? 'success' : 'info',
+      });
+    } catch (error) {
+      const failedId = String(credential.certificateVerificationId || '');
+      if (failedId) {
+        setCertificateDecisions((current) => ({
+          ...current,
+          [failedId]: { ...(current[failedId] || {}), error: error.message || 'Certificate verification is unavailable.' },
+        }));
+      }
+      toast.push({
+        title: 'Verification unavailable',
+        body: error.message || 'Certificate verification is unavailable.',
+        tone: 'error',
+      });
+    } finally {
+      setCertificateLoadingId('');
     }
   };
 
@@ -768,36 +926,174 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
   /* ---------------- Module 7 Handlers (Resume — Single Slot) ---------------- */
   const handleResumeFileSelect = async (e) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    e.target.value = '';
+    if (!file || resumeBusyRef.current) return;
 
-    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-      toast.push({ title: 'Invalid File', body: 'Only PDF format is accepted for resumes.', tone: 'error' });
+    if (file.size === 0) {
+      setResumeExtractError('The uploaded PDF file is empty.');
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      toast.push({ title: 'File Too Large', body: 'Resume must not exceed 10 MB.', tone: 'error' });
+      setResumeExtractError('The PDF exceeds the 10 MB limit.');
       return;
     }
 
+    resumeBusyRef.current = true;
     setResumeUploading(true);
-    // Simulate safe upload & metadata extraction
-    setTimeout(async () => {
-      const metadata = {
-        fileName: file.name,
-        fileSize: file.size,
-        contentType: 'application/pdf',
-        storageKey: `resumes/${session?.user?.id || 'std'}_${Date.now()}.pdf`,
-        uploadedAt: new Date().toISOString(),
-        resumeName: file.name.replace(/\.pdf$/i, ''),
-        targetRole: resumeRoleInput || 'Software Engineer',
-      };
-      const success = await onSaveToDb({ resume: metadata, resumeFileName: file.name });
+    setResumeExtractError('');
+    try {
+      const review = await window.OV.services.credentials.extractResume(file);
+      setResumeReview(review);
+      setResumeReviewEdits({});
+      setResumeApplyError('');
+      toast.push({
+        title: 'Resume ready for review',
+        body: 'Nothing has been written to your profile.',
+        tone: 'info',
+      });
+    } catch (error) {
+      const detail = error && error.message ? error.message : 'Resume extraction failed.';
+      const retryNote = /not retried automatically|Choose the PDF again/i.test(detail)
+        ? ''
+        : ' Choose the PDF again if you want to retry. It was not retried automatically.';
+      setResumeExtractError(detail + retryNote);
+    } finally {
+      resumeBusyRef.current = false;
       setResumeUploading(false);
-      if (success) {
-        setResumeData(metadata);
-        toast.push({ title: 'Resume Uploaded', body: `${file.name} saved successfully.`, tone: 'success' });
+    }
+  };
+
+  const handleApplyResumeReview = async () => {
+    if (resumeBusyRef.current) return;
+    if (!resumeReview || !Array.isArray(resumeReview.sections)) return;
+    const rows = resumeReview.sections.flatMap((section) => section.rows);
+    const selected = rows.filter((row) => {
+      const state = reviewRowState(row);
+      return state.selected && (row.applicable || row.section === 'skills');
+    });
+    if (selected.length === 0) {
+      setResumeApplyError('Select at least one field the profile can store.');
+      return;
+    }
+    const groups = new Map();
+    selected.forEach((row) => {
+      const key = row.section + ':' + row.entryIndex;
+      if (!groups.has(key)) {
+        groups.set(key, { section: row.section, index: row.entryIndex, fields: [] });
       }
-    }, 600);
+      const group = groups.get(key);
+      group.fields.push(row.field);
+      const edit = resumeReviewEdits[row.id] || {};
+      if (row.section === 'skills') {
+        group.category = edit.category;
+        group.proficiency = edit.proficiency;
+      }
+      if (row.section === 'credentials') {
+        group.issuer = (resumeReviewEdits['issuer:' + row.entryIndex] || {}).issuer;
+      }
+    });
+    for (const group of groups.values()) {
+      if (group.section === 'skills' && (!group.category || !group.proficiency)) {
+        setResumeApplyError('Choose a category and proficiency for each selected skill.');
+        return;
+      }
+      if (group.section === 'credentials' && (!group.issuer || !String(group.issuer).trim())) {
+        setResumeApplyError('Enter an issuer for each selected credential. It stays self-reported.');
+        return;
+      }
+      if (group.section === 'education' && (!group.fields.includes('institution') || !group.fields.includes('degree'))) {
+        setResumeApplyError('Select both the institution and the degree for an education entry.');
+        return;
+      }
+      if (group.section === 'socialLinks' && (!group.fields.includes('platform') || !group.fields.includes('url'))) {
+        setResumeApplyError('Select both the platform and the URL for a social link.');
+        return;
+      }
+    }
+    resumeBusyRef.current = true;
+    setResumeApplying(true);
+    setResumeApplyError('');
+    let applied = false;
+    try {
+      await window.OV.services.credentials.applyResumeReview({
+        reviewId: resumeReview.reviewId,
+        selections: [...groups.values()].map((group) => {
+          const item = { section: group.section, index: group.index, fields: group.fields };
+          if (group.category) item.category = group.category;
+          if (group.proficiency) item.proficiency = group.proficiency;
+          if (group.issuer) item.issuer = String(group.issuer).trim();
+          return item;
+        }),
+      });
+      applied = true;
+      setResumeReview(null);
+      setResumeReviewEdits({});
+    } catch (error) {
+      const code = error && typeof error.code === 'string' ? error.code : '';
+      if (code === 'http_404') {
+        setResumeReview(null);
+        setResumeReviewEdits({});
+        setResumeApplyError(error.message || 'This review expired or is no longer available. Choose the PDF again to start a new extraction.');
+      } else if (!code) {
+        setResumeApplyError('The apply request did not finish, so it was not submitted again. Your selections are still here.');
+      } else if (code === 'http_409') {
+        setResumeApplyError(error.message || 'The profile changed after this review. Your selections are still here.');
+      } else {
+        setResumeApplyError((error && error.message) || 'The resume review could not be applied. Your selections are still here.');
+      }
+    } finally {
+      resumeBusyRef.current = false;
+      setResumeApplying(false);
+    }
+    if (!applied) return;
+    try {
+      if (onRefreshProfile) await onRefreshProfile();
+      toast.push({
+        title: 'Profile updated',
+        body: 'Selected resume fields were added. Credentials remain self-reported.',
+        tone: 'success',
+      });
+    } catch {
+      toast.push({
+        title: 'Profile updated',
+        body: 'The selected fields were saved. Refresh the page if the profile does not show them yet.',
+        tone: 'info',
+      });
+    }
+  };
+
+  const handleDiscardResumeReview = async () => {
+    if (resumeBusyRef.current) return;
+    const reviewId = resumeReview && resumeReview.reviewId;
+    if (!reviewId) {
+      setResumeReview(null);
+      setResumeReviewEdits({});
+      return;
+    }
+    try {
+      await window.OV.services.credentials.discardResumeReview(reviewId);
+      setResumeReview(null);
+      setResumeReviewEdits({});
+      setResumeExtractError('');
+      setResumeApplyError('');
+    } catch (error) {
+      setResumeApplyError((error && error.message) || 'The review could not be closed. Your selections are still here.');
+    }
+  };
+
+  const reviewRowState = (row) => {
+    const edit = resumeReviewEdits[row.id] || {};
+    return {
+      selected: edit.selected !== undefined ? edit.selected : Boolean(row.applicable),
+      value: row.value,
+    };
+  };
+
+  const updateReviewRow = (row, patch) => {
+    setResumeReviewEdits((current) => {
+      const edit = current[row.id] || {};
+      return { ...current, [row.id]: { ...edit, ...patch } };
+    });
   };
 
   const handleRemoveResume = async () => {
@@ -946,6 +1242,17 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
 
   return (
     <div style={{ display: 'grid', gap: 24 }}>
+      {profileError && (
+        <EmptyState
+          title="Student profile unavailable"
+          body={profileError}
+          action={<Button size="sm" variant="primary" onClick={() => onRetryProfile && onRetryProfile()}>Load profile</Button>}
+        />
+      )}
+      {loadingProfile && !studentProfile && !profileError && (
+        <p className="muted" style={{ margin: 0 }}>Loading your student profile…</p>
+      )}
+
       {/* Page Header */}
       <div>
         <span className="eyebrow" style={{ color: 'var(--accent)', fontSize: 12 }}>Domain Architecture</span>
@@ -1510,9 +1817,19 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
                         <span className="badge" style={{ textTransform: 'capitalize', fontSize: 11 }}>
                           {(crd.credentialType || 'certificate').replace('_', ' ')}
                         </span>
-                        <span className="badge badge-verified" style={{ fontSize: 11 }}>
-                          {crd.verificationStatus || 'Self-reported'}
-                        </span>
+                        {(() => {
+                          const decision = certificateDecisions[crd.certificateVerificationId];
+                          const display = decision && decision.status && window.OV.services.credentials.displayCertificateStatus
+                            ? window.OV.services.credentials.displayCertificateStatus(decision)
+                            : null;
+                          const verified = display ? display.verified : crd.verificationStatus === 'verified';
+                          const label = display ? display.label : (crd.verificationStatus || 'Self-reported');
+                          return (
+                            <span className={verified ? 'badge badge-verified' : 'badge'} style={{ fontSize: 11 }}>
+                              {label}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <p className="muted" style={{ fontSize: 14, margin: '4px 0 0' }}>
                         Issued by <strong>{crd.issuer}</strong> {crd.issueDate ? `• ${crd.issueDate}` : ''}
@@ -1523,7 +1840,29 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
                         </span>
                       )}
                     </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <input
+                        type="email"
+                        autoComplete="off"
+                        aria-label="Earner email"
+                        placeholder="Earner email (optional)"
+                        value={earnerEmails[String(crd.certificateVerificationId || crd.id || crd._id || idx)] || ''}
+                        onChange={(event) => {
+                          const key = String(crd.certificateVerificationId || crd.id || crd._id || idx);
+                          const value = event.target.value;
+                          setEarnerEmails((current) => ({ ...current, [key]: value }));
+                        }}
+                        style={{ fontSize: 13, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', minWidth: 180 }}
+                      />
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        loading={certificateLoadingId === String(crd.certificateVerificationId || crd.id || crd._id || idx)}
+                        disabled={Boolean(certificateLoadingId)}
+                        onClick={() => handleVerifyCertificate(crd, idx)}
+                      >
+                        Verify Certificate
+                      </Button>
                       <Button size="sm" variant="ghost" onClick={() => handleOpenEditCred(idx)}>
                         <StudentIcons.edit /> Edit
                       </Button>
@@ -1534,6 +1873,16 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
                   </div>
 
                   {crd.description && <p style={{ fontSize: 13.5, margin: 0 }}>{crd.description}</p>}
+                  {certificateDecisions[crd.certificateVerificationId] && certificateDecisions[crd.certificateVerificationId].error && (
+                    <p style={{ fontSize: 13, margin: 0, color: '#ef4444' }}>
+                      {certificateDecisions[crd.certificateVerificationId].error}
+                    </p>
+                  )}
+                  {certificateDecisions[crd.certificateVerificationId] && certificateDecisions[crd.certificateVerificationId].status && (
+                    <p className="muted" style={{ fontSize: 13, margin: 0 }}>
+                      {window.OV.services.credentials.displayCertificateStatus(certificateDecisions[crd.certificateVerificationId]).detail}
+                    </p>
+                  )}
 
                   <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 4 }}>
                     {crd.credentialUrl && (
@@ -1542,9 +1891,12 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
                       </a>
                     )}
                     {crd.verificationUrl && (
-                      <a href={crd.verificationUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none' }}>
-                        Verify with Issuer ↗
-                      </a>
+                      <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+                        <a href={crd.verificationUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: 'var(--accent)', textDecoration: 'none' }}>
+                          Verify with Issuer ↗
+                        </a>
+                        <span className="faint" style={{ fontSize: 12, wordBreak: 'break-all' }}>{crd.verificationUrl}</span>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1634,9 +1986,18 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
               <span className="badge badge-verified" style={{ fontSize: 11 }}>Exactly 1 Resume Slot</span>
             </div>
             <p className="muted" style={{ fontSize: 13.5, margin: '4px 0 0' }}>
-              OneVue maintains exactly one canonical resume per student. Uploading a replacement automatically updates the active CV.
+              Choose a text-based PDF to extract fields for review. The file is not stored, and nothing is written to the profile.
             </p>
           </div>
+
+          <input
+            type="file"
+            accept="application/pdf"
+            ref={resumeFileRef}
+            style={{ display: 'none' }}
+            disabled={resumeUploading || resumeApplying}
+            onChange={handleResumeFileSelect}
+          />
 
           {resumeData && resumeData.fileName ? (
             <div
@@ -1679,11 +2040,13 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
                   <Button
                     size="sm"
                     variant="glass"
+                    disabled={resumeUploading || resumeApplying}
                     onClick={() => {
-                      if (resumeFileRef.current) resumeFileRef.current.click();
+                      if (resumeUploading || resumeApplying || !resumeFileRef.current) return;
+                      resumeFileRef.current.click();
                     }}
                   >
-                    Replace PDF
+                    {resumeUploading ? 'Extracting resume…' : 'Replace PDF'}
                   </Button>
                   <Button
                     size="sm"
@@ -1723,28 +2086,137 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
               </div>
               <h3 style={{ fontSize: 18, margin: 0 }}>Upload Your Student Resume</h3>
               <p className="muted" style={{ fontSize: 13.5, margin: 0, maxWidth: 460 }}>
-                Attach your PDF resume (max 10MB). It will be linked directly to your verified profile for recruiters.
+                Choose a text-based PDF (max 10 MB). OneVue extracts it for review and does not save the file or change your profile.
               </p>
               <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-                <input
-                  type="file"
-                  accept="application/pdf"
-                  ref={resumeFileRef}
-                  style={{ display: 'none' }}
-                  onChange={handleResumeFileSelect}
-                />
                 <Button
                   variant="primary"
                   loading={resumeUploading}
+                  disabled={resumeApplying}
                   onClick={() => {
-                    if (resumeFileRef.current) resumeFileRef.current.click();
+                    if (resumeUploading || resumeApplying || !resumeFileRef.current) return;
+                    resumeFileRef.current.click();
                   }}
                 >
-                  Choose PDF Resume
+                  {resumeUploading ? 'Extracting resume…' : 'Choose PDF Resume'}
                 </Button>
               </div>
             </div>
           )}
+
+          {resumeExtractError || resumeApplyError ? (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {resumeExtractError ? (
+                <p style={{ color: '#ef4444', fontSize: 13.5, margin: 0 }}>{resumeExtractError}</p>
+              ) : null}
+              {resumeApplyError ? (
+                <p style={{ color: '#ef4444', fontSize: 13.5, margin: 0 }}>{resumeApplyError}</p>
+              ) : null}
+              {!resumeReview ? (
+                <div>
+                  <Button
+                    size="sm"
+                    variant="glass"
+                    loading={resumeUploading}
+                    disabled={resumeApplying}
+                    onClick={() => {
+                      if (resumeUploading || resumeApplying || !resumeFileRef.current) return;
+                      resumeFileRef.current.click();
+                    }}
+                  >
+                    Choose the PDF again
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {resumeReview && Array.isArray(resumeReview.sections) ? (
+            <div className="glass" style={{ padding: 20, borderRadius: 16, display: 'grid', gap: 16, border: '1px solid var(--line)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <h3 style={{ fontSize: 16, margin: 0 }}>Review extracted fields</h3>
+                  <p className="muted" style={{ fontSize: 13, margin: '4px 0 0' }}>{resumeReview.warning}</p>
+                  <p className="faint" style={{ fontSize: 12, margin: '4px 0 0' }}>
+                    Extracted values are read-only. Choose the fields to add. You can still set a skill category, a proficiency, and a credential issuer. Resume credentials stay self-reported.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button size="sm" variant="primary" loading={resumeApplying} disabled={resumeUploading} onClick={handleApplyResumeReview}>Add selected to profile</Button>
+                  <Button size="sm" variant="ghost" disabled={resumeApplying || resumeUploading} onClick={handleDiscardResumeReview}>Discard review</Button>
+                </div>
+              </div>
+              {resumeReview.sections.map((section) => (
+                <div key={section.id} style={{ display: 'grid', gap: 10 }}>
+                  <h4 style={{ fontSize: 14, margin: 0 }}>{section.label}</h4>
+                  {section.rows.map((row) => {
+                    const state = reviewRowState(row);
+                    return (
+                      <div key={row.id} style={{ display: 'grid', gap: 6, padding: 12, borderRadius: 12, border: '1px solid var(--line)' }}>
+                        <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={state.selected && (row.applicable || row.section === 'skills')}
+                              disabled={!row.applicable && row.section !== 'skills'}
+                              onChange={(event) => updateReviewRow(row, { selected: event.target.checked })}
+                            />
+                            <strong style={{ fontSize: 13 }}>{row.field}</strong>
+                          </label>
+                          <span className="faint" style={{ fontSize: 12 }}>
+                            {row.applicable ? `Can map to ${row.profileField}` : 'Review only'}
+                            {row.confidence ? ` · ${row.confidence} confidence` : ''}
+                            {row.groundingStatus ? ` · ${row.groundingStatus}` : ''}
+                          </span>
+                        </span>
+                        <input
+                          value={state.value}
+                          readOnly
+                          aria-readonly="true"
+                          aria-label={`${row.field} extracted value, read-only`}
+                          style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'color-mix(in oklab, var(--line) 35%, transparent)', color: 'inherit' }}
+                        />
+                        <span className="faint" style={{ fontSize: 12 }}>Read-only extracted value</span>
+                        {row.section === 'skills' ? (
+                          <span style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            <select
+                              value={(resumeReviewEdits[row.id] || {}).category || ''}
+                              onChange={(event) => updateReviewRow(row, { category: event.target.value })}
+                              style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', background: 'transparent', color: 'inherit' }}
+                            >
+                              <option value="">Category</option>
+                              {resumeSkillCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+                            </select>
+                            <select
+                              value={(resumeReviewEdits[row.id] || {}).proficiency || ''}
+                              onChange={(event) => updateReviewRow(row, { proficiency: event.target.value })}
+                              style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)', background: 'transparent', color: 'inherit' }}
+                            >
+                              <option value="">Proficiency</option>
+                              {resumeSkillProficiencies.map((level) => <option key={level} value={level}>{level}</option>)}
+                            </select>
+                          </span>
+                        ) : null}
+                        {row.section === 'credentials' && row.field === 'title' ? (
+                          <input
+                            value={(resumeReviewEdits['issuer:' + row.entryIndex] || {}).issuer || ''}
+                            placeholder="Issuer (required, stays self-reported)"
+                            onChange={(event) => setResumeReviewEdits((current) => ({
+                              ...current,
+                              ['issuer:' + row.entryIndex]: { issuer: event.target.value },
+                            }))}
+                            style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'transparent', color: 'inherit' }}
+                          />
+                        ) : null}
+                        {row.evidence ? <span className="faint" style={{ fontSize: 12 }}>Evidence: {row.evidence}</span> : null}
+                        {row.note ? <span className="muted" style={{ fontSize: 12 }}>{row.note}</span> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </section>
       )}
 
@@ -2135,7 +2607,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, loadingProfi
             <Input label="Issue Date" value={credForm.issueDate} onChange={(e) => setCredForm({ ...credForm, issueDate: e.target.value })} placeholder="e.g. May 2025" />
             <Input label="Credential ID" value={credForm.credentialId} onChange={(e) => setCredForm({ ...credForm, credentialId: e.target.value })} placeholder="e.g. ABC-123456" />
           </div>
-          <Input label="Verification URL" value={credForm.verificationUrl} onChange={(e) => setCredForm({ ...credForm, verificationUrl: e.target.value })} placeholder="https://coursera.org/verify/..." />
+          <Input label="Verification URL" value={credForm.verificationUrl} onChange={(e) => setCredForm({ ...credForm, verificationUrl: e.target.value })} placeholder="https://www.credly.com/badges/..." />
           <Button block variant="primary" loading={isSubmitting} onClick={handleSaveCredModal}>
             Save Credential Record
           </Button>

@@ -17,6 +17,20 @@ export const FAILURE_REASONS = [
 
 export type FailureReason = (typeof FAILURE_REASONS)[number];
 
+export const RECIPIENT_MATCHES = [
+  "unchecked",
+  "matched",
+  "mismatched",
+] as const;
+
+export type RecipientMatch = (typeof RECIPIENT_MATCHES)[number];
+
+export function isRecipientMatch(value: unknown): value is RecipientMatch {
+  return (
+    value === "unchecked" || value === "matched" || value === "mismatched"
+  );
+}
+
 export interface CertificateEvidence {
   found: boolean;
   holderName: string | null;
@@ -39,4 +53,5 @@ export interface Certificate {
   verifiedAt: string | null;
   attempts: number;
   failureReason: FailureReason | null;
+  recipientMatch: RecipientMatch;
 }

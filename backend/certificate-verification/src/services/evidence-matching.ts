@@ -22,10 +22,11 @@ export type EvidenceMismatchField = "issuer" | "credentialId" | "canonicalUrl";
 export type EvidenceMatch =
   | {
       outcome: "match";
-      holderName: string;
+      holderName: string | null;
       courseName: string;
       issuedDate: string;
       fetchedAt: string;
+      recipientMatch: "unchecked" | "matched" | "mismatched";
     }
   | { outcome: "mismatch"; fields: EvidenceMismatchField[] }
   | { outcome: "insufficient"; reason: string };
@@ -112,6 +113,9 @@ function readConsistentEvidence(
     return null;
   }
 
+  const recipientDisclosed = record.recipientDisclosed !== false;
+  const issuerName = requiredText(record.issuerName, 300);
+
   return {
     issuer: "credly",
     credentialId,
@@ -121,6 +125,14 @@ function readConsistentEvidence(
     courseName: typeof record.courseName === "string" ? record.courseName : "",
     issuedDate: typeof record.issuedDate === "string" ? record.issuedDate : "",
     fetchedAt: record.fetchedAt,
+    recipientDisclosed,
+    issuerName: issuerName ?? "",
+    recipientMatch:
+      record.recipientMatch === "matched" ||
+      record.recipientMatch === "mismatched" ||
+      record.recipientMatch === "unchecked"
+        ? record.recipientMatch
+        : "unchecked",
   };
 }
 
@@ -161,13 +173,31 @@ export function matchIssuerEvidence(
     return { outcome: "mismatch", fields };
   }
 
-  const holderName = requiredText(confirmed.holderName, 200);
   const courseName = requiredText(confirmed.courseName, 300);
   const issuedDate = requiredDate(confirmed.issuedDate);
-  if (holderName === null || courseName === null || issuedDate === null) {
+  const disclosedName = requiredText(confirmed.holderName, 200);
+  const holderName = confirmed.recipientDisclosed
+    ? disclosedName
+    : confirmed.holderName === ""
+      ? null
+      : disclosedName;
+  if (
+    courseName === null ||
+    issuedDate === null ||
+    (confirmed.recipientDisclosed && holderName === null) ||
+    (!confirmed.recipientDisclosed &&
+      confirmed.holderName !== "" &&
+      holderName === null)
+  ) {
     return {
       outcome: "insufficient",
       reason: "Issuer evidence is missing a holder, course, or issued date.",
+    };
+  }
+  if (confirmed.recipientDisclosed === false && confirmed.issuerName === "") {
+    return {
+      outcome: "insufficient",
+      reason: "Issuer evidence is missing the badge issuer.",
     };
   }
 
@@ -177,5 +207,6 @@ export function matchIssuerEvidence(
     courseName,
     issuedDate,
     fetchedAt: confirmed.fetchedAt,
+    recipientMatch: confirmed.recipientMatch,
   };
 }

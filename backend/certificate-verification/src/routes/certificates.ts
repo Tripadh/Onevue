@@ -1,5 +1,6 @@
 import { Router, type RequestHandler } from "express";
 import type { ZodError } from "zod";
+import { resolveActingUserId } from "../auth/acting-user.js";
 import { createCredlyAdapter } from "../adapters/credly-adapter.js";
 import type { IssuerVerificationAdapter } from "../adapters/issuer-verification-adapter.js";
 import type {
@@ -40,6 +41,7 @@ interface CertificateResponse {
   verifiedAt: string | null;
   attempts: number;
   failureReason: FailureReason | null;
+  recipientMatch: "unchecked" | "matched" | "mismatched";
 }
 
 function toEvidenceResponse(
@@ -73,6 +75,7 @@ export function toCertificateResponse(
     verifiedAt: certificate.verifiedAt,
     attempts: certificate.attempts,
     failureReason: certificate.failureReason,
+    recipientMatch: certificate.recipientMatch,
   };
 }
 
@@ -122,7 +125,9 @@ export function createCertificateRouter(
       );
     }
 
+    const actingUserId = resolveActingUserId(req.headers);
     const result = await repository.create({
+      userId: actingUserId,
       url: parsed.data.url,
       canonicalUrl: certificateUrl.value.canonicalUrl,
       issuer: certificateUrl.value.issuer,
@@ -142,7 +147,10 @@ export function createCertificateRouter(
     }
 
     const certificate = await repository.findById(parsed.data.id);
-    if (certificate === null) {
+    if (
+      certificate === null ||
+      certificate.userId !== resolveActingUserId(req.headers)
+    ) {
       throw new HttpError(404, "NOT_FOUND", "Certificate was not found.");
     }
 
@@ -174,7 +182,10 @@ export function createCertificateRouter(
     }
 
     const existing = await repository.findById(parsedId.data.id);
-    if (existing === null) {
+    if (
+      existing === null ||
+      existing.userId !== resolveActingUserId(req.headers)
+    ) {
       throw new HttpError(404, "NOT_FOUND", "Certificate was not found.");
     }
 
@@ -182,6 +193,12 @@ export function createCertificateRouter(
       repository,
       adapter,
       existing.id,
+      {
+        userId: existing.userId,
+        ...(parsedBody.data.earnerEmail === undefined
+          ? {}
+          : { earnerEmail: parsedBody.data.earnerEmail }),
+      },
     );
     res.status(200).json({
       certificate: toCertificateResponse(outcome.certificate),

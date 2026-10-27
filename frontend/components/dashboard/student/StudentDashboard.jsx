@@ -21,6 +21,7 @@ function StudentDashboard({ session }) {
   const toast = useToast();
 
   const [studentProfile, setStudentProfile] = sUseState(null);
+  const [profileError, setProfileError] = sUseState('');
   const [loadingProfile, setLoadingProfile] = sUseState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = sUseState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = sUseState(false);
@@ -40,13 +41,15 @@ function StudentDashboard({ session }) {
           'Content-Type': 'application/json',
         },
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.profile) {
-          setStudentProfile(data.profile);
-        }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data || !data.profile) {
+        setProfileError(data.message || 'Your student profile could not be loaded. Try again to create it for this account.');
+        return;
       }
+      setProfileError('');
+      setStudentProfile(data.profile);
     } catch (err) {
+      setProfileError('Could not load your student profile. Check that you are signed in and try again.');
       console.warn('Could not load student profile from database:', err);
     } finally {
       setLoadingProfile(false);
@@ -75,15 +78,20 @@ function StudentDashboard({ session }) {
         body: JSON.stringify(updatePayload),
       });
       const data = await res.json();
-      if (!res.ok) {
-        toast.push({ title: 'Failed to save', body: data.message || 'Could not save to database.', tone: 'error' });
+      const outcome = window.OV.services.credentials.profileSaveFeedback({
+        ok: res.ok,
+        message: data && data.message,
+        profile: data && data.profile,
+      });
+      if (!outcome.ok) {
+        toast.push({ title: outcome.title, body: outcome.body, tone: 'error' });
         return false;
       }
-      if (data.profile) {
-        setStudentProfile(data.profile);
+      if (outcome.profile) {
+        setStudentProfile(outcome.profile);
       }
-      toast.push({ title: 'Saved to Database', body: 'Student records updated in MongoDB.', tone: 'success' });
-      return true;
+      toast.push({ title: outcome.title, body: outcome.body, tone: 'success' });
+      return outcome.profile || true;
     } catch (err) {
       toast.push({ title: 'Network Error', body: 'Could not connect to database backend.', tone: 'error' });
       return false;
@@ -161,6 +169,9 @@ function StudentDashboard({ session }) {
             <StudentIdentityPage
               session={session}
               studentProfile={studentProfile}
+              profileError={profileError}
+              onRetryProfile={fetchStudentProfile}
+              onRefreshProfile={fetchStudentProfile}
               onSaveToDb={saveStudentProfileToDb}
               loadingProfile={loadingProfile}
             />
