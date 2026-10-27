@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { preflightResponse } from "../../../../../lib/cors";
 import connectToDatabase from "../../../../../lib/db";
+import User from "../../../../../models/User";
 import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
 import PublishedProfileRevision from "../../../../../models/PublishedProfileRevision";
+import { allowlistPublicSnapshot, resolvePublicProfilePhoto } from "../../../../../lib/public-profile-dto";
+import { publishedCustomization } from "../../../../../lib/templates/registry";
 
 export function OPTIONS(req: Request) {
   return preflightResponse(req.headers.get("origin"));
@@ -74,22 +77,58 @@ export async function GET(
       );
     }
 
-    // 4. Return exclusively the approved public DTO and safe public metadata
+    // 4. Return the approved public DTO. Unknown snapshot keys are stripped here
+    //    and are never written back onto the immutable revision.
+    const stored = JSON.parse(JSON.stringify(revision.snapshot));
+    const snapshot = allowlistPublicSnapshot(stored);
+    if (!snapshot) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "The active published revision snapshot is missing or unavailable.",
+        },
+        { status: 404 }
+      );
+    }
+    const owner = await User.findById(config.userId).select("profilePhotoKey").lean();
+    const profilePhoto = resolvePublicProfilePhoto(
+      snapshot?.profile?.profilePhoto,
+      owner?.profilePhotoKey,
+      new URL(req.url).origin
+    );
+    if (snapshot?.profile && profilePhoto) {
+      snapshot.profile.profilePhoto = profilePhoto;
+    }
+
     const response = NextResponse.json(
       {
         success: true,
-        dto: revision.snapshot,
+        dto: snapshot,
         website: {
           username: config.username,
           templateId: revision.templateId,
           templateVersion: revision.templateVersion,
           publishedAt: revision.publishedAt,
           revisionNumber: revision.revisionNumber,
-          customization: config.customization || {
-            accentColor: "#3b82f6",
-            themeMode: "system",
-            visibleSections: ["about", "education", "projects", "skills", "achievements", "contact"],
-          },
+          customization: (() => {
+            try {
+              const storedPresentation =
+                revision.presentation && typeof (revision.presentation as { toObject?: () => object }).toObject === "function"
+                  ? (revision.presentation as { toObject: () => object }).toObject()
+                  : revision.presentation;
+              const storedConfig =
+                config.customization && typeof (config.customization as { toObject?: () => object }).toObject === "function"
+                  ? (config.customization as { toObject: () => object }).toObject()
+                  : config.customization;
+              return publishedCustomization(storedPresentation, storedConfig, revision.templateId);
+            } catch {
+              return config.customization || {
+                accentColor: "#3b82f6",
+                themeMode: "system",
+                visibleSections: ["about", "education", "projects", "skills", "achievements", "contact"],
+              };
+            }
+          })(),
         },
         analytics: {
           resourceId: String(config._id),

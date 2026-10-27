@@ -35,7 +35,12 @@ function renderSocialIcon(iconName: string) {
 export default function Navbar() {
   const pathname = usePathname();
   const isPublicRoute = pathname ? pathname.startsWith("/p/") : false;
+  const isDraftPreview = pathname ? pathname.startsWith("/preview") : false;
   const portfolio = usePortfolio();
+
+  if (isDraftPreview) {
+    return null;
+  }
 
   // If on a public student profile route (/p/:username)
   if (isPublicRoute) {

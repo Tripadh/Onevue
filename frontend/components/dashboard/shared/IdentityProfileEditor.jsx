@@ -98,8 +98,9 @@ const IDENTITY_HINTS = {
   engagementTypes: "One per line: fixed_price, hourly, contract, retainer, or long_term. This is separate from availability.",
   foundedYear: "A four-digit year, not later than this year. Leave blank to leave it unpublished.",
   price: "Leave blank when the price is quoted on request. A number requires a currency.",
-  thumbnailUrl: "Public http or https address. This form does not upload a file.",
-  imageUrl: "Public http or https address. This form does not upload a file.",
+  thumbnailUrl: "Public http or https address. Upload a file in the asset field when this record has one.",
+  imageUrl: "Public http or https address. Upload a file in the asset field when this record has one.",
+  assetId: "Upload a file you own, or choose one already uploaded. Removing the reference does not delete the stored file.",
   evidenceUrl: "Public http or https address.",
   displayName: "Used on this creator identity. It does not change the account name.",
   tagline: "Separate from the mission. Leave blank if you do not want one.",
@@ -159,6 +160,40 @@ function safeHttpUrl(value) {
   }
 }
 
+function editorDraftApi() {
+  return window.OV && window.OV.editorDraft;
+}
+
+function profilesMatch(left, right) {
+  if (!left || !right) return false;
+  const keys = Object.keys(left);
+  for (let index = 0; index < keys.length; index += 1) {
+    if (JSON.stringify(left[keys[index]]) !== JSON.stringify(right[keys[index]])) return false;
+  }
+  return true;
+}
+
+function assetPurposeForSection(section) {
+  const key = section && (section.collection || section.object || section.id);
+  const purposes = {
+    certifications: "certificate",
+    credentials: "certificate",
+    portfolio: "portfolio-image",
+    achievements: "evidence",
+    resume: "resume",
+    workSamples: "portfolio-media",
+    featuredContent: "portfolio-image",
+    mediaKit: "portfolio-media",
+    branding: "portfolio-image",
+    products: "portfolio-image",
+    caseStudies: "portfolio-image",
+    registration: "evidence",
+    projects: "portfolio-image",
+    media: "portfolio-media",
+  };
+  return purposes[key] || "";
+}
+
 function IdentityProfileEditor({ identity, session, onSaved }) {
   const logic = window.OV.identityProfileState;
   const toast = useToast();
@@ -169,8 +204,13 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
   const [activeSection, setActiveSection] = idUseState(() => readStoredTab(identity, sections));
   const [modal, setModal] = idUseState(null);
   const [modalError, setModalError] = idUseState("");
+  const [restoredDraft, setRestoredDraft] = idUseState(false);
+  const [staleDraft, setStaleDraft] = idUseState(false);
+  const [siteStatus, setSiteStatus] = idUseState("");
   const savingRef = idUseRef(false);
   const loadSeq = idUseRef(0);
+  const draftReady = idUseRef(false);
+  const draftBase = idUseRef("");
 
   function load() {
     const seq = ++loadSeq.current;
@@ -186,7 +226,23 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
         dispatch({ type: "load_error", message: "The server did not return a profile." });
         return;
       }
+      const drafts = editorDraftApi();
+      const record = drafts ? drafts.readDraft(sessionStorage, "identity-" + identity, session) : null;
+      const decision = drafts
+        ? drafts.decideDraftRestore(record, data.profile)
+        : { action: "use-server", baseUpdatedAt: "", stale: false };
+      draftBase.current = decision.baseUpdatedAt || "";
+      draftReady.current = true;
       dispatch({ type: "load_success", profile: data.profile });
+      if (decision.action === "restore-local" && !profilesMatch(decision.draft, data.profile)) {
+        dispatch({ type: "edit", draft: decision.draft });
+        setRestoredDraft(true);
+        setStaleDraft(false);
+      } else {
+        setRestoredDraft(false);
+        setStaleDraft(!!decision.stale);
+        if (decision.stale && drafts) drafts.clearDraft(sessionStorage, "identity-" + identity, session);
+      }
     }).catch((error) => {
       if (seq !== loadSeq.current) return;
       dispatch({ type: "load_error", message: error.message || "Could not load profile." });
@@ -194,6 +250,7 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
   }
 
   idUseEffect(() => {
+    draftReady.current = false;
     setActiveSection(readStoredTab(identity, sections));
     setModal(null);
     setModalError("");
@@ -201,6 +258,28 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
     return () => {
       loadSeq.current += 1;
     };
+  }, [identity]);
+
+  idUseEffect(() => {
+    const drafts = editorDraftApi();
+    if (!draftReady.current || !state.draft || !drafts) return;
+    drafts.writeDraft(sessionStorage, "identity-" + identity, session, state.draft, draftBase.current);
+  }, [state.draft, identity]);
+
+  idUseEffect(() => {
+    const token = (session && session.token) || (window.OV && window.OV.core && window.OV.core.db && window.OV.core.db.get("session") && window.OV.core.db.get("session").token);
+    if (!token) return undefined;
+    const apiBase = (window.OV_ENV && window.OV_ENV.API_BASE) || "http://localhost:3000/api";
+    let cancelled = false;
+    fetch(String(apiBase).replace(/\/$/, "") + "/student/website/config", {
+      headers: { Authorization: "Bearer " + token },
+    }).then((response) => response.json()).then((data) => {
+      if (cancelled) return;
+      setSiteStatus(data && data.config && data.config.status ? data.config.status : "draft");
+    }).catch(() => {
+      if (!cancelled) setSiteStatus("");
+    });
+    return () => { cancelled = true; };
   }, [identity]);
 
   function selectSection(sectionId) {
@@ -223,6 +302,9 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
         throw new Error("The server did not confirm the saved profile.");
       }
       const keys = Object.keys(payload);
+      const drafts = editorDraftApi();
+      draftBase.current = drafts ? drafts.stampOf(data.profile) : draftBase.current;
+      setStaleDraft(false);
       dispatch({ type: "section_save_success", profile: data.profile, keys });
       toast.push({
         title: successBody && successBody.indexOf("removed") !== -1 ? "Record removed" : "Profile saved",
@@ -315,7 +397,8 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
     setModalError("");
   }
 
-  function renderControl(field, value, onChange, disabled, sectionId) {
+  function renderControl(field, value, onChange, disabled, section) {
+    const sectionId = section && section.id;
     const required = logic.isFieldRequired(identity, sectionId, field.key);
     const label = required ? field.label + " *" : field.label;
     const hint = IDENTITY_HINTS[field.key];
@@ -323,13 +406,13 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
     if ((field.key === "status" || field.key === "verificationStatus") && (value === "verified" || value === "rejected")) {
       return <p className="muted" style={{ margin: 0 }}>Status: {value}. OneVue controls this value.</p>;
     }
-    if (field.type === "textarea" || field.type === "lines") {
+    if (field.type === "lines") {
       return (
         <label className="field">
           <span className="field-label">{label}</span>
           <textarea
             className="input"
-            rows={field.type === "lines" ? 4 : 5}
+            rows={4}
             value={value}
             disabled={disabled}
             placeholder={placeholder}
@@ -339,22 +422,41 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
         </label>
       );
     }
+    if (field.type === "textarea") {
+      return <EditorRichText label={label} hint={hint} value={value} disabled={disabled} placeholder={placeholder} onChange={onChange} />;
+    }
     if (field.type === "select") {
-      return <Select label={label} hint={hint} options={field.options} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />;
+      return <EditorChoice label={label} hint={hint} options={field.options} value={value} disabled={disabled} onChange={onChange} />;
+    }
+    if (field.type === "radio") {
+      return <EditorRadio label={label} hint={hint} options={field.options} value={value} disabled={disabled} onChange={onChange} />;
+    }
+    if (field.type === "multiselect") {
+      return <EditorMultiSelect label={label} hint={hint} options={field.options} value={value} disabled={disabled} onChange={onChange} />;
     }
     if (field.type === "checkbox") {
       return <Toggle label={label} checked={!!value} disabled={disabled} onChange={onChange} />;
     }
-    const inputType = field.type === "number" ? "number" : field.type === "date" ? "date" : field.type === "email" ? "email" : field.type === "url" ? "url" : "text";
+    if (field.key === "assetId") {
+      const purpose = assetPurposeForSection(section);
+      if (purpose && window.EditorAssetField) {
+        return <EditorAssetField label={label} hint={hint} purpose={purpose} value={value} disabled={disabled} onChange={onChange} />;
+      }
+      return <EditorMediaReference label={label} hint={hint} value={value} disabled={disabled} onChange={onChange} />;
+    }
+    if (field.type === "url") {
+      return <EditorLink label={label} hint={hint} value={value} disabled={disabled} placeholder={placeholder} onChange={onChange} />;
+    }
+    const inputType = field.type === "number" ? "number" : field.type === "date" ? "date" : field.type === "email" ? "email" : "text";
     return (
-      <Input
+      <EditorText
         label={label}
         hint={hint}
         type={inputType}
         value={value}
         placeholder={placeholder}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={onChange}
       />
     );
   }
@@ -395,6 +497,19 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
       section.title + " is stored in your account."
     );
     if (saved) setModal(null);
+  }
+
+  async function moveRecord(section, index, direction) {
+    if (!state.draft) return;
+    const list = state.draft[section.collection] || [];
+    const reorder = window.OV && window.OV.createCustomize && window.OV.createCustomize.reorderEntries;
+    const next = reorder ? reorder(list, index, direction) : list;
+    if (!next || next.length !== list.length || next.every((item, itemIndex) => item === list[itemIndex])) return;
+    await persist(
+      section,
+      Object.assign({}, state.draft, { [section.collection]: next }),
+      "The saved order was updated."
+    );
   }
 
   async function removeRecord(section, id) {
@@ -468,8 +583,43 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
     }).filter(Boolean);
   }
 
+  const unsaved = state.profile && state.draft && !profilesMatch(state.draft, state.profile);
+  const catalog = window.OV && window.OV.createCustomize;
+  const template = catalog && catalog.getTemplate("magicui-portfolio");
+  const retainedIds = (template && template.retainedSections) || [];
+  const retainedKey = current && current.id === "registration" ? "registration" : current && current.id === "audience" ? "audienceStats" : "";
+  const retainedNote = retainedKey && retainedIds.indexOf(retainedKey) !== -1
+    ? "This stays on your profile. Magic UI Portfolio does not show it on the public page."
+    : "";
+  const websiteHref = "/app/" + identity + "/website";
+
   return (
     <div style={{ display: "grid", gap: 24 }}>
+      <section className="glass" style={{ padding: "14px 16px", borderRadius: 16, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <div>
+          <strong style={{ fontSize: 14 }}>{siteStatus === "published" ? "Published website" : "Draft website"}</strong>
+          <p className="muted" style={{ margin: "4px 0 0", fontSize: 13 }}>
+            Profile edits stay in this browser until you save a section. Saving does not publish. {unsaved ? "Unsaved edits are stored for this account only." : "Saved sections are ready to preview."}
+            {staleDraft ? " The saved profile changed on the server, so older browser edits were not applied." : ""}
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {unsaved ? (
+            <Button type="button" size="sm" variant="ghost" onClick={() => {
+              if (!state.profile) return;
+              const drafts = editorDraftApi();
+              if (drafts) drafts.clearDraft(sessionStorage, "identity-" + identity, session);
+              draftBase.current = drafts ? drafts.stampOf(state.profile) : "";
+              dispatch({ type: "edit", draft: JSON.parse(JSON.stringify(state.profile)) });
+              setRestoredDraft(false);
+              setStaleDraft(false);
+            }}>Discard unsaved edits</Button>
+          ) : null}
+          <a href={websiteHref}>Open website</a>
+        </div>
+      </section>
+      {restoredDraft ? <p role="status" style={{ margin: 0 }}>Unsaved edits from this browser were restored.</p> : null}
+      {retainedNote ? <p className="muted" style={{ margin: 0 }}>{retainedNote}</p> : null}
       <div
         className="glass"
         role="tablist"
@@ -525,7 +675,7 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
             />
           ) : (
             <div style={{ display: "grid", gap: 14 }}>
-              {(draft[current.collection] || []).map((record) => {
+              {(draft[current.collection] || []).map((record, index, records) => {
                 const href = safeHttpUrl(record.url || record.credentialUrl || record.kitUrl);
                 const body = ui.cardBody ? displayValue(record[ui.cardBody]) : "";
                 return (
@@ -551,7 +701,13 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
                           <p className="muted" style={{ fontSize: 14, margin: "4px 0 0" }}>{cardMeta(current, record).join(" · ")}</p>
                         ) : null}
                       </div>
-                      <div style={{ display: "flex", gap: 8 }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <Button type="button" size="sm" variant="ghost" onClick={() => moveRecord(current, index, -1)} disabled={disabled || index === 0}>
+                          Up
+                        </Button>
+                        <Button type="button" size="sm" variant="ghost" onClick={() => moveRecord(current, index, 1)} disabled={disabled || index === records.length - 1}>
+                          Down
+                        </Button>
                         <Button type="button" size="sm" variant="ghost" onClick={() => openEdit(current, record)} disabled={disabled}>
                           {window.StudentIcons ? <window.StudentIcons.edit /> : null} Edit
                         </Button>
@@ -607,8 +763,8 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
             {(current.object ? current.fields : current.fields).map((field) => (
               <div key={field.key}>
                 {current.object
-                  ? renderControl(field, readValue(field, draft[current.object] || {}), (raw) => onObjectChange(current.object, field, raw), disabled, current.id)
-                  : renderControl(field, readValue(field, draft), (raw) => onScalarChange(field, raw), disabled, current.id)}
+                  ? renderControl(field, readValue(field, draft[current.object] || {}), (raw) => onObjectChange(current.object, field, raw), disabled, current)
+                  : renderControl(field, readValue(field, draft), (raw) => onScalarChange(field, raw), disabled, current)}
               </div>
             ))}
             <Button type="submit" variant="primary" loading={state.saving} disabled={disabled || !state.draft} style={{ justifySelf: "start" }}>
@@ -617,6 +773,35 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
           </form>
         </section>
       ) : null}
+
+      <CustomFieldBoard
+        identity={identity}
+        sectionId={current && current.id}
+        layout={draft.customLayout}
+        records={current && current.collection ? (draft[current.collection] || []).map((record) => ({
+          id: record.id,
+          title: cardTitle(current, record),
+        })) : []}
+        disabled={disabled}
+        templateId="magicui-portfolio"
+        onChange={(next) => editDraft(Object.assign({}, draft, { customLayout: next }))}
+        onSave={(next) => persist(
+          current,
+          Object.assign({}, state.draft, { customLayout: next }),
+          "Custom fields are stored in your account."
+        )}
+      />
+      <CustomSectionManager
+        layout={draft.customLayout}
+        disabled={disabled}
+        templateId="magicui-portfolio"
+        onChange={(next) => editDraft(Object.assign({}, draft, { customLayout: next }))}
+        onSave={(next) => persist(
+          current,
+          Object.assign({}, state.draft, { customLayout: next }),
+          "Custom sections are stored in your account."
+        )}
+      />
 
       <Modal
         open={!!modalSection}
@@ -631,7 +816,7 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
             {modalError ? <p role="alert" style={{ margin: 0, color: "var(--danger, #b42318)" }}>{modalError}</p> : null}
             {modalSection.fields.map((field) => (
               <div key={field.key}>
-                {renderControl(field, readValue(field, modal.record), (raw) => onModalChange(field, raw), disabled, modalSection.id)}
+                {renderControl(field, readValue(field, modal.record), (raw) => onModalChange(field, raw), disabled, modalSection)}
               </div>
             ))}
             {modalSection.nested ? (
@@ -649,7 +834,7 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
                           readValue(field, pkg),
                           (raw) => onNestedChange(modalSection.nested, pkg.id, field, raw),
                           disabled,
-                          modalSection.id + "." + modalSection.nested.key
+                          modalSection
                         )}
                       </div>
                     ))}

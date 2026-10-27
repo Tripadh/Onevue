@@ -15,6 +15,11 @@ export function getAnalyticsEventsEndpoint(): string {
   return `${getApiBaseUrl()}/analytics/events`;
 }
 
+/** Origin of the OneVue API, used to load uploaded photos from another local port. */
+export function getPublicApiOrigin(): string {
+  return new URL(getApiBaseUrl()).origin;
+}
+
 function getApiBaseUrl(): string {
   const envUrl = process.env.ONEVUE_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_ONEVUE_API_BASE_URL;
   const baseUrl = envUrl ? envUrl.trim().replace(/\/+$/, "") : "http://localhost:3000/api";

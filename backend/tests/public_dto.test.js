@@ -44,7 +44,9 @@ if (!require.extensions[".ts"]) {
 
 const {
   toPublicProfileDTO,
+  allowlistPublicSnapshot,
   sanitizeUrl,
+  resolvePublicProfilePhoto,
   computeSnapshotChecksum,
   PUBLIC_PROFILE_SCHEMA_VERSION,
 } = require(path.join(projectRoot, "lib", "public-profile-dto.ts"));
@@ -458,6 +460,23 @@ describe("OneVue Phase 2 — Public Profile DTO & Privacy Contract", () => {
     assert.match(checksum1, /^[a-f0-9]{64}$/);
     assert.equal(checksum1, checksum2, "Checksums for identical DTOs must be deterministic");
   });
+
+  test("18. An uploaded account photo becomes the public avatar", () => {
+    const source = getFullSourceProfile();
+    const key = "user_abc123_1710000000000_0123456789abcdef.jpg";
+    const dto = toPublicProfileDTO(source, { user: { profilePhotoKey: key } });
+
+    assert.equal(dto.profile.profilePhoto, `/api/profile/photo/${key}`);
+    assert.equal(
+      resolvePublicProfilePhoto(dto.profile.profilePhoto, key, "http://localhost:3000"),
+      `http://localhost:3000/api/profile/photo/${key}`
+    );
+    assert.equal(resolvePublicProfilePhoto("javascript:alert(1)", "../secrets.png", "http://localhost:3000"), undefined);
+    assert.equal(
+      resolvePublicProfilePhoto("https://example.com/photos/alex.jpg", null, "http://localhost:3000"),
+      "https://example.com/photos/alex.jpg"
+    );
+  });
 });
 
 describe("OneVue Phase 2 — Model Schema & Validation Constraints", () => {
@@ -541,5 +560,107 @@ describe("OneVue Phase 2 — Model Schema & Validation Constraints", () => {
     assert.ok(invalidErr);
     assert.ok(invalidErr.errors.snapshot);
     assert.ok(invalidErr.errors.checksum);
+  });
+
+  test("18. Safe project images and identity sections are allowlisted", () => {
+    const assetId = "ast_" + "a".repeat(24);
+    const dto = toPublicProfileDTO({
+      preferredName: "Ada",
+      projects: [
+        {
+          id: "lamp",
+          title: "Lamp",
+          imageUrl: "https://cdn.example/lamp.jpg",
+          assetId: "ast_should_not_leak",
+          storageKey: "private/object",
+        },
+        {
+          id: "bad",
+          title: "Bad image",
+          imageUrl: "javascript:alert(1)",
+        },
+        {
+          id: "linked",
+          title: "Linked shot",
+        },
+      ],
+      media: [
+        {
+          id: "shot",
+          title: "Shot",
+          mediaUrl: "https://cdn.example/shot.png",
+          relatedProject: "linked",
+          visibility: "public",
+          mediaType: "image",
+        },
+        {
+          id: "hidden",
+          title: "Hidden",
+          mediaUrl: "https://cdn.example/hidden.png",
+          relatedProject: "lamp",
+          visibility: "private",
+          mediaType: "image",
+        },
+      ],
+      experience: [{ title: "Engineer", organization: "Acme", secretNote: "hidden role note" }],
+      testimonials: [{ quote: "Excellent", authorName: "Jamie", relationship: "Client", privateEmail: "jamie@secret.test" }],
+      team: [{ name: "Shown", role: "CEO", privatePhone: "555-0100" }],
+      internalNote: "do not leak",
+    });
+
+    assert.equal(dto.projects[0].imageUrl, "https://cdn.example/lamp.jpg");
+    assert.equal("assetId" in dto.projects[0], false);
+    assert.equal("imageUrl" in dto.projects[1], false);
+    assert.equal(dto.projects[2].imageUrl, "https://cdn.example/shot.png");
+    assert.equal(dto.experience[0].organization, "Acme");
+    assert.equal("secretNote" in dto.experience[0], false);
+    assert.equal(dto.testimonials[0].authorName, "Jamie");
+    assert.equal(dto.team[0].name, "Shown");
+    const dump = JSON.stringify(dto);
+    assert.equal(dump.includes("do not leak"), false);
+    assert.equal(dump.includes("private/object"), false);
+    assert.equal(dump.includes("ast_should_not_leak"), false);
+    assert.equal(dump.includes("555-0100"), false);
+    assert.equal(dump.includes("jamie@secret.test"), false);
+    assert.equal(dump.includes("hidden.png"), false);
+    assert.equal(dump.includes(assetId), false);
+  });
+
+  test("19. An existing 1.0.0 snapshot stays readable and unknown keys are removed", () => {
+    const imagePath = "/api/assets/public/ast_" + "a".repeat(24);
+    const listed = allowlistPublicSnapshot({
+      meta: { schemaVersion: "1.0.0", username: "ada" },
+      profile: {
+        displayName: "Ada Lovelace",
+        initials: "AL",
+        location: { city: "London" },
+        careerInterests: [],
+        areasOfInterest: [],
+        languages: [],
+        secret: "nope",
+      },
+      education: [],
+      projects: [{ id: "p1", title: "Engine", technologies: [], imageUrl: imagePath, storageKey: "secret/key" }],
+      skills: [],
+      credentials: [{ id: "c1", title: "Math", credentialType: "certification", issuer: "Society" }],
+      achievements: [{ id: "a1", title: "Engineer at Initech", category: "experience", organization: "Initech", role: "Engineer" }],
+      media: [],
+      contact: { socialLinks: [] },
+      secretInternalNote: "Needs review by dean",
+    });
+
+    assert.ok(listed);
+    assert.equal(listed.meta.schemaVersion, "1.0.0");
+    assert.equal(listed.profile.displayName, "Ada Lovelace");
+    assert.equal("secret" in listed.profile, false);
+    assert.equal(listed.projects[0].imageUrl, imagePath);
+    assert.equal("storageKey" in listed.projects[0], false);
+    assert.equal(listed.credentials[0].title, "Math");
+    assert.equal(listed.achievements[0].category, "experience");
+    assert.equal(listed.experience, undefined);
+    assert.equal("secretInternalNote" in listed, false);
+    assert.equal(JSON.stringify(listed).includes("Needs review by dean"), false);
+    assert.equal(JSON.stringify(listed).includes("secret/key"), false);
+    assert.equal(allowlistPublicSnapshot({ meta: { schemaVersion: "9.9.9" }, profile: { displayName: "X" } }), null);
   });
 });

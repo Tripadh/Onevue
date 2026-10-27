@@ -4,6 +4,8 @@
  * GET /api/public/profile/:username
  */
 
+import { MAGICUI_TEMPLATE_ID, retainedPublicFields } from "./template-registry.ts";
+
 export const SUPPORTED_DTO_SCHEMA_VERSION = "1.0.0" as const;
 
 export interface IPublicLocation {
@@ -64,6 +66,7 @@ export interface IPublicProject {
   challengesSolutions?: string;
   metricsResults?: string;
   impact?: string;
+  imageUrl?: string;
 }
 
 export interface IPublicSkill {
@@ -105,6 +108,32 @@ export interface IPublicAchievement {
   location?: string;
   proofUrl?: string;
   certificateUrl?: string;
+}
+
+export interface IPublicExperience {
+  id: string;
+  title: string;
+  organization: string;
+  employmentType?: string;
+  location?: string;
+  startDate?: string;
+  endDate?: string;
+  isCurrent?: boolean;
+  description?: string;
+}
+
+export interface IPublicTestimonial {
+  id: string;
+  quote: string;
+  authorName: string;
+  relationship?: string;
+  attribution?: string;
+}
+
+export interface IPublicTeamMember {
+  id: string;
+  name: string;
+  role?: string;
 }
 
 export interface IPublicResume {
@@ -157,6 +186,28 @@ export interface IPublicProfileMetadata {
   templateVersion?: string;
 }
 
+export interface IPublicCustomField {
+  id: string;
+  key: string;
+  label: string;
+  type: string;
+  order: number;
+  helpText?: string;
+  presentation: string;
+  value: unknown;
+}
+
+export interface IPublicCustomSection {
+  id: string;
+  key: string;
+  title: string;
+  description?: string;
+  builtinKey?: string;
+  order: number;
+  repeatable: boolean;
+  records: { id: string; fields: IPublicCustomField[] }[];
+}
+
 export interface PublicProfileDTO_v1 {
   meta: IPublicProfileMetadata;
   profile: {
@@ -178,15 +229,20 @@ export interface PublicProfileDTO_v1 {
   skills: IPublicSkill[];
   credentials: IPublicCredential[];
   achievements: IPublicAchievement[];
+  experience?: IPublicExperience[];
+  testimonials?: IPublicTestimonial[];
+  team?: IPublicTeamMember[];
   resume?: IPublicResume;
   media: IPublicMediaItem[];
   contact: IPublicContact;
+  customSections?: IPublicCustomSection[];
 }
 
 export interface WebsiteCustomization {
   accentColor?: string;
   themeMode?: "light" | "dark" | "system";
   visibleSections?: string[];
+  sectionOrder?: string[];
 }
 
 export interface WebsiteMetadata {
@@ -211,6 +267,25 @@ export interface OneVuePublicApiResponse {
 /**
  * Transformed structure consumed directly by Magic UI portfolio components
  */
+export interface AdaptedCustomField {
+  id: string;
+  label: string;
+  presentation: string;
+  text?: string;
+  href?: string;
+  images?: { href: string; fileName?: string }[];
+  tags?: string[];
+  checked?: boolean;
+  embed?: boolean;
+}
+
+export interface AdaptedCustomSection {
+  id: string;
+  title: string;
+  description?: string;
+  records: { id: string; fields: AdaptedCustomField[] }[];
+}
+
 export interface AdaptedEducation {
   school: string;
   href: string;
@@ -218,6 +293,8 @@ export interface AdaptedEducation {
   logoUrl?: string;
   start: string;
   end: string;
+  id?: string;
+  customFields?: AdaptedCustomField[];
 }
 
 export interface AdaptedProjectLink {
@@ -271,6 +348,40 @@ export interface AdaptedHackathon {
   links: AdaptedHackathonLink[];
 }
 
+export interface AdaptedHighlight {
+  title: string;
+  date: string;
+  description: string;
+  href: string;
+}
+
+export interface AdaptedCredential {
+  title: string;
+  issuer: string;
+  date: string;
+  href: string;
+  description: string;
+}
+
+export interface AdaptedTestimonial {
+  quote: string;
+  author: string;
+  relationship: string;
+  note: string;
+}
+
+export interface AdaptedTeamMember {
+  name: string;
+  role: string;
+}
+
+export interface AdaptedMediaItem {
+  title: string;
+  href: string;
+  mediaType: string;
+  alt: string;
+}
+
 export interface AdaptedSocialLink {
   name: string;
   url: string;
@@ -289,14 +400,30 @@ export interface AdaptedPortfolioData {
   skills: AdaptedSkill[];
   education: AdaptedEducation[];
   projects: AdaptedProject[];
+  services: AdaptedProject[];
+  products: AdaptedProject[];
+  caseStudies: AdaptedProject[];
+  featured: AdaptedProject[];
   work: AdaptedWorkItem[];
   hackathons: AdaptedHackathon[];
+  highlights: AdaptedHighlight[];
+  credentials: AdaptedCredential[];
+  testimonials: AdaptedTestimonial[];
+  team: AdaptedTeamMember[];
+  media: AdaptedMediaItem[];
+  customSections: AdaptedCustomSection[];
   contact: {
     email?: string;
     tel?: string;
     social: Record<string, AdaptedSocialLink>;
   };
   resumeUrl?: string;
+  /** Test adapter that rendered this view. Stored content is not removed when it cannot be shown. */
+  templateId: string;
+  retainedFields: string[];
+  accentColor?: string;
+  themeMode: "light" | "dark" | "system";
+  sectionOrder: string[];
   visibleSections: {
     hero: boolean;
     about: boolean;
@@ -304,8 +431,18 @@ export interface AdaptedPortfolioData {
     education: boolean;
     skills: boolean;
     projects: boolean;
+    services: boolean;
+    products: boolean;
+    caseStudies: boolean;
+    featured: boolean;
     hackathons: boolean;
+    highlights: boolean;
+    credentials: boolean;
+    testimonials: boolean;
+    team: boolean;
+    media: boolean;
     contact: boolean;
+    custom: boolean;
   };
 }
 
@@ -333,9 +470,133 @@ export function sanitizeSafeUrl(val: unknown): string | undefined {
  * Pure, non-mutating adapter that converts a validated OneVue PublicProfileDTO_v1
  * into the exact data shape required by Magic UI components.
  */
+const DEFAULT_SECTION_ORDER = ["about", "work", "education", "skills", "projects", "achievements", "contact"];
+const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+/** Keeps a stored section order and appends any group this adapter can place. */
+export function normalizeSectionOrder(value: unknown): string[] {
+  const next: string[] = [];
+  const incoming = Array.isArray(value) ? value : [];
+  for (const item of incoming) {
+    const id = String(item);
+    if (DEFAULT_SECTION_ORDER.includes(id) && !next.includes(id)) next.push(id);
+  }
+  for (const id of DEFAULT_SECTION_ORDER) {
+    if (!next.includes(id)) next.push(id);
+  }
+  return next;
+}
+
+export function resolveAvatarUrl(val: unknown, assetOrigin?: string): string | undefined {
+  const absolute = sanitizeSafeUrl(val);
+  if (absolute) return absolute;
+  if (typeof val !== "string" || !assetOrigin) return undefined;
+  const trimmed = val.trim();
+  const relativePhoto =
+    /^\/api\/profile\/photo\/[A-Za-z0-9._~%-]+$/.test(trimmed) ||
+    /^\/api\/assets\/public\/ast_[a-f0-9]{24}$/.test(trimmed) ||
+    /^\/api\/assets\/private\/ast_[a-f0-9]{24}\?exp=\d{1,12}&sig=[a-f0-9]{64}$/.test(trimmed);
+  if (!relativePhoto) return undefined;
+  try {
+    return `${new URL(assetOrigin).origin}${trimmed}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function customFieldsFor(dto: PublicProfileDTO_v1, builtinKey: string, recordId: string): IPublicCustomField[] {
+  const sections = Array.isArray(dto.customSections) ? dto.customSections : [];
+  const section = sections.find((item) => item && item.builtinKey === builtinKey);
+  if (!section) return [];
+  const record = (section.records || []).find((item) => item && item.id === recordId);
+  return record && Array.isArray(record.fields) ? record.fields : [];
+}
+
+function safeFieldHref(value: unknown, assetOrigin?: string): string | undefined {
+  return sanitizeSafeUrl(value) || resolveAvatarUrl(value, assetOrigin);
+}
+
+function adaptCustomFields(fields: IPublicCustomField[] | undefined, assetOrigin?: string): AdaptedCustomField[] {
+  if (!Array.isArray(fields)) return [];
+  const adapted: AdaptedCustomField[] = [];
+  for (const field of fields) {
+    if (!field || field.presentation === "hidden" || typeof field.label !== "string") continue;
+    const base = { id: String(field.id || field.key || field.label), label: field.label, presentation: field.presentation };
+    if (field.presentation === "link" || field.type === "url") {
+      const href = safeFieldHref(field.value, assetOrigin);
+      if (!href) continue;
+      adapted.push({ ...base, href, text: href });
+      continue;
+    }
+    if (field.presentation === "image" || field.presentation === "file") {
+      const row = field.value && typeof field.value === "object" ? field.value as { href?: unknown; fileName?: unknown } : {};
+      const href = safeFieldHref(row.href, assetOrigin);
+      if (!href) continue;
+      adapted.push({ ...base, href, text: typeof row.fileName === "string" ? row.fileName : field.label });
+      continue;
+    }
+    if (field.presentation === "gallery" && Array.isArray(field.value)) {
+      const images: { href: string; fileName?: string }[] = [];
+      for (const item of field.value) {
+        const row = item && typeof item === "object" ? item as { href?: unknown; fileName?: unknown } : {};
+        const href = safeFieldHref(row.href, assetOrigin);
+        if (!href) continue;
+        images.push(typeof row.fileName === "string" ? { href, fileName: row.fileName } : { href });
+      }
+      if (!images.length) continue;
+      adapted.push({ ...base, images });
+      continue;
+    }
+    if (field.presentation === "video") {
+      const row = field.value && typeof field.value === "object" ? field.value as { href?: unknown; embed?: unknown } : {};
+      const href = safeFieldHref(row.href, assetOrigin);
+      if (!href) continue;
+      adapted.push({ ...base, href, embed: row.embed === true, text: href });
+      continue;
+    }
+    if (field.presentation === "tags" && Array.isArray(field.value)) {
+      const tags = field.value.filter((item): item is string => typeof item === "string" && Boolean(item));
+      if (!tags.length) continue;
+      adapted.push({ ...base, tags });
+      continue;
+    }
+    if (field.presentation === "boolean") {
+      adapted.push({ ...base, checked: field.value === true, text: field.value === true ? "Yes" : "No" });
+      continue;
+    }
+    if (field.presentation === "number" && typeof field.value === "number") {
+      adapted.push({ ...base, text: String(field.value) });
+      continue;
+    }
+    if (typeof field.value === "string" && field.value.trim()) {
+      adapted.push({ ...base, text: field.value });
+    }
+  }
+  return adapted;
+}
+
+function adaptCustomSections(dto: PublicProfileDTO_v1, assetOrigin?: string): AdaptedCustomSection[] {
+  const sections = Array.isArray(dto.customSections) ? dto.customSections : [];
+  return sections
+    .filter((section) => section && !section.builtinKey && section.title)
+    .map((section) => ({
+      id: section.id,
+      title: section.title,
+      description: section.description,
+      records: (section.records || [])
+        .map((record) => ({
+          id: record.id,
+          fields: adaptCustomFields(record.fields, assetOrigin),
+        }))
+        .filter((record) => record.fields.length > 0),
+    }))
+    .filter((section) => section.records.length > 0);
+}
+
 export function adaptOneVueProfile(
   dto: PublicProfileDTO_v1,
-  website?: WebsiteMetadata
+  website?: WebsiteMetadata,
+  options?: { assetOrigin?: string }
 ): AdaptedPortfolioData {
   if (!dto || !dto.meta || !dto.profile) {
     throw new Error("Invalid OneVue profile payload: missing root metadata or profile.");
@@ -362,7 +623,7 @@ export function adaptOneVueProfile(
   const initials = profile.initials || deriveInitials(name);
   const description = profile.headline || "";
   const summary = profile.bio || "";
-  const avatarUrl = sanitizeSafeUrl(profile.profilePhoto);
+  const avatarUrl = resolveAvatarUrl(profile.profilePhoto, options?.assetOrigin);
   const safeCanonical = sanitizeSafeUrl(dto.meta.canonicalUrl);
   const canonicalUrl = safeCanonical || `https://onevue.me/p/${encodeURIComponent(dto.meta.username || "")}`;
 
@@ -384,82 +645,120 @@ export function adaptOneVueProfile(
             e.endDate ||
             (e.currentStatus === "studying" ? "Present" : e.expectedGradDate || "");
           return {
+            id: e.id,
             school: e.institution,
             href: sanitizeSafeUrl(e.website) || "#",
             degree: degreeText,
             start: start || "Enrolled",
             end: end || "Present",
+            customFields: adaptCustomFields(customFieldsFor(dto, "education", e.id), options?.assetOrigin),
           };
         })
     : [];
 
-  // 4. Projects mapping
-  const adaptedProjects: AdaptedProject[] = Array.isArray(projects)
-    ? projects
-        .filter((p) => Boolean(p && p.title))
-        .map((p) => {
-          const links: AdaptedProjectLink[] = [];
-          const safeLiveUrl = sanitizeSafeUrl(p.liveUrl);
-          const safeWebsiteUrl = sanitizeSafeUrl(p.websiteUrl);
-          const safeRepoUrl = sanitizeSafeUrl(p.repoUrl);
-          const safeVideoUrl = sanitizeSafeUrl(p.videoUrl);
-          const safeDocsUrl = sanitizeSafeUrl(p.docsUrl);
+  // 4. Projects mapping. Identity-specific types stay in their own groups.
+  const projectBuckets: Record<"projects" | "services" | "products" | "caseStudies" | "featured", AdaptedProject[]> = {
+    projects: [],
+    services: [],
+    products: [],
+    caseStudies: [],
+    featured: [],
+  };
+  const consumedMediaUrls = new Set<string>();
+  const mediaItems = Array.isArray(dto.media) ? dto.media : [];
+  if (Array.isArray(projects)) {
+    projects.filter((p) => Boolean(p && p.title)).forEach((p, index) => {
+      const links: AdaptedProjectLink[] = [];
+      const safeLiveUrl = sanitizeSafeUrl(p.liveUrl);
+      const safeWebsiteUrl = sanitizeSafeUrl(p.websiteUrl);
+      const safeRepoUrl = sanitizeSafeUrl(p.repoUrl);
+      const safeVideoUrl = sanitizeSafeUrl(p.videoUrl);
+      const safeDocsUrl = sanitizeSafeUrl(p.docsUrl);
 
-          if (safeLiveUrl) {
-            links.push({ type: "Website", href: safeLiveUrl, iconName: "globe" });
-          } else if (safeWebsiteUrl) {
-            links.push({ type: "Website", href: safeWebsiteUrl, iconName: "globe" });
-          }
+      if (safeLiveUrl) {
+        links.push({ type: "Website", href: safeLiveUrl, iconName: "globe" });
+      } else if (safeWebsiteUrl) {
+        links.push({ type: "Website", href: safeWebsiteUrl, iconName: "globe" });
+      }
+      if (safeRepoUrl) links.push({ type: "Source", href: safeRepoUrl, iconName: "github" });
+      if (safeVideoUrl) links.push({ type: "Video", href: safeVideoUrl, iconName: "video" });
+      if (safeDocsUrl) links.push({ type: "Docs", href: safeDocsUrl, iconName: "doc" });
 
-          if (safeRepoUrl) {
-            links.push({ type: "Source", href: safeRepoUrl, iconName: "github" });
-          }
+      const primaryHref = safeLiveUrl || safeWebsiteUrl || safeRepoUrl || "#";
+      const desc = p.shortDescription || p.detailedDescription || "";
+      const start = p.startDate || "";
+      const end = p.endDate || (p.status === "in_progress" ? "Present" : "");
+      const dates = start && end ? `${start} - ${end}` : start || end || "";
+      const directImage = resolveAvatarUrl(p.imageUrl, options?.assetOrigin);
+      if (typeof p.imageUrl === "string" && p.imageUrl) consumedMediaUrls.add(p.imageUrl);
+      const legacy = mediaItems.find((item) => item && item.id === `project_asset_${index}`);
+      const legacyImage = directImage ? undefined : resolveAvatarUrl(legacy?.mediaUrl, options?.assetOrigin);
+      if (legacyImage && legacy?.mediaUrl) consumedMediaUrls.add(legacy.mediaUrl);
+      if (directImage) consumedMediaUrls.add(directImage);
 
-          if (safeVideoUrl) {
-            links.push({ type: "Video", href: safeVideoUrl, iconName: "video" });
-          }
+      const adapted: AdaptedProject = {
+        title: p.title,
+        href: primaryHref,
+        dates,
+        active: p.status !== "archived",
+        description: desc,
+        technologies: Array.isArray(p.technologies) ? [...p.technologies] : [],
+        links,
+        image: directImage || legacyImage || "",
+        video: safeVideoUrl || "",
+      };
+      projectBuckets[projectGroup(p.projectType)].push(adapted);
+    });
+  }
+  const adaptedProjects = projectBuckets.projects;
 
-          if (safeDocsUrl) {
-            links.push({ type: "Docs", href: safeDocsUrl, iconName: "doc" });
-          }
-
-          const primaryHref = safeLiveUrl || safeWebsiteUrl || safeRepoUrl || "#";
-          const desc = p.shortDescription || p.detailedDescription || "";
-          const start = p.startDate || "";
-          const end = p.endDate || (p.status === "in_progress" ? "Present" : "");
-          const dates = start && end ? `${start} - ${end}` : start || end || "";
-
-          return {
-            title: p.title,
-            href: primaryHref,
-            dates,
-            active: p.status !== "archived",
-            description: desc,
-            technologies: Array.isArray(p.technologies) ? [...p.technologies] : [],
-            links,
-            image: "",
-            video: safeVideoUrl || "",
-          };
-        })
-    : [];
-
-  // 5. Work Experience (Strict rule: No fabrication! Only genuine internship experience)
+  // 5. Work experience. Explicit employment wins. Older 1.0.0 snapshots that
+  // stored jobs as achievements are still rendered, and are not invented when absent.
   const adaptedWork: AdaptedWorkItem[] = [];
+  const explicitExperience = Array.isArray(dto.experience) ? dto.experience : [];
+  for (const job of explicitExperience) {
+    if (!job || (!job.title && !job.organization)) continue;
+    const end = job.isCurrent ? "Present" : job.endDate || "";
+    adaptedWork.push({
+      company: job.organization || job.title,
+      href: "#",
+      badges: job.employmentType ? [job.employmentType.replace(/_/g, " ")] : [],
+      location: job.location || "",
+      title: job.title || job.organization,
+      start: job.startDate || "",
+      end,
+      description: job.description || "",
+    });
+  }
+  if (explicitExperience.length === 0 && Array.isArray(achievements)) {
+    for (const item of achievements) {
+      if (String(item?.category || "").toLowerCase() !== "experience") continue;
+      if (!item.title) continue;
+      adaptedWork.push({
+        company: item.organization || item.title,
+        href: sanitizeSafeUrl(item.proofUrl) || "#",
+        badges: [],
+        location: item.location || "",
+        title: item.role || item.title,
+        start: "",
+        end: item.date || item.year || "",
+        description: item.description || "",
+      });
+    }
+  }
   if (Array.isArray(projects)) {
     for (const p of projects) {
       if (
         p.projectType &&
-        (p.projectType.toLowerCase() === "internship" ||
-          p.projectType.toLowerCase() === "employment")
+        (p.projectType.toLowerCase() === "internship" || p.projectType.toLowerCase() === "employment")
       ) {
-        const safeWorkHref = sanitizeSafeUrl(p.liveUrl) || sanitizeSafeUrl(p.repoUrl) || "#";
         adaptedWork.push({
           company: p.title,
-          href: safeWorkHref,
+          href: sanitizeSafeUrl(p.liveUrl) || sanitizeSafeUrl(p.repoUrl) || "#",
           badges: [],
-          location: "Verified Experience",
+          location: "",
           title: p.role || "Intern",
-          start: p.startDate || "Date unspecified",
+          start: p.startDate || "",
           end: p.endDate || "Present",
           description: p.shortDescription || p.detailedDescription || "",
         });
@@ -506,13 +805,83 @@ export function adaptOneVueProfile(
         adaptedHackathons.push({
           title: a.title,
           dates: a.date || a.year || "",
-          location: a.location || a.organization || "Hackathon",
+          location: a.location || a.organization || "",
           description: a.description || (a.awardPrize ? `Award: ${a.awardPrize}` : ""),
           links,
         });
       }
     }
   }
+
+  const achievementList = Array.isArray(achievements) ? achievements : [];
+  const highlights: AdaptedHighlight[] = achievementList
+    .filter((item) => {
+      const category = String(item?.category || "").toLowerCase();
+      if (!item?.title) return false;
+      return !["hackathon", "competition", "experience", "testimonial", "team"].some((name) =>
+        category.includes(name)
+      );
+    })
+    .map((item) => ({
+      title: item.title,
+      date: item.date || item.year || "",
+      description: item.description || "",
+      href: sanitizeSafeUrl(item.proofUrl) || sanitizeSafeUrl(item.certificateUrl) || "#",
+    }));
+
+  const credentials: AdaptedCredential[] = (Array.isArray(dto.credentials) ? dto.credentials : [])
+    .filter((item) => Boolean(item && item.title))
+    .map((item) => ({
+      title: item.title,
+      issuer: item.issuer || "",
+      date: item.issueDate || "",
+      href: sanitizeSafeUrl(item.credentialUrl) || sanitizeSafeUrl(item.verificationUrl) || "#",
+      description: item.description || "",
+    }));
+
+  const explicitTestimonials = Array.isArray(dto.testimonials) ? dto.testimonials : [];
+  const testimonials: AdaptedTestimonial[] = explicitTestimonials.length
+    ? explicitTestimonials
+        .filter((item) => Boolean(item && item.quote && item.authorName))
+        .map((item) => ({
+          quote: item.quote,
+          author: item.authorName,
+          relationship: item.relationship || "",
+          note: item.attribution === "verified" ? "Verified" : "Self-reported",
+        }))
+    : achievementList
+        .filter((item) => String(item?.category || "").toLowerCase() === "testimonial" && item.title)
+        .map((item) => ({
+          quote: item.title.replace(/^["“]|["”]$/g, ""),
+          author: item.organization || "",
+          relationship: item.role || "",
+          note: item.description || "",
+        }));
+
+  const explicitTeam = Array.isArray(dto.team) ? dto.team : [];
+  const team: AdaptedTeamMember[] = explicitTeam.length
+    ? explicitTeam
+        .filter((item) => Boolean(item && item.name))
+        .map((item) => ({ name: item.name, role: item.role || "" }))
+    : achievementList
+        .filter((item) => String(item?.category || "").toLowerCase() === "team" && item.title)
+        .map((item) => ({ name: item.title, role: item.role || "" }));
+
+  const media: AdaptedMediaItem[] = mediaItems.flatMap((item) => {
+    if (!item?.mediaUrl) return [];
+    if (typeof item.id === "string" && item.id.startsWith("project_asset_")) return [];
+    const href = resolveAvatarUrl(item.mediaUrl, options?.assetOrigin);
+    if (!href) return [];
+    if (consumedMediaUrls.has(item.mediaUrl) || consumedMediaUrls.has(href) || href === avatarUrl) return [];
+    return [
+      {
+        title: item.title || "Media",
+        href,
+        mediaType: item.mediaType || "link",
+        alt: item.altText || item.title || "Media",
+      },
+    ];
+  });
 
   // 8. Contact and Social links
   const socialMap: Record<string, AdaptedSocialLink> = {};
@@ -602,6 +971,12 @@ export function adaptOneVueProfile(
     }
   }
 
+  const projectSectionVisible = isVisible("projects");
+  const achievementSectionVisible = isVisible("achievements") || isVisible("credentials");
+  const workVisible =
+    adaptedWork.length > 0 && (isVisible("work") || isHistoricalSectionDefault(configuredVisible));
+  const customSections = adaptCustomSections(dto, options?.assetOrigin);
+
   return {
     name,
     initials,
@@ -613,25 +988,83 @@ export function adaptOneVueProfile(
     skills: adaptedSkills,
     education: adaptedEducation,
     projects: adaptedProjects,
+    services: projectBuckets.services,
+    products: projectBuckets.products,
+    caseStudies: projectBuckets.caseStudies,
+    featured: projectBuckets.featured,
     work: adaptedWork,
     hackathons: adaptedHackathons,
+    highlights,
+    credentials,
+    testimonials,
+    team,
+    media,
+    customSections,
     contact: {
       email: contact?.email,
       tel: contact?.phone,
       social: socialMap,
     },
     resumeUrl: sanitizeSafeUrl(dto.resume?.url),
+    templateId: website?.templateId || dto.meta.templateId || MAGICUI_TEMPLATE_ID,
+    retainedFields: retainedPublicFields(dto),
+    accentColor: HEX_COLOR.test(String(website?.customization?.accentColor || ""))
+      ? website?.customization?.accentColor
+      : undefined,
+    themeMode:
+      website?.customization?.themeMode === "light" ||
+      website?.customization?.themeMode === "dark" ||
+      website?.customization?.themeMode === "system"
+        ? website.customization.themeMode
+        : "system",
+    sectionOrder: normalizeSectionOrder(website?.customization?.sectionOrder),
     visibleSections: {
       hero: true,
       about: isVisible("about") && Boolean(summary),
-      work: isVisible("work") && adaptedWork.length > 0,
+      work: workVisible,
       education: isVisible("education") && adaptedEducation.length > 0,
       skills: isVisible("skills") && adaptedSkills.length > 0,
-      projects: isVisible("projects") && adaptedProjects.length > 0,
-      hackathons: isVisible("achievements") && adaptedHackathons.length > 0,
+      projects: projectSectionVisible && adaptedProjects.length > 0,
+      services: projectSectionVisible && projectBuckets.services.length > 0,
+      products: projectSectionVisible && projectBuckets.products.length > 0,
+      caseStudies: projectSectionVisible && projectBuckets.caseStudies.length > 0,
+      featured: projectSectionVisible && projectBuckets.featured.length > 0,
+      hackathons: achievementSectionVisible && adaptedHackathons.length > 0,
+      highlights: achievementSectionVisible && highlights.length > 0,
+      credentials: achievementSectionVisible && credentials.length > 0,
+      testimonials: testimonials.length > 0,
+      team: team.length > 0,
+      media: media.length > 0,
       contact: isVisible("contact"),
+      custom: customSections.length > 0,
     },
   };
+}
+
+const FEATURED_PROJECT_TYPES = new Set([
+  "featured",
+  "video",
+  "article",
+  "podcast",
+  "newsletter",
+  "short-form",
+  "livestream",
+]);
+
+function projectGroup(
+  projectType: string | undefined
+): "projects" | "services" | "products" | "caseStudies" | "featured" {
+  const normalized = String(projectType || "").toLowerCase().replace(/_/g, "-");
+  if (normalized === "product") return "products";
+  if (normalized === "service") return "services";
+  if (normalized === "case-study") return "caseStudies";
+  if (FEATURED_PROJECT_TYPES.has(normalized)) return "featured";
+  return "projects";
+}
+
+function isHistoricalSectionDefault(sections: string[]): boolean {
+  const historical = ["about", "education", "projects", "skills", "achievements", "contact"];
+  return sections.length === historical.length && historical.every((name) => sections.includes(name));
 }
 
 function deriveInitials(name: string): string {

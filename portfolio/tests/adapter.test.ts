@@ -2,6 +2,7 @@ import test, { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   adaptOneVueProfile,
+  resolveAvatarUrl,
   SUPPORTED_DTO_SCHEMA_VERSION,
 } from "../src/lib/onevue-profile-adapter.ts";
 import type {
@@ -148,6 +149,20 @@ function createValidWebsite(): WebsiteMetadata {
 }
 
 describe("OneVue Magic UI Profile Adapter", () => {
+  it("passes accent, theme, and section order through to the renderer", () => {
+    const website = createValidWebsite();
+    website.customization.accentColor = "#10b981";
+    website.customization.themeMode = "light";
+    website.customization.sectionOrder = ["contact", "skills", "not-a-section"];
+    const adapted = adaptOneVueProfile(createValidDTO(), website);
+    assert.equal(adapted.accentColor, "#10b981");
+    assert.equal(adapted.themeMode, "light");
+    assert.equal(adapted.sectionOrder[0], "contact");
+    assert.equal(adapted.sectionOrder[1], "skills");
+    assert.equal(adapted.sectionOrder.includes("not-a-section"), false);
+    assert.equal(adapted.sectionOrder.includes("about"), true);
+  });
+
   it("correctly maps a full valid PublicProfileDTO_v1 into adapted portfolio data", () => {
     const dto = createValidDTO();
     const website = createValidWebsite();
@@ -159,6 +174,10 @@ describe("OneVue Magic UI Profile Adapter", () => {
     assert.equal(adapted.description, "Full-Stack Engineer & AI Enthusiast");
     assert.equal(adapted.summary, "Passionate developer building developer tooling and high-scale systems.");
     assert.equal(adapted.avatarUrl, "https://example.com/avatar.png");
+    assert.equal(
+      resolveAvatarUrl("/api/profile/photo/user_abc_1710000000000_0123456789abcdef.jpg", "http://localhost:3000"),
+      "http://localhost:3000/api/profile/photo/user_abc_1710000000000_0123456789abcdef.jpg"
+    );
     assert.equal(adapted.location, "San Francisco, CA, USA");
     assert.equal(adapted.url, "https://onevue.me/p/alexrivera");
 
@@ -366,5 +385,241 @@ describe("OneVue Magic UI Profile Adapter", () => {
     // Malicious github and custom social link must not be present in social map
     assert.equal(adapted.contact.social["GitHub"], undefined);
     assert.equal(adapted.contact.social["Custom"], undefined);
+  });
+
+  it("renders schema 1.0.0 snapshots that stored identity data in achievements", () => {
+    const dto = createValidDTO();
+    delete (dto as { experience?: unknown }).experience;
+    delete (dto as { testimonials?: unknown }).testimonials;
+    delete (dto as { team?: unknown }).team;
+    dto.achievements.push(
+      {
+        id: "exp_old",
+        title: "Engineer at Initech",
+        category: "experience",
+        organization: "Initech",
+        role: "Engineer",
+        date: "2018 – 2020",
+        description: "Shipped billing",
+      },
+      {
+        id: "quote_old",
+        title: "“Great work”",
+        category: "testimonial",
+        organization: "Ada",
+        role: "Client",
+        description: "Self-reported testimonial",
+      },
+      {
+        id: "team_old",
+        title: "Shown",
+        category: "team",
+        role: "CEO",
+      }
+    );
+
+    const adapted = adaptOneVueProfile(dto, createValidWebsite());
+
+    assert.equal(adapted.work.some((item) => item.company === "Initech" && item.title === "Engineer"), true);
+    assert.equal(adapted.work.some((item) => item.company === "Acme Summer Internship"), true);
+    assert.equal(adapted.testimonials[0].author, "Ada");
+    assert.equal(adapted.testimonials[0].quote, "Great work");
+    assert.equal(adapted.team[0].name, "Shown");
+    assert.equal(adapted.team[0].role, "CEO");
+    assert.equal(adapted.credentials[0].title, "AWS Certified Developer");
+    assert.equal(adapted.highlights.some((item) => item.title === "Dean's Honor List"), true);
+    assert.equal(adapted.hackathons.length, 1);
+    assert.equal(adapted.education[0].school, "Stanford University");
+    assert.equal(adapted.projects.some((item) => item.title === "OneVue Core"), true);
+  });
+
+  it("renders employment, services, products, case studies, featured content, and testimonials from optional fields", () => {
+    const dto = createValidDTO();
+    dto.experience = [
+      {
+        id: "job_1",
+        title: "Staff Engineer",
+        organization: "Acme Cloud",
+        startDate: "2021-04",
+        isCurrent: true,
+        description: "Owns the platform",
+      },
+    ];
+    dto.testimonials = [
+      { id: "quote_1", quote: "Excellent", authorName: "Jamie", relationship: "Client", attribution: "self-reported" },
+    ];
+    dto.team = [{ id: "member_1", name: "Public Lead", role: "Founder" }];
+    dto.projects.push(
+      {
+        id: "prod_1",
+        title: "Lamp",
+        projectType: "product",
+        technologies: [],
+        shortDescription: "USD 80",
+        imageUrl: "https://cdn.example/lamp.jpg",
+      },
+      {
+        id: "svc_1",
+        title: "Logo design",
+        projectType: "service",
+        technologies: [],
+        shortDescription: "A wordmark",
+      },
+      {
+        id: "case_1",
+        title: "Rebrand",
+        projectType: "case-study",
+        technologies: [],
+        shortDescription: "A new identity",
+      },
+      {
+        id: "feat_1",
+        title: "Launch essay",
+        projectType: "featured",
+        technologies: [],
+        liveUrl: "https://cora.example/launch",
+        imageUrl: "https://cdn.example/cora.jpg",
+      }
+    );
+
+    const adapted = adaptOneVueProfile(dto, createValidWebsite());
+
+    assert.equal(adapted.work[0].company, "Acme Cloud");
+    assert.equal(adapted.work[0].title, "Staff Engineer");
+    assert.equal(adapted.work[0].end, "Present");
+    assert.equal(adapted.services[0].title, "Logo design");
+    assert.equal(adapted.products[0].title, "Lamp");
+    assert.equal(adapted.products[0].image, "https://cdn.example/lamp.jpg");
+    assert.equal(adapted.caseStudies[0].title, "Rebrand");
+    assert.equal(adapted.featured[0].title, "Launch essay");
+    assert.equal(adapted.featured[0].image, "https://cdn.example/cora.jpg");
+    assert.equal(adapted.featured[0].href, "https://cora.example/launch");
+    assert.equal(adapted.testimonials[0].quote, "Excellent");
+    assert.equal(adapted.team[0].name, "Public Lead");
+    assert.equal(adapted.projects.some((item) => item.title === "Lamp"), false);
+    assert.equal(adapted.visibleSections.credentials, true);
+  });
+
+  it("preserves a safe project image and omits an unsafe or missing one", () => {
+    const dto = createValidDTO();
+    const assetPath = "/api/assets/public/ast_" + "a".repeat(24);
+    dto.projects[0].imageUrl = assetPath;
+    dto.projects[1].imageUrl = "javascript:alert(1)";
+    dto.media = [
+      {
+        id: "project_asset_0",
+        mediaUrl: "https://cdn.example/should-not-override.png",
+        mediaType: "image",
+        title: "Ignored",
+        category: "project",
+      },
+      {
+        id: "media_1",
+        mediaUrl: "https://cdn.example/reel.mp4",
+        mediaType: "video",
+        title: "Show reel",
+        category: "project",
+      },
+    ];
+
+    const adapted = adaptOneVueProfile(dto, createValidWebsite(), { assetOrigin: "http://localhost:3000" });
+    const core = adapted.projects.find((item) => item.title === "OneVue Core");
+    const internship = adapted.projects.find((item) => item.title === "Acme Summer Internship");
+
+    assert.ok(core);
+    assert.equal(core.image, `http://localhost:3000${assetPath}`);
+    assert.ok(internship);
+    assert.equal(internship.image, "");
+    assert.equal(adapted.media.some((item) => item.title === "Show reel"), true);
+    assert.equal(adapted.media.some((item) => item.href.includes("should-not-override")), false);
+
+    const legacy = createValidDTO();
+    delete legacy.projects[0].imageUrl;
+    legacy.media = [
+      {
+        id: "project_asset_0",
+        mediaUrl: "https://cdn.example/legacy.png",
+        mediaType: "image",
+        title: "Legacy cover",
+        category: "project",
+      },
+    ];
+    const fromLegacy = adaptOneVueProfile(legacy, createValidWebsite());
+    assert.equal(fromLegacy.projects[0].image, "https://cdn.example/legacy.png");
+    assert.equal(fromLegacy.media.length, 0);
+  });
+
+  it("does not throw when optional identity fields are missing or empty", () => {
+    const dto = createValidDTO();
+    dto.projects = [{ id: "empty", title: "Notes", technologies: [] }];
+    dto.credentials = [];
+    dto.achievements = [];
+    dto.media = [];
+    (dto as { experience?: unknown }).experience = [];
+    (dto as { testimonials?: unknown }).testimonials = [{ id: "bad", quote: "", authorName: "" }];
+    (dto as { team?: unknown }).team = [{ id: "nobody", name: "" }];
+
+    const adapted = adaptOneVueProfile(dto, createValidWebsite());
+    assert.equal(adapted.projects[0].title, "Notes");
+    assert.equal(adapted.projects[0].image, "");
+    assert.equal(adapted.services.length, 0);
+    assert.equal(adapted.credentials.length, 0);
+    assert.equal(adapted.testimonials.length, 0);
+    assert.equal(adapted.team.length, 0);
+    assert.equal(adapted.media.length, 0);
+    assert.equal(adapted.visibleSections.services, false);
+    assert.equal(adapted.visibleSections.team, false);
+  });
+
+  it("keeps stored profile fields the test adapter does not render", () => {
+    const dto = createValidDTO();
+    const before = JSON.stringify(dto);
+    const adapted = adaptOneVueProfile(dto, createValidWebsite());
+    assert.equal(JSON.stringify(dto), before);
+    assert.equal(adapted.templateId, "magicui-portfolio");
+    assert.ok(adapted.retainedFields.includes("profile.languages"));
+    assert.ok(adapted.retainedFields.includes("profile.careerInterests"));
+    assert.ok(adapted.retainedFields.includes("profile.nationality"));
+    assert.equal(dto.profile.languages[0].language, "English");
+  });
+
+  it("renders public education custom fields and drops unsafe or hidden ones", () => {
+    const dto = createValidDTO();
+    dto.customSections = [
+      {
+        id: "sec_education01",
+        key: "education",
+        title: "Education",
+        builtinKey: "education",
+        order: 0,
+        repeatable: true,
+        records: [
+          {
+            id: "edu_1",
+            fields: [
+              { id: "fld_area000001", key: "research_area", label: "Research area", type: "text", order: 0, presentation: "inline", value: "Graphics" },
+              { id: "fld_bad0000001", key: "bad", label: "Bad", type: "url", order: 1, presentation: "link", value: "javascript:alert(1)" },
+              { id: "fld_hide000001", key: "diagram", label: "Diagram", type: "image", order: 2, presentation: "hidden", value: { href: "https://cdn.example/diagram.png" } },
+            ],
+          },
+        ],
+      },
+      {
+        id: "sec_custom0001",
+        key: "press",
+        title: "Press",
+        order: 1,
+        repeatable: true,
+        records: [{ id: "ent_1", fields: [{ id: "fld_note000001", key: "note", label: "Note", type: "text", order: 0, presentation: "inline", value: "Featured" }] }],
+      },
+    ];
+    const before = JSON.stringify(dto);
+    const adapted = adaptOneVueProfile(dto, createValidWebsite());
+    assert.equal(JSON.stringify(dto), before);
+    assert.equal(adapted.education[0].customFields?.length, 1);
+    assert.equal(adapted.education[0].customFields?.[0].text, "Graphics");
+    assert.equal(adapted.customSections.length, 1);
+    assert.equal(adapted.customSections[0].title, "Press");
+    assert.equal(adapted.visibleSections.custom, true);
   });
 });

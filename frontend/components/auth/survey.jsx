@@ -77,7 +77,10 @@ function SurveyOnboardingPage() {
 
       // Authoritatively route to their role dashboard
       const targetIdentity = updatedSession?.user?.identity || session.user?.identity;
-      navigate(resolveDashboardRoute(targetIdentity), { replace: true });
+      const destination = String(targetIdentity || '').toLowerCase() === 'student'
+        ? '/app/student/identity'
+        : resolveDashboardRoute(targetIdentity);
+      navigate(destination, { replace: true });
     } catch (err) {
       setError(err.message || 'Failed to save your response. Please try again.');
     } finally {

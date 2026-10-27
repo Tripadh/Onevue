@@ -1,4 +1,5 @@
 import { Schema, model, models } from "mongoose";
+import { APPROVED_TEMPLATE_IDS } from "../lib/templates/registry";
 
 /* =========================================================================
    OneVue Website Configuration Model
@@ -7,13 +8,14 @@ import { Schema, model, models } from "mongoose";
 export type WebsiteStatus = "draft" | "published" | "suspended";
 export type WebsiteThemeMode = "light" | "dark" | "system";
 
-export const APPROVED_TEMPLATES = ["magicui-portfolio"] as const;
+export const APPROVED_TEMPLATES = APPROVED_TEMPLATE_IDS;
 export type ApprovedTemplateId = (typeof APPROVED_TEMPLATES)[number];
 
 export interface IWebsiteCustomization {
   accentColor?: string;
   themeMode?: WebsiteThemeMode;
   visibleSections?: string[];
+  sectionOrder?: string[];
 }
 
 export interface IUserWebsiteConfig {
@@ -46,6 +48,10 @@ const CustomizationSubSchema = new Schema(
     visibleSections: {
       type: [String],
       default: ["about", "education", "projects", "skills", "achievements", "contact"],
+    },
+    sectionOrder: {
+      type: [String],
+      default: ["about", "work", "education", "skills", "projects", "achievements", "contact"],
     },
   },
   { _id: false }
@@ -95,6 +101,7 @@ const UserWebsiteConfigSchema = new Schema(
         accentColor: "#3b82f6",
         themeMode: "system",
         visibleSections: ["about", "education", "projects", "skills", "achievements", "contact"],
+        sectionOrder: ["about", "work", "education", "skills", "projects", "achievements", "contact"],
       }),
     },
     activeRevisionId: {

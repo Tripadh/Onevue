@@ -5,6 +5,7 @@ import { verifyAuth } from "../../../../../lib/auth";
 import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
 import { toPublicProfileDTO } from "../../../../../lib/public-profile-dto";
 import { loadWebsiteSource } from "../../../../../lib/domain-profile/website-source";
+import { presentationForTemplate } from "../../../../../lib/templates/registry";
 
 export function OPTIONS(req: Request) {
   return preflightResponse(req.headers.get("origin"));
@@ -62,8 +63,27 @@ export async function GET(req: Request) {
       canonicalUrl: config?.username ? `https://onevue.id/p/${config.username}` : undefined,
       templateId,
       templateVersion,
-      user: { name: auth.user.name },
+      user: { name: auth.user.name, profilePhotoKey: auth.user.profilePhotoKey },
+      identity: website.identity,
+      ownerId: String(auth.user._id),
+      assetDelivery: "preview",
+      recordIds: website.recordIds,
     });
+
+    let customization = config?.customization || {
+      accentColor: "#3b82f6",
+      themeMode: "system" as const,
+      visibleSections: ["about", "education", "projects", "skills", "achievements", "contact"],
+    };
+    try {
+      const stored =
+        config?.customization && typeof (config.customization as { toObject?: () => object }).toObject === "function"
+          ? (config.customization as { toObject: () => object }).toObject()
+          : config?.customization || {};
+      customization = presentationForTemplate(templateId, stored);
+    } catch {
+      customization = config?.customization || customization;
+    }
 
     const response = NextResponse.json(
       {
@@ -74,11 +94,7 @@ export async function GET(req: Request) {
           username: config?.username || null,
           selectedTemplateId: templateId,
           selectedTemplateVersion: templateVersion,
-          customization: config?.customization || {
-            accentColor: "#3b82f6",
-            themeMode: "system",
-            visibleSections: ["about", "education", "projects", "skills", "achievements", "contact"],
-          },
+          customization,
           status: config?.status || "draft",
           activeRevisionId: config?.activeRevisionId || null,
         },

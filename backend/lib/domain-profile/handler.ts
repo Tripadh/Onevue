@@ -6,6 +6,7 @@ import { isJwtConfigError, resolveJwtSecret, verifyJwtToken } from "../auth";
 import type { DomainContract } from "./types";
 import { buildDomainUpdate, ProfileValidationError } from "./validate";
 import { assertProfileAssetRefs, collectAssetBindings } from "../storage/asset-service";
+import { collectCustomAssetBindings, syncCustomLayout } from "../custom-fields";
 
 interface ProfileDocument {
   toObject: (options?: { versionKey?: boolean }) => Record<string, unknown>;
@@ -157,6 +158,19 @@ function failure(error: unknown) {
   return NextResponse.json({ message: "Internal server error" }, { status: 500 });
 }
 
+function splitCustomLayout(body: unknown): { rest: unknown; customLayout: unknown; present: boolean } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { rest: body, customLayout: undefined, present: false };
+  }
+  if (!Object.prototype.hasOwnProperty.call(body, "customLayout")) {
+    return { rest: body, customLayout: undefined, present: false };
+  }
+  const copy = { ...(body as Record<string, unknown>) };
+  const customLayout = copy.customLayout;
+  delete copy.customLayout;
+  return { rest: copy, customLayout, present: true };
+}
+
 function ownerPayload(user: { _id: unknown; name: string; email: string; identity?: string }, profile: unknown) {
   return {
     success: true,
@@ -206,8 +220,22 @@ export function createDomainProfileHandlers(
 
       const profile = await ensureDomainProfile(Model, authResult.user._id);
       const existing = profile.toObject({ versionKey: false }) as Record<string, unknown>;
-      const $set = buildDomainUpdate(existing, body, contract, authResult.user._id);
-      await assertProfileAssetRefs(String(authResult.user._id), collectAssetBindings($set));
+      const split = splitCustomLayout(body);
+      const $set = buildDomainUpdate(existing, split.rest, contract, authResult.user._id);
+      const layout = syncCustomLayout({
+        identity,
+        existingProfile: existing,
+        patch: $set,
+        incoming: split.customLayout,
+        incomingPresent: split.present,
+      });
+      if (layout) $set.customLayout = layout;
+      const assetSet = { ...$set };
+      delete assetSet.customLayout;
+      await assertProfileAssetRefs(String(authResult.user._id), [
+        ...collectAssetBindings(assetSet),
+        ...collectCustomAssetBindings(layout),
+      ]);
       let updated: ProfileDocument = profile;
       if (Object.keys($set).length > 0) {
         const saved = await Model.findOneAndUpdate(

@@ -5,7 +5,9 @@ import mongoose from "mongoose";
 import connectToDatabase from "../../../../lib/db";
 import { ensureStudentProfile } from "../../../../lib/ensure-student-profile";
 import { ProfileValidationError } from "../../../../lib/domain-profile/validate";
+import { sanitizeIncomingStrings } from "../../../../lib/templates/registry";
 import { assertProfileAssetRefs, type AssetBinding } from "../../../../lib/storage/asset-service";
+import { collectCustomAssetBindings, syncCustomLayout } from "../../../../lib/custom-fields";
 import type { AssetPurpose } from "../../../../lib/storage/purposes";
 import User from "../../../../models/User";
 import {
@@ -82,6 +84,14 @@ async function verifyStudentAuth(req: Request) {
   const user = await UserModel.findById(decoded.id);
   if (!user) {
     return { error: "Authenticated user no longer exists.", status: 401 };
+  }
+
+  const actual = String(user.identity || "").trim().toLowerCase();
+  if (actual !== "student") {
+    return {
+      error: `Access denied. Your identity is '${actual || "unset"}', but this profile is reserved for 'student'.`,
+      status: 403,
+    };
   }
 
   return { user };
@@ -262,6 +272,8 @@ function serializeProfile(profile: any, isOwner: boolean) {
     if (Array.isArray(obj.links)) {
       obj.links = obj.links.filter((l: any) => l.visibility !== "private");
     }
+
+    delete obj.customLayout;
   }
 
   return obj;
@@ -332,6 +344,8 @@ export async function PUT(req: Request) {
         { status: 400 }
       );
     }
+
+    body = sanitizeIncomingStrings(body) as Record<string, unknown>;
 
     // Reject or ignore client-supplied ownership or server-managed overrides
     if (body.userId !== undefined && String(body.userId) !== String(user._id)) {
@@ -1219,7 +1233,28 @@ export async function PUT(req: Request) {
       if (c.portfolio !== undefined) profile.contacts.portfolio = String(c.portfolio || "").trim();
     }
 
-    await assertProfileAssetRefs(String(user._id), attachedAssets);
+    const recordPatch: Record<string, unknown> = {};
+    for (const key of ["education", "projects", "skills", "credentials", "achievements", "media", "links"] as const) {
+      if (Object.prototype.hasOwnProperty.call(body, key)) {
+        recordPatch[key] = profile[key];
+      }
+    }
+    const layout = syncCustomLayout({
+      identity: "student",
+      existingProfile: profile.toObject({ versionKey: false }),
+      patch: recordPatch,
+      incoming: body.customLayout,
+      incomingPresent: Object.prototype.hasOwnProperty.call(body, "customLayout"),
+    });
+    if (layout) {
+      profile.customLayout = layout;
+      profile.markModified("customLayout");
+    }
+
+    await assertProfileAssetRefs(String(user._id), [
+      ...attachedAssets,
+      ...collectCustomAssetBindings(profile.customLayout),
+    ]);
 
     // Save with Mongoose validation enabled
     await profile.save();

@@ -3,12 +3,20 @@ import BlurFade from "@/components/magicui/blur-fade";
 import BlurFadeText from "@/components/magicui/blur-fade-text";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Link from "next/link";
-import Markdown from "react-markdown";
+import { StoredText } from "@/components/section/stored-text";
 import ContactSection from "@/components/section/contact-section";
+import {
+  CredentialsSection,
+  HighlightsSection,
+  MediaSection,
+  TeamSection,
+  TestimonialsSection,
+} from "@/components/section/content-sections";
 import HackathonsSection from "@/components/section/hackathons-section";
 import ProjectsSection from "@/components/section/projects-section";
 import WorkSection from "@/components/section/work-section";
 import { ArrowUpRight, Code2 } from "lucide-react";
+import { CustomFieldList } from "@/components/section/custom-fields";
 import { AdaptedPortfolioData } from "@/lib/onevue-profile-adapter";
 import { ReactLight } from "@/components/ui/svgs/reactLight";
 import { NextjsIconDark } from "@/components/ui/svgs/nextjsIconDark";
@@ -46,12 +54,21 @@ interface PortfolioViewProps {
 
 export default function PortfolioView({ data }: PortfolioViewProps) {
   const { visibleSections } = data;
+  const accent = data.accentColor;
+  function place(id: string, offset = 0): React.CSSProperties {
+    const index = data.sectionOrder.indexOf(id);
+    const base = index === -1 ? 100 : index;
+    return { order: base * 10 + offset };
+  }
 
   return (
-    <main className="min-h-dvh flex flex-col gap-14 relative">
+    <main
+      className="portfolio-shell min-h-dvh flex flex-col gap-14 relative"
+      style={accent ? ({ ["--portfolio-accent" as string]: accent } as React.CSSProperties) : undefined}
+    >
       {/* 1. Hero Section */}
       {visibleSections.hero && (
-        <section id="hero">
+        <section id="hero" data-section="hero" style={{ order: -10 }}>
           <div className="mx-auto w-full max-w-2xl space-y-8">
             <div className="gap-2 gap-y-6 flex flex-col md:flex-row justify-between">
               <div className="gap-2 flex flex-col order-2 md:order-1">
@@ -75,7 +92,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
                 )}
               </div>
               <BlurFade delay={BLUR_FADE_DELAY} className="order-1 md:order-2">
-                <Avatar className="size-24 md:size-32 border rounded-full shadow-lg ring-4 ring-muted">
+                <Avatar className="portfolio-avatar size-24 md:size-32 border rounded-full shadow-lg">
                   {data.avatarUrl && <AvatarImage alt={data.name} src={data.avatarUrl} />}
                   <AvatarFallback className="text-xl font-bold">{data.initials}</AvatarFallback>
                 </Avatar>
@@ -87,15 +104,13 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
 
       {/* 2. About Section */}
       {visibleSections.about && data.summary && (
-        <section id="about">
+        <section id="about" data-section="about" style={place("about")}>
           <div className="flex min-h-0 flex-col gap-y-4">
             <BlurFade delay={BLUR_FADE_DELAY * 3}>
               <h2 className="text-xl font-bold">About</h2>
             </BlurFade>
             <BlurFade delay={BLUR_FADE_DELAY * 4}>
-              <div className="prose max-w-full text-pretty font-sans leading-relaxed text-muted-foreground dark:prose-invert">
-                <Markdown>{data.summary}</Markdown>
-              </div>
+              <StoredText text={data.summary} />
             </BlurFade>
           </div>
         </section>
@@ -103,7 +118,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
 
       {/* 3. Work Section (Only rendered if genuine internship/experience exists) */}
       {visibleSections.work && data.work.length > 0 && (
-        <section id="work">
+        <section id="work" data-section="work" style={place("work")}>
           <div className="flex min-h-0 flex-col gap-y-6">
             <BlurFade delay={BLUR_FADE_DELAY * 5}>
               <h2 className="text-xl font-bold">Experience</h2>
@@ -117,7 +132,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
 
       {/* 4. Education Section */}
       {visibleSections.education && data.education.length > 0 && (
-        <section id="education">
+        <section id="education" data-section="education" style={place("education")}>
           <div className="flex min-h-0 flex-col gap-y-6">
             <BlurFade delay={BLUR_FADE_DELAY * 7}>
               <h2 className="text-xl font-bold">Education</h2>
@@ -167,6 +182,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
                       </span>
                     </div>
                   </Link>
+                  <CustomFieldList fields={education.customFields} />
                 </BlurFade>
               ))}
             </div>
@@ -176,7 +192,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
 
       {/* 5. Skills Section */}
       {visibleSections.skills && data.skills.length > 0 && (
-        <section id="skills">
+        <section id="skills" data-section="skills" style={place("skills")}>
           <div className="flex min-h-0 flex-col gap-y-4">
             <BlurFade delay={BLUR_FADE_DELAY * 9}>
               <h2 className="text-xl font-bold">Skills</h2>
@@ -204,25 +220,115 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
 
       {/* 6. Projects Section */}
       {visibleSections.projects && data.projects.length > 0 && (
-        <section id="projects">
+        <section id="projects" data-section="projects" style={place("projects")}>
           <BlurFade delay={BLUR_FADE_DELAY * 11}>
             <ProjectsSection projects={data.projects} />
           </BlurFade>
         </section>
       )}
 
-      {/* 7. Hackathons Section */}
+      {visibleSections.services && data.services.length > 0 && (
+        <section id="services" data-section="services" style={place("projects", 1)}>
+          <BlurFade delay={BLUR_FADE_DELAY * 11}>
+            <ProjectsSection projects={data.services} label="Services" heading="Services" subtitle="" />
+          </BlurFade>
+        </section>
+      )}
+
+      {visibleSections.products && data.products.length > 0 && (
+        <section id="products" data-section="products" style={place("projects", 2)}>
+          <BlurFade delay={BLUR_FADE_DELAY * 11}>
+            <ProjectsSection projects={data.products} label="Products" heading="Products" subtitle="" />
+          </BlurFade>
+        </section>
+      )}
+
+      {visibleSections.caseStudies && data.caseStudies.length > 0 && (
+        <section id="case-studies" data-section="case-studies" style={place("projects", 3)}>
+          <BlurFade delay={BLUR_FADE_DELAY * 11}>
+            <ProjectsSection
+              projects={data.caseStudies}
+              label="Case studies"
+              heading="Case studies"
+              subtitle=""
+            />
+          </BlurFade>
+        </section>
+      )}
+
+      {visibleSections.featured && data.featured.length > 0 && (
+        <section id="featured" data-section="featured" style={place("projects", 4)}>
+          <BlurFade delay={BLUR_FADE_DELAY * 11}>
+            <ProjectsSection projects={data.featured} label="Featured" heading="Featured" subtitle="" />
+          </BlurFade>
+        </section>
+      )}
+
+      {visibleSections.credentials && data.credentials.length > 0 && (
+        <div data-section="credentials" style={place("achievements")}>
+        <BlurFade delay={BLUR_FADE_DELAY * 12}>
+          <CredentialsSection credentials={data.credentials} />
+        </BlurFade>
+        </div>
+      )}
+
+      {visibleSections.highlights && data.highlights.length > 0 && (
+        <div data-section="highlights" style={place("achievements", 1)}>
+        <BlurFade delay={BLUR_FADE_DELAY * 12}>
+          <HighlightsSection highlights={data.highlights} />
+        </BlurFade>
+        </div>
+      )}
+
       {visibleSections.hackathons && data.hackathons.length > 0 && (
-        <section id="hackathons">
+        <section id="hackathons" data-section="hackathons" style={place("achievements", 2)}>
           <BlurFade delay={BLUR_FADE_DELAY * 13}>
             <HackathonsSection hackathons={data.hackathons} />
           </BlurFade>
         </section>
       )}
 
+      {visibleSections.testimonials && data.testimonials.length > 0 && (
+        <div data-section="testimonials" style={place("contact", -3)}>
+        <BlurFade delay={BLUR_FADE_DELAY * 14}>
+          <TestimonialsSection testimonials={data.testimonials} />
+        </BlurFade>
+        </div>
+      )}
+
+      {visibleSections.team && data.team.length > 0 && (
+        <div data-section="team" style={place("contact", -2)}>
+        <BlurFade delay={BLUR_FADE_DELAY * 14}>
+          <TeamSection team={data.team} />
+        </BlurFade>
+        </div>
+      )}
+
+      {visibleSections.media && data.media.length > 0 && (
+        <div data-section="media" style={place("contact", -1)}>
+        <BlurFade delay={BLUR_FADE_DELAY * 15}>
+          <MediaSection media={data.media} />
+        </BlurFade>
+        </div>
+      )}
+
+      {visibleSections.custom && data.customSections.length > 0 && (
+        <section id="custom-sections" data-section="custom" className="flex flex-col gap-8">
+          {data.customSections.map((section) => (
+            <div key={section.id} className="flex flex-col gap-3">
+              <h2 className="text-xl font-bold">{section.title}</h2>
+              {section.description ? <p className="text-sm text-muted-foreground">{section.description}</p> : null}
+              {section.records.map((record) => (
+                <CustomFieldList key={record.id || section.id} fields={record.fields} />
+              ))}
+            </div>
+          ))}
+        </section>
+      )}
+
       {/* 8. Contact Section */}
       {visibleSections.contact && (
-        <section id="contact">
+        <section id="contact" data-section="contact" style={place("contact")}>
           <BlurFade delay={BLUR_FADE_DELAY * 16}>
             <ContactSection contact={data.contact} resumeUrl={data.resumeUrl} />
           </BlurFade>

@@ -12,25 +12,10 @@ const { useLocation: sUseLocation, useNavigate: sUseNavigate, Link: sLink } = Re
    - Preview: Live draft preview with Desktop / Mobile viewport toggle
    ========================================================================= */
 
-/* Canonical Approved Template Registry */
-const CANONICAL_TEMPLATES = [
-  {
-    id: 'magicui-portfolio',
-    version: '1.0.0',
-    name: 'Magic UI Portfolio',
-    author: 'Magic UI & OneVue Design',
-    tagline: 'Modern, high-performance developer portfolio with smooth micro-interactions, dark/light theme awareness, verified badges, and interactive project cards.',
-    tags: ['Modern', 'Micro-interactions', 'Academic & Tech', 'Responsive'],
-    supportedSections: ['about', 'education', 'projects', 'skills', 'work', 'achievements', 'contact'],
-    features: [
-      'Light, Dark, and System theme matching',
-      'Dynamic accent color tinting',
-      'Interactive project showcase and link embeds',
-      'Verified academic credentials & honors',
-      'Fast server-side rendering with no unneeded dependencies',
-    ],
-  },
-];
+/* Approved templates come from the shared registry. Only registered adapters are listed. */
+const CANONICAL_TEMPLATES = (window.OV && window.OV.createCustomize)
+  ? window.OV.createCustomize.listTemplates()
+  : [];
 
 /* Specialized Website Icons */
 const WebsiteIcons = {
@@ -151,6 +136,15 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
     'achievements',
     'contact',
   ]);
+  const [sectionOrder, setSectionOrder] = sUseState([
+    'about',
+    'work',
+    'education',
+    'skills',
+    'projects',
+    'achievements',
+    'contact',
+  ]);
   const [savingCustomization, setSavingCustomization] = sUseState(false);
   const [selectingTemplate, setSelectingTemplate] = sUseState(false);
 
@@ -205,6 +199,9 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
             if (data.config.customization.accentColor) setAccentColor(data.config.customization.accentColor);
             if (Array.isArray(data.config.customization.visibleSections)) {
               setVisibleSections(data.config.customization.visibleSections);
+            }
+            if (Array.isArray(data.config.customization.sectionOrder) && data.config.customization.sectionOrder.length) {
+              setSectionOrder(data.config.customization.sectionOrder);
             }
           }
           if (data.config.activeRevisionId) setActiveRevisionId(data.config.activeRevisionId);
@@ -325,6 +322,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
             themeMode,
             accentColor,
             visibleSections,
+            sectionOrder,
           },
         }),
       });
@@ -422,6 +420,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
             themeMode,
             accentColor,
             visibleSections,
+            sectionOrder,
           },
         }),
       });
@@ -481,6 +480,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
               themeMode,
               accentColor,
               visibleSections,
+              sectionOrder,
             },
           }),
         });
@@ -581,7 +581,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
     return false;
   }, [isPublished, config?.publishedAt, config?.updatedAt, studentProfile?.updatedAt]);
 
-  const activeTemplate = CANONICAL_TEMPLATES[0];
+  const activeTemplate = CANONICAL_TEMPLATES.find((template) => template.id === (config && config.selectedTemplateId)) || CANONICAL_TEMPLATES[0];
 
   /* ---------------- Loading State ---------------- */
   if (loading) {
@@ -850,15 +850,6 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
               </div>
 
               <div style={{ padding: '14px 18px', borderRadius: 16, background: 'color-mix(in oklab, var(--bg-0) 40%, transparent)', border: '1px solid var(--line)' }}>
-                <span className="field-hint" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>THEME & ACCENT</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 14, height: 14, borderRadius: '50%', background: accentColor, border: '1px solid rgba(255,255,255,0.4)' }} />
-                  <strong style={{ fontSize: 14, textTransform: 'capitalize' }}>{themeMode} Mode</strong>
-                  <span className="mono muted" style={{ fontSize: 12 }}>({accentColor})</span>
-                </div>
-              </div>
-
-              <div style={{ padding: '14px 18px', borderRadius: 16, background: 'color-mix(in oklab, var(--bg-0) 40%, transparent)', border: '1px solid var(--line)' }}>
                 <span className="field-hint" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>VISIBLE SECTIONS</span>
                 <strong style={{ fontSize: 15, display: 'block', color: 'var(--text-1)' }}>
                   {visibleSections.length} of 7 Enabled
@@ -886,7 +877,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
                 <span className="eyebrow" style={{ color: 'var(--accent)', fontSize: 11 }}>ACTIVE DESIGN SYSTEM</span>
                 <h3 style={{ fontSize: 20, margin: '4px 0 6px' }}>Current Template: {activeTemplate.name}</h3>
                 <p className="muted" style={{ fontSize: 14, margin: 0, maxWidth: 560 }}>
-                  {activeTemplate.tagline}
+                  {activeTemplate.description || activeTemplate.tagline}
                 </p>
               </div>
 
@@ -918,7 +909,11 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
 
             {/* Template Features Pills */}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {activeTemplate.features.map((feat, idx) => (
+              {(activeTemplate.features || [
+                activeTemplate.presentation && activeTemplate.presentation.sectionVisibility ? "Section visibility" : "",
+                activeTemplate.presentation && activeTemplate.presentation.sectionOrder ? "Section order" : "",
+                activeTemplate.media && activeTemplate.media.images ? "Single images" : "",
+              ].filter(Boolean)).map((feat, idx) => (
                 <span
                   key={idx}
                   style={{
@@ -1074,7 +1069,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
           <div>
             <h3 style={{ fontSize: 22, margin: '0 0 6px' }}>Template Gallery</h3>
             <p className="muted" style={{ fontSize: 14, margin: 0 }}>
-              Choose the visual presentation for your public student portfolio. Switching templates retains all your saved profile data and draft settings.
+              The registry currently contains one test adapter. Choosing it does not delete profile content the adapter cannot display.
             </p>
           </div>
 
@@ -1185,6 +1180,11 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
                         ))}
                       </div>
                     </div>
+                    {Array.isArray(tmpl.limits) && tmpl.limits.length > 0 ? (
+                      <ul className="muted" style={{ margin: 0, paddingLeft: 18, fontSize: 12, display: 'grid', gap: 4 }}>
+                        {tmpl.limits.map((limit) => <li key={limit}>{limit}</li>)}
+                      </ul>
+                    ) : null}
 
                     {/* Action Bar */}
                     <div style={{ display: 'flex', gap: 10, marginTop: 'auto', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
@@ -1234,9 +1234,9 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
       {subTab === 'customize' && (
         <div style={{ display: 'grid', gap: 24 }}>
           <div>
-            <h3 style={{ fontSize: 22, margin: '0 0 6px' }}>Customize Portfolio Appearance</h3>
-            <p className="muted" style={{ fontSize: 14, margin: 0 }}>
-              Tailor the theme, accent colors, and visible sections for your portfolio. Changes save to your draft immediately and will go live upon explicit publication.
+            <h3 style={{ fontSize: 22, margin: '0 0 6px' }}>Customize Portfolio Sections</h3>
+              <p className="muted" style={{ fontSize: 14, margin: 0 }}>
+              Choose which sections appear and the order they use. These choices stay in the draft until you publish.
             </p>
           </div>
 
@@ -1250,126 +1250,8 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
               gap: 28,
             }}
           >
-            {/* 1. Theme Mode Switcher */}
+            {/* Visible Sections Checklist */}
             <div>
-              <label className="field-label" style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
-                Theme Mode
-              </label>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {[
-                  { id: 'system', label: 'System (Auto)', hint: 'Adapts to visitor system preference' },
-                  { id: 'light', label: 'Light', hint: 'Crisp light mode palette' },
-                  { id: 'dark', label: 'Dark', hint: 'Sleek dark mode palette' },
-                ].map((m) => {
-                  const sel = themeMode === m.id;
-                  return (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => setThemeMode(m.id)}
-                      className={'tab ' + (sel ? 'is-active' : '')}
-                      style={{
-                        padding: '10px 20px',
-                        borderRadius: 14,
-                        border: sel ? '1.5px solid var(--accent)' : '1px solid var(--line)',
-                        background: sel ? 'color-mix(in oklab, var(--accent) 15%, transparent)' : 'transparent',
-                        color: sel ? 'var(--text-1)' : 'var(--text-2)',
-                        cursor: 'pointer',
-                        fontSize: 14,
-                        fontWeight: sel ? 600 : 500,
-                        textAlign: 'left',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {sel && <WebsiteIcons.check style={{ color: 'var(--accent)' }} />}
-                        <span>{m.label}</span>
-                      </div>
-                      <span className="muted" style={{ fontSize: 11, display: 'block', marginTop: 3 }}>
-                        {m.hint}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* 2. Accent Color Palette & Custom Hex */}
-            <div style={{ borderTop: '1px solid var(--line)', paddingTop: 20 }}>
-              <label className="field-label" style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
-                Accent Color
-              </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-                {[
-                  { name: 'Sapphire', hex: '#3b82f6' },
-                  { name: 'Emerald', hex: '#10b981' },
-                  { name: 'Amethyst', hex: '#8b5cf6' },
-                  { name: 'Amber', hex: '#f59e0b' },
-                  { name: 'Rose', hex: '#ec4899' },
-                  { name: 'Slate', hex: '#475569' },
-                ].map((sw) => {
-                  const sel = accentColor.toLowerCase() === sw.hex.toLowerCase();
-                  return (
-                    <button
-                      key={sw.hex}
-                      type="button"
-                      title={sw.name}
-                      onClick={() => setAccentColor(sw.hex)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '6px 14px',
-                        borderRadius: 999,
-                        border: sel ? '2px solid var(--text-1)' : '1px solid var(--line)',
-                        background: sel ? 'color-mix(in oklab, var(--text-1) 10%, transparent)' : 'transparent',
-                        cursor: 'pointer',
-                        color: 'var(--text-1)',
-                        fontSize: 13,
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 14,
-                          height: 14,
-                          borderRadius: '50%',
-                          background: sw.hex,
-                          display: 'inline-block',
-                          boxShadow: sel ? '0 0 0 2px var(--accent)' : 'none',
-                        }}
-                      />
-                      {sw.name}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Custom Hex Color Picker Input */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, maxWidth: 300 }}>
-                <input
-                  type="color"
-                  value={accentColor.startsWith('#') && accentColor.length === 7 ? accentColor : '#3b82f6'}
-                  onChange={(e) => setAccentColor(e.target.value)}
-                  style={{
-                    width: 44,
-                    height: 44,
-                    padding: 0,
-                    borderRadius: 12,
-                    border: '1px solid var(--line)',
-                    cursor: 'pointer',
-                    background: 'transparent',
-                  }}
-                />
-                <Input
-                  label=""
-                  value={accentColor}
-                  placeholder="#3b82f6"
-                  onChange={(e) => setAccentColor(e.target.value)}
-                />
-              </div>
-            </div>
-
-            {/* 3. Visible Sections Checklist */}
-            <div style={{ borderTop: '1px solid var(--line)', paddingTop: 20 }}>
               <div style={{ marginBottom: 12 }}>
                 <label className="field-label" style={{ fontSize: 14, margin: 0, display: 'block' }}>
                   Visible Portfolio Sections
@@ -1379,57 +1261,38 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
                 </span>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-                {[
-                  { id: 'about', label: 'About & Bio', desc: 'Summary, headline, location, and social links' },
-                  { id: 'education', label: 'Education', desc: 'Degrees, universities, honors, and GPA' },
-                  { id: 'projects', label: 'Projects Showcase', desc: 'Featured applications, source links, and tech tags' },
-                  { id: 'skills', label: 'Skills & Competencies', desc: 'Technical skills, tools, and languages' },
-                  { id: 'work', label: 'Work Experience', desc: 'Internships, research roles, and employment' },
-                  { id: 'achievements', label: 'Achievements & Awards', desc: 'Certificates, hackathon wins, and honors' },
-                  { id: 'contact', label: 'Contact Information', desc: 'Direct email and contact reach-outs' },
-                ].map((sec) => {
-                  const checked = visibleSections.includes(sec.id);
-                  return (
-                    <label
-                      key={sec.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 12,
-                        padding: 14,
-                        borderRadius: 16,
-                        border: checked ? '1px solid var(--accent)' : '1px solid var(--line)',
-                        background: checked ? 'color-mix(in oklab, var(--accent) 6%, transparent)' : 'transparent',
-                        cursor: 'pointer',
-                        userSelect: 'none',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setVisibleSections([...visibleSections, sec.id]);
-                          } else {
-                            setVisibleSections(visibleSections.filter((s) => s !== sec.id));
-                          }
-                        }}
-                        style={{ marginTop: 3, cursor: 'pointer', accentColor: 'var(--accent)' }}
-                      />
-                      <div>
-                        <strong style={{ fontSize: 14, display: 'block', color: 'var(--text-1)' }}>
-                          {sec.label}
-                        </strong>
-                        <span className="muted" style={{ fontSize: 12, lineHeight: 1.4, display: 'block' }}>
-                          {sec.desc}
-                        </span>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
+              <EditorSectionVisibility
+                sections={(activeTemplate && activeTemplate.visibilityControls) || []}
+                selected={visibleSections}
+                onChange={setVisibleSections}
+              />
             </div>
+
+            {activeTemplate && activeTemplate.presentation && activeTemplate.presentation.sectionOrder ? (
+              <div style={{ borderTop: '1px solid var(--line)', paddingTop: 20 }}>
+                <label className="field-label" style={{ fontSize: 14, margin: '0 0 8px', display: 'block' }}>
+                  Section order
+                </label>
+                <p className="muted" style={{ fontSize: 12, margin: '0 0 12px' }}>
+                  Services, products, case studies, and featured work move with Projects. Credentials, highlights, and hackathons move with Achievements. Testimonials, team, and media stay just before Contact. Entry order inside a section is saved on the profile.
+                </p>
+                <EditorSectionOrder
+                  sections={(activeTemplate && activeTemplate.visibilityControls) || []}
+                  order={sectionOrder}
+                  disabled={savingCustomization}
+                  onChange={setSectionOrder}
+                />
+              </div>
+            ) : null}
+
+            {activeTemplate && Array.isArray(activeTemplate.limits) && activeTemplate.limits.length > 0 ? (
+              <div style={{ borderTop: '1px solid var(--line)', paddingTop: 20 }}>
+                <p className="field-label" style={{ marginTop: 0 }}>Unavailable on this template</p>
+                <ul className="muted" style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
+                  {activeTemplate.limits.map((limit) => <li key={limit}>{limit}</li>)}
+                </ul>
+              </div>
+            ) : null}
 
             {/* Save Customization Buttons */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, borderTop: '1px solid var(--line)', paddingTop: 20 }}>
@@ -1439,6 +1302,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
                   setThemeMode(config?.customization?.themeMode || 'system');
                   setAccentColor(config?.customization?.accentColor || '#3b82f6');
                   setVisibleSections(config?.customization?.visibleSections || ['about', 'education', 'projects', 'skills', 'work', 'achievements', 'contact']);
+                  setSectionOrder(config?.customization?.sectionOrder || ['about', 'work', 'education', 'skills', 'projects', 'achievements', 'contact']);
                 }}
               >
                 Reset
@@ -1805,135 +1669,14 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
                   </div>
                 </div>
 
-                {/* Simulated Magic UI Portfolio View */}
-                <div style={{ padding: '32px 24px', display: 'grid', gap: 32 }}>
-                  {/* Hero Section */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
-                    <div style={{ flex: 1 }}>
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: accentColor,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.05em',
-                        }}
-                      >
-                        Student Portfolio
-                      </span>
-                      <h2 style={{ fontSize: 26, margin: '4px 0 6px', fontWeight: 700 }}>
-                        {previewData?.dto?.profile?.displayName || studentProfile?.name || 'Your Full Name'}
-                      </h2>
-                      <p style={{ fontSize: 14, margin: '0 0 10px', color: themeMode === 'light' ? '#475569' : '#94a3b8' }}>
-                        {previewData?.dto?.profile?.headline || studentProfile?.headline || 'Aspiring Engineer & Researcher'}
-                      </p>
-                      {previewData?.dto?.profile?.location?.formatted && (
-                        <span style={{ fontSize: 12, color: themeMode === 'light' ? '#64748b' : '#64748b' }}>
-                          📍 {previewData.dto.profile.location.formatted}
-                        </span>
-                      )}
-                    </div>
-                    <div
-                      style={{
-                        width: 72,
-                        height: 72,
-                        borderRadius: '50%',
-                        background: accentColor,
-                        display: 'grid',
-                        placeItems: 'center',
-                        color: '#fff',
-                        fontSize: 24,
-                        fontWeight: 600,
-                        border: '3px solid rgba(255,255,255,0.2)',
-                      }}
-                    >
-                      {(studentProfile?.name || 'S').slice(0, 1)}
-                    </div>
-                  </div>
-
-                  {/* About Section */}
-                  {visibleSections.includes('about') && (
-                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 20 }}>
-                      <h4 style={{ fontSize: 16, margin: '0 0 8px', fontWeight: 600 }}>About</h4>
-                      <p style={{ fontSize: 13, lineHeight: 1.6, color: themeMode === 'light' ? '#334155' : '#94a3b8', margin: 0 }}>
-                        {previewData?.dto?.profile?.bio || studentProfile?.bio || 'Add a rich biographical summary in your Student Identity tab to showcase your academic journey and aspirations.'}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Education Section */}
-                  {visibleSections.includes('education') && (
-                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 20 }}>
-                      <h4 style={{ fontSize: 16, margin: '0 0 12px', fontWeight: 600 }}>Education</h4>
-                      {previewData?.dto?.education && previewData.dto.education.length > 0 ? (
-                        <div style={{ display: 'grid', gap: 12 }}>
-                          {previewData.dto.education.map((edu, i) => (
-                            <div key={i} style={{ padding: 12, borderRadius: 10, background: themeMode === 'light' ? '#f8fafc' : 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                              <strong style={{ fontSize: 14 }}>{edu.institution}</strong>
-                              <span style={{ display: 'block', fontSize: 12, color: accentColor }}>{edu.degree}</span>
-                              <span style={{ fontSize: 11, color: '#64748b' }}>Graduating: {edu.expectedGradDate || edu.gradYear || 'Current'}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>No education entries added yet.</p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Projects Section */}
-                  {visibleSections.includes('projects') && (
-                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 20 }}>
-                      <h4 style={{ fontSize: 16, margin: '0 0 12px', fontWeight: 600 }}>Projects</h4>
-                      {previewData?.dto?.projects && previewData.dto.projects.length > 0 ? (
-                        <div style={{ display: 'grid', gridTemplateColumns: previewViewport === 'mobile' ? '1fr' : '1fr 1fr', gap: 12 }}>
-                          {previewData.dto.projects.slice(0, 4).map((proj, i) => (
-                            <div key={i} style={{ padding: 14, borderRadius: 12, background: themeMode === 'light' ? '#f8fafc' : 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                              <strong style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>{proj.title}</strong>
-                              <p style={{ fontSize: 11, color: '#64748b', margin: '0 0 8px', lineHeight: 1.4 }}>{proj.shortDescription || proj.detailedDescription || 'Showcase project'}</p>
-                              {proj.tags && proj.tags.length > 0 && (
-                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                  {proj.tags.slice(0, 3).map((t, ti) => (
-                                    <span key={ti} style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(59,130,246,0.1)', color: accentColor }}>{t}</span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>No projects showcased yet.</p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Skills Section */}
-                  {visibleSections.includes('skills') && (
-                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 20 }}>
-                      <h4 style={{ fontSize: 16, margin: '0 0 12px', fontWeight: 600 }}>Skills</h4>
-                      {previewData?.dto?.skills && previewData.dto.skills.length > 0 ? (
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {previewData.dto.skills.map((s, i) => (
-                            <span
-                              key={i}
-                              style={{
-                                fontSize: 11,
-                                padding: '4px 10px',
-                                borderRadius: 999,
-                                background: themeMode === 'light' ? '#e2e8f0' : 'rgba(255,255,255,0.08)',
-                                color: themeMode === 'light' ? '#1e293b' : '#e2e8f0',
-                              }}
-                            >
-                              {s.name}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>No skills recorded yet.</p>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <PortfolioPreviewFrame
+                  dto={previewData?.dto}
+                  username={username}
+                  customization={previewData?.config?.customization || { visibleSections, accentColor, themeMode, sectionOrder }}
+                  templateId={config?.selectedTemplateId}
+                  templateVersion={config?.selectedTemplateVersion}
+                  height={previewViewport === 'mobile' ? 640 : 760}
+                />
               </div>
             )}
           </div>
@@ -1997,10 +1740,6 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span className="muted">Template:</span>
               <span>{activeTemplate.name} v{activeTemplate.version}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span className="muted">Custom Accent:</span>
-              <span className="mono">{accentColor}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span className="muted">Visible Sections:</span>

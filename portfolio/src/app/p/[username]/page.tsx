@@ -1,13 +1,25 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { fetchPublishedProfile, getAnalyticsEventsEndpoint } from "@/lib/onevue-api";
-import { adaptOneVueProfile } from "@/lib/onevue-profile-adapter";
+import { fetchPublishedProfile, getAnalyticsEventsEndpoint, getPublicApiOrigin } from "@/lib/onevue-api";
+import { adaptOneVueProfile, resolveAvatarUrl } from "@/lib/onevue-profile-adapter";
 import { PortfolioClientWrapper } from "@/components/portfolio-client-wrapper";
 
 interface PublicProfilePageProps {
   params: Promise<{
     username: string;
   }>;
+}
+
+function publicAssetOrigin(): string {
+  try {
+    return getPublicApiOrigin();
+  } catch {
+    return "http://localhost:3000";
+  }
+}
+
+function publicAvatarUrl(photo: unknown): string | undefined {
+  return resolveAvatarUrl(photo, publicAssetOrigin());
 }
 
 /**
@@ -28,6 +40,7 @@ export async function generateMetadata({
   }
 
   const { dto, website } = result.data;
+  const photo = publicAvatarUrl(dto.profile.profilePhoto);
   const displayName = dto.profile.displayName || website.username || "Student";
   const headline = dto.profile.headline || `${displayName}'s personal portfolio`;
   const canonicalUrl = dto.meta.canonicalUrl || `https://onevue.me/p/${website.username}`;
@@ -44,10 +57,10 @@ export async function generateMetadata({
       url: canonicalUrl,
       siteName: `${displayName}'s Portfolio`,
       type: "profile",
-      images: dto.profile.profilePhoto
+      images: photo
         ? [
             {
-              url: dto.profile.profilePhoto,
+              url: photo,
               alt: displayName,
             },
           ]
@@ -57,7 +70,7 @@ export async function generateMetadata({
       card: "summary_large_image",
       title: `${displayName} | OneVue Portfolio`,
       description: headline,
-      images: dto.profile.profilePhoto ? [dto.profile.profilePhoto] : [],
+      images: photo ? [photo] : [],
     },
   };
 }
@@ -85,7 +98,7 @@ export default async function PublicProfilePage({
   }
 
   const { dto, website, analytics } = result.data;
-  const adaptedData = adaptOneVueProfile(dto, website);
+  const adaptedData = adaptOneVueProfile(dto, website, { assetOrigin: publicAssetOrigin() });
   let endpoint = "";
   try {
     endpoint = getAnalyticsEventsEndpoint();

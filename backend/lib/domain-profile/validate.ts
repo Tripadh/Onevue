@@ -1,4 +1,5 @@
 import { Types } from "mongoose";
+import { sanitizeStoredText } from "../templates/registry";
 import type {
   CollectionField,
   DomainContract,
@@ -64,7 +65,7 @@ function asTrimmedString(value: unknown, path: string): string {
 function sanitizeScalar(spec: ScalarField, value: unknown, path: string): unknown {
   switch (spec.kind) {
     case "string": {
-      const trimmed = asTrimmedString(value, path);
+      const trimmed = sanitizeStoredText(asTrimmedString(value, path));
       if (spec.required && !trimmed) {
         throw new ProfileValidationError(`Field '${path}' is required.`);
       }
@@ -214,7 +215,7 @@ function sanitizeScalar(spec: ScalarField, value: unknown, path: string): unknow
         if (typeof entry !== "string") {
           throw new ProfileValidationError(`Field '${path}[${index}]' must be a string.`);
         }
-        const trimmed = entry.trim();
+        const trimmed = sanitizeStoredText(entry).trim();
         if (!trimmed) return;
         if (trimmed.length > spec.itemMax) {
           throw new ProfileValidationError(

@@ -10,6 +10,7 @@ import {
   text,
   userIdField,
   visibilitySchema,
+  customLayoutField,
 } from "./domain/fragments";
 
 const AchievementSchema = new Schema(
@@ -113,6 +114,7 @@ const ProfessionalProfileSchema = new Schema(
         visibility: { email: "private", phone: "private" },
       }),
     },
+    customLayout: customLayoutField,
   },
   { timestamps: true, strict: true }
 );

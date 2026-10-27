@@ -5,6 +5,7 @@ import { DATA } from "@/data/resume";
 import { Timeline, TimelineItem, TimelineConnectItem } from "@/components/timeline";
 import { AdaptedHackathon } from "@/lib/onevue-profile-adapter";
 import { Globe, Github } from "lucide-react";
+import { StoredText } from "@/components/section/stored-text";
 
 interface HackathonsSectionProps {
   hackathons?: AdaptedHackathon[];
@@ -62,11 +63,7 @@ export default function HackathonsSection({ hackathons }: HackathonsSectionProps
                 {hackathon.location && (
                   <p className="text-sm text-muted-foreground">{hackathon.location}</p>
                 )}
-                {hackathon.description && (
-                  <p className="text-sm text-muted-foreground leading-relaxed wrap-break-word">
-                    {hackathon.description}
-                  </p>
-                )}
+                {hackathon.description ? <StoredText text={hackathon.description} /> : null}
                 {hackathon.links && hackathon.links.length > 0 && (
                   <div className="mt-1 flex flex-row flex-wrap items-start gap-2">
                     {hackathon.links.map((link, lIdx) => (

@@ -165,3 +165,9 @@ export const userIdField = {
   required: true,
   unique: true,
 };
+
+/** Embedded custom-field layout. Absent on profiles created before the feature. */
+export const customLayoutField = {
+  type: Schema.Types.Mixed,
+  required: false,
+};

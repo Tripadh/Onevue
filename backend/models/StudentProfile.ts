@@ -342,6 +342,15 @@ export interface IStudentProfile {
   // Module 9: Contacts
   contacts: IStudentContacts;
 
+  /** Section-agnostic custom fields. Missing on profiles saved before this feature. */
+  customLayout?: {
+    schemaVersion: number;
+    revision: number;
+    sections: unknown[];
+    bindings: unknown[];
+    entries: unknown[];
+  };
+
   createdAt?: Date;
   updatedAt?: Date;
 
@@ -1019,6 +1028,7 @@ const StudentProfileSchema = new Schema(
         portfolio: "",
       }),
     },
+    customLayout: { type: Schema.Types.Mixed, required: false },
   },
   {
     timestamps: true,

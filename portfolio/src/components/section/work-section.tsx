@@ -11,6 +11,7 @@ import { DATA } from "@/data/resume";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AdaptedWorkItem } from "@/lib/onevue-profile-adapter";
+import { StoredText } from "@/components/section/stored-text";
 
 function LogoImage({ src, alt }: { src?: string; alt: string }) {
   const [imageError, setImageError] = useState(false);
@@ -81,14 +82,16 @@ export default function WorkSection({ work }: WorkSectionProps) {
                 </div>
               </div>
               <div className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground text-right flex-none">
-                <span>
-                  {item.start} - {item.end ?? "Present"}
-                </span>
+                {(item.start || item.end) && (
+                  <span>
+                    {item.start && item.end ? `${item.start} - ${item.end}` : item.start || item.end}
+                  </span>
+                )}
               </div>
             </div>
           </AccordionTrigger>
-          <AccordionContent className="p-0 ml-13 text-xs sm:text-sm text-muted-foreground">
-            {item.description}
+          <AccordionContent className="p-0 ml-13">
+            {item.description ? <StoredText text={item.description} /> : null}
           </AccordionContent>
         </AccordionItem>
       ))}

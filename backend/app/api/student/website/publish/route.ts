@@ -8,7 +8,11 @@ import PublishedProfileRevision from "../../../../../models/PublishedProfileRevi
 import { toPublicProfileDTO, computeSnapshotChecksum } from "../../../../../lib/public-profile-dto";
 import { loadWebsiteSource } from "../../../../../lib/domain-profile/website-source";
 import { collectPublicAssetIds } from "../../../../../lib/storage/asset-refs";
+import { presentationForTemplate } from "../../../../../lib/templates/registry";
 import { isAllowedProfilePhotoKey } from "../../../../../lib/storage/legacy-photo";
+import { ProfileValidationError } from "../../../../../lib/domain-profile/validate";
+import { assertProfileAssetRefs } from "../../../../../lib/storage/asset-service";
+import { collectCustomAssetBindings } from "../../../../../lib/custom-fields";
 
 function collectLegacyPhotoKeys(snapshotText: string): string[] {
   const found = new Set<string>();
@@ -58,6 +62,12 @@ export async function POST(req: Request) {
           education?: unknown;
           projects?: unknown;
           skills?: unknown;
+          credentials?: unknown;
+          achievements?: unknown;
+          experience?: unknown;
+          testimonials?: unknown;
+          team?: unknown;
+          media?: unknown;
         })
       : null;
 
@@ -107,12 +117,20 @@ export async function POST(req: Request) {
       );
     }
 
+    const hasItems = (value: unknown) => Array.isArray(value) && value.length > 0;
     const hasContent = Boolean(
       (profile.headline && profile.headline.trim()) ||
         (profile.bio && profile.bio.trim()) ||
-        (Array.isArray(profile.education) && profile.education.length > 0) ||
-        (Array.isArray(profile.projects) && profile.projects.length > 0) ||
-        (Array.isArray(profile.skills) && profile.skills.length > 0)
+        hasItems(profile.education) ||
+        hasItems(profile.projects) ||
+        hasItems(profile.skills) ||
+        hasItems(profile.credentials) ||
+        hasItems(profile.achievements) ||
+        hasItems(profile.experience) ||
+        hasItems(profile.testimonials) ||
+        hasItems(profile.team) ||
+        hasItems(profile.media) ||
+        hasItems((profile as { customLayout?: { sections?: unknown[] } }).customLayout?.sections)
     );
 
     if (!hasContent) {
@@ -120,7 +138,7 @@ export async function POST(req: Request) {
         {
           success: false,
           message:
-            "Publication validation failed: Profile must contain at least a headline, bio, education, project, or skill before publishing.",
+            "Publication validation failed: Profile must contain at least one public section before publishing.",
           errors: {
             content: "At least one identity section must contain saved information.",
           },
@@ -133,13 +151,31 @@ export async function POST(req: Request) {
     const publishedAt = new Date();
     const publicUrl = `https://onevue.id/p/${config.username}`;
 
+    try {
+      await assertProfileAssetRefs(
+        String(auth.user._id),
+        collectCustomAssetBindings((profile as { customLayout?: unknown }).customLayout)
+      );
+    } catch (error: unknown) {
+      if (error instanceof ProfileValidationError || (error instanceof Error && error.name === "ProfileValidationError")) {
+        const status = error instanceof ProfileValidationError ? error.status : 400;
+        return NextResponse.json({ success: false, message: error.message }, { status });
+      }
+      throw error;
+    }
+
     const dto = toPublicProfileDTO(profile, {
       username: config.username,
       canonicalUrl: publicUrl,
       publishedAt,
       templateId: config.selectedTemplateId || "magicui-portfolio",
       templateVersion: config.selectedTemplateVersion || "1.0.0",
-      user: { name: auth.user.name },
+      user: { name: auth.user.name, profilePhotoKey: auth.user.profilePhotoKey },
+      identity: website?.identity,
+      ownerId: String(auth.user._id),
+      assetDelivery: "publish",
+      recordIds: website?.recordIds,
+      strictCustomFields: true,
     });
 
     const snapshotText = JSON.stringify(dto);
@@ -157,6 +193,17 @@ export async function POST(req: Request) {
     const checksum = computeSnapshotChecksum(dto);
     const publicAssetIds = collectPublicAssetIds(dto);
     const legacyPhotoKeys = collectLegacyPhotoKeys(snapshotText);
+    let presentation;
+    try {
+      const storedCustomization =
+        config.customization && typeof (config.customization as { toObject?: () => object }).toObject === "function"
+          ? (config.customization as { toObject: () => object }).toObject()
+          : config.customization || {};
+      presentation = presentationForTemplate(config.selectedTemplateId || "magicui-portfolio", storedCustomization);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Invalid appearance settings.";
+      return NextResponse.json({ success: false, message }, { status: 400 });
+    }
 
     // 7. Atomic revision creation & pointer activation
     // Determine if MongoDB replica set transactions are supported in this runtime
@@ -193,6 +240,7 @@ export async function POST(req: Request) {
         publishedAt,
         publicAssetIds,
         legacyPhotoKeys,
+        presentation,
       });
 
       await revision.save({ session: session || undefined });
@@ -247,6 +295,10 @@ export async function POST(req: Request) {
       }
     }
   } catch (error: unknown) {
+    if (error instanceof ProfileValidationError || (error instanceof Error && error.name === "ProfileValidationError")) {
+      const status = error instanceof ProfileValidationError ? error.status : 400;
+      return NextResponse.json({ success: false, message: error.message }, { status });
+    }
     const message = error instanceof Error ? error.message : "Internal server error";
     return NextResponse.json({ message }, { status: 500 });
   }

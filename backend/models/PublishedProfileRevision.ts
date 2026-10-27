@@ -17,6 +17,12 @@ export interface IPublishedProfileRevision {
   publishedAt: Date;
   publicAssetIds?: string[];
   legacyPhotoKeys?: string[];
+  presentation?: {
+    accentColor?: string;
+    themeMode?: "light" | "dark" | "system";
+    visibleSections?: string[];
+    sectionOrder?: string[];
+  };
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -72,6 +78,18 @@ const PublishedProfileRevisionSchema = new Schema(
     legacyPhotoKeys: {
       type: [String],
       default: [],
+    },
+    presentation: {
+      type: new Schema(
+        {
+          accentColor: { type: String, trim: true },
+          themeMode: { type: String, enum: ["light", "dark", "system"] },
+          visibleSections: { type: [String] },
+          sectionOrder: { type: [String] },
+        },
+        { _id: false }
+      ),
+      required: false,
     },
   },
   {

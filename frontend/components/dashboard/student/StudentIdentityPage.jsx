@@ -87,10 +87,102 @@ function resumeRowSelectable(row, entryRows) {
   return true;
 }
 
+function resumeText(value) {
+  return String(value == null ? '' : value).trim();
+}
+
+function resumeSame(left, right) {
+  return resumeText(left).toLowerCase() === resumeText(right).toLowerCase();
+}
+
+function resumeEntryValue(entryRows, field) {
+  const match = (entryRows || []).find((item) => item.field === field);
+  return match ? resumeText(match.value) : '';
+}
+
+function studentOnboardingKey(session, name) {
+  const user = session && session.user;
+  const id = (user && (user.id || user._id || user.email)) || 'anonymous';
+  return 'ov_student_onboarding_' + name + ':' + id;
+}
+
+function studentProfileHasContent(profile) {
+  if (!profile) return false;
+  if (resumeText(profile.headline) || resumeText(profile.bio)) return true;
+  return ['education', 'projects', 'skills', 'credentials', 'achievements', 'links'].some(
+    (key) => Array.isArray(profile[key]) && profile[key].length > 0
+  );
+}
+
+function resumeRowCurrentValue(profile, row, entryRows) {
+  if (!profile || !row) return '';
+  if (row.section === 'profile') {
+    if (row.field === 'summary') return resumeText(profile.bio);
+    if (row.field === 'headline') return resumeText(profile.headline);
+    if (row.field === 'email') return resumeText(profile.contacts && profile.contacts.email);
+    if (row.field === 'phone') return resumeText(profile.contacts && profile.contacts.phone);
+    return '';
+  }
+  if (row.section === 'socialLinks') {
+    const platform = resumeEntryValue(entryRows, 'platform');
+    const link = (profile.links || []).find((item) => resumeSame(item.platform, platform));
+    if (!link) return '';
+    return row.field === 'url' ? resumeText(link.url) : resumeText(link.platform);
+  }
+  if (row.section === 'education') {
+    const match = (profile.education || []).find((item) => (
+      resumeSame(item.institution, resumeEntryValue(entryRows, 'institution'))
+      && resumeSame(item.degree, resumeEntryValue(entryRows, 'degree'))
+    ));
+    if (!match) return '';
+    if (row.field === 'grade') return resumeText(match.gpa || match.percentage);
+    return resumeText(match[row.field]);
+  }
+  if (row.section === 'projects') {
+    const match = (profile.projects || []).find((item) => resumeSame(item.title, resumeEntryValue(entryRows, 'name')));
+    if (!match) return '';
+    if (row.field === 'name') return resumeText(match.title);
+    if (row.field === 'description') return resumeText(match.shortDescription);
+    if (row.field === 'technologies') return Array.isArray(match.technologies) ? match.technologies.join(', ') : '';
+    if (row.field === 'links') return resumeText(match.repoUrl || match.liveUrl);
+    return '';
+  }
+  if (row.section === 'skills') {
+    const match = (profile.skills || []).find((item) => resumeSame(item.name, row.value));
+    return match ? resumeText(match.name) : '';
+  }
+  if (row.section === 'credentials' || row.section === 'achievements') {
+    const list = profile[row.section] || [];
+    const title = resumeEntryValue(entryRows, 'title') || (row.field === 'title' ? resumeText(row.value) : '');
+    const match = list.find((item) => resumeSame(item.title, title));
+    if (!match) return '';
+    return row.field === 'title' ? resumeText(match.title) : resumeText(match.description);
+  }
+  return '';
+}
+
+function resumeChangeKind(current, extracted) {
+  const next = resumeText(extracted);
+  const previous = resumeText(current);
+  if (!next && previous) return 'missing';
+  if (!previous && next) return 'new';
+  if (resumeSame(previous, next)) return 'unchanged';
+  return 'modified';
+}
+
+const RESUME_CHANGE_LABELS = {
+  new: 'New',
+  modified: 'Changed',
+  unchanged: 'Unchanged',
+  missing: 'Not in this resume',
+};
+
 function ResumeExtractionReview({
   review,
+  profile,
   selection,
   onToggle,
+  onSelectApplicable,
   skillExtras,
   onSkillExtra,
   issuerExtras,
@@ -100,13 +192,16 @@ function ResumeExtractionReview({
   onDiscard,
 }) {
   const sections = (review && review.sections) || [];
+  const existingProfile = studentProfileHasContent(profile);
   const selectedCount = Object.keys(selection || {}).filter((id) => selection[id]).length;
   return (
     <div className="glass" style={{ padding: 22, borderRadius: 18, display: 'grid', gap: 16, border: '1px solid var(--line)' }}>
       <div>
-        <h3 style={{ fontSize: 18, margin: 0 }}>Review extracted fields</h3>
+        <h3 style={{ fontSize: 18, margin: 0 }}>{existingProfile ? 'Review Profile Changes' : 'Review your profile'}</h3>
         <p className="muted" style={{ fontSize: 13.5, margin: '6px 0 0' }}>
-          {review.warning || 'Extracted information stays unsaved until you choose the fields to keep.'}
+          {existingProfile
+            ? 'Only checked changes are written. A field missing from this resume keeps its saved value.'
+            : 'Check the extracted fields, edit anything that looks wrong in the profile sections, then save to continue.'}
         </p>
       </div>
       {Array.isArray(review.warnings) && review.warnings.length > 0 && (
@@ -131,22 +226,28 @@ function ResumeExtractionReview({
               <div key={section.id + '-' + entry.entryIndex} style={{ display: 'grid', gap: 8, padding: '4px 0 8px' }}>
                 {entry.rows.map((row) => {
                   const selectable = resumeRowSelectable(row, entry.rows);
+                  const current = resumeRowCurrentValue(profile, row, entry.rows);
+                  const kind = resumeChangeKind(current, row.value);
                   return (
                     <label key={row.id} style={{ display: 'grid', gridTemplateColumns: '22px 1fr', gap: 10, alignItems: 'start', cursor: selectable ? 'pointer' : 'default' }}>
                       <input
                         type="checkbox"
                         checked={Boolean(selection[row.id])}
-                        disabled={!selectable}
+                        disabled={!selectable || kind === 'unchanged'}
                         onChange={(event) => onToggle(row, entry.rows, event.target.checked)}
                         style={{ marginTop: 3 }}
                       />
                       <span>
                         <span style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                           <strong style={{ fontSize: 13.5 }}>{RESUME_FIELD_LABELS[row.field] || row.field}</strong>
+                          <span className="badge" style={{ fontSize: 10 }}>{RESUME_CHANGE_LABELS[kind]}</span>
                           {row.confidence && <span className="badge" style={{ fontSize: 10 }}>{row.confidence}</span>}
                           {!selectable && <span className="badge" style={{ fontSize: 10 }}>Shown only</span>}
                         </span>
-                        <span style={{ display: 'block', fontSize: 13.5, marginTop: 2, whiteSpace: 'pre-wrap' }}>{row.value}</span>
+                        {kind === 'modified' && (
+                          <span className="faint" style={{ display: 'block', fontSize: 12.5, marginTop: 2, whiteSpace: 'pre-wrap' }}>Saved: {current}</span>
+                        )}
+                        <span style={{ display: 'block', fontSize: 13.5, marginTop: 2, whiteSpace: 'pre-wrap' }}>{kind === 'modified' ? 'From resume: ' + row.value : row.value}</span>
                         {row.note && <span className="faint" style={{ display: 'block', fontSize: 12, marginTop: 2 }}>{row.note}</span>}
                       </span>
                     </label>
@@ -183,12 +284,14 @@ function ResumeExtractionReview({
           })}
         </div>
       ))}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Button variant="glass" disabled={applying} onClick={() => onSelectApplicable(true)}>Select applicable changes</Button>
+        <Button variant="ghost" disabled={applying} onClick={() => onSelectApplicable(false)}>Clear</Button>
         <Button variant="primary" loading={applying} disabled={applying || selectedCount === 0} onClick={onApply}>
-          Save selected fields
+          {existingProfile ? 'Apply Selected Changes' : 'Save & Continue'}
         </Button>
         <Button variant="ghost" disabled={applying} onClick={onDiscard}>
-          Discard extraction
+          {existingProfile ? 'Cancel' : 'Discard extraction'}
         </Button>
       </div>
     </div>
@@ -237,6 +340,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
 
   // Collections (Modules 2-9)
   const [educationList, setEducationList] = sUseState([]);
+  const [customLayout, setCustomLayout] = sUseState({ schemaVersion: 1, revision: 0, sections: [], bindings: [], entries: [] });
   const [projectsList, setProjectsList] = sUseState([]);
   const [skillsList, setSkillsList] = sUseState([]);
   const [credentialsList, setCredentialsList] = sUseState([]);
@@ -362,6 +466,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
   const [mediaForm, setMediaForm] = sUseState({
     title: '',
     mediaUrl: '',
+    assetId: '',
     mediaType: 'image',
     category: 'project',
     description: '',
@@ -389,76 +494,230 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
   const [resumeSelection, setResumeSelection] = sUseState({});
   const [resumeSkillExtras, setResumeSkillExtras] = sUseState({});
   const [resumeIssuers, setResumeIssuers] = sUseState({});
+  const [resumeCandidate, setResumeCandidate] = sUseState(null);
+  const [onboardingStep, setOnboardingStep] = sUseState(null);
+  const [onboardingReady, setOnboardingReady] = sUseState(false);
+  const onboardingApi = (window.OV && window.OV.studentOnboarding) || null;
   const [verifyingCredId, setVerifyingCredId] = sUseState('');
   const resumeFileRef = sUseRef(null);
 
-  // Sync state when studentProfile is loaded
-  sUseEffect(() => {
-    if (studentProfile) {
-      setPreferredName(studentProfile.preferredName || '');
-      setProfilePhoto(studentProfile.profilePhoto || '');
-      setHeadline(studentProfile.headline || '');
-      setBio(studentProfile.bio || '');
-      setNationality(studentProfile.nationality || '');
-      setCountry(studentProfile.country || '');
-      setStateRegion(studentProfile.state || '');
-      setCity(studentProfile.city || '');
-      setCurrentStatus(studentProfile.currentStatus || 'student');
-      setCareerInterests(Array.isArray(studentProfile.careerInterests) ? studentProfile.careerInterests : []);
-      setAreasOfInterest(Array.isArray(studentProfile.areasOfInterest) ? studentProfile.areasOfInterest : []);
-      setLanguages(Array.isArray(studentProfile.languages) ? studentProfile.languages : []);
+  const studentHydrated = sUseRef(false);
+  const studentWriteReady = sUseRef(false);
+  const studentDraftBase = sUseRef("");
+  const [studentDraftNotice, setStudentDraftNotice] = sUseState("");
 
-      if (Array.isArray(studentProfile.education)) {
-        setEducationList(studentProfile.education);
-      }
-      if (Array.isArray(studentProfile.projects)) {
-        setProjectsList(studentProfile.projects);
-      }
-      if (Array.isArray(studentProfile.skills)) {
-        setSkillsList(studentProfile.skills);
-      }
-      if (Array.isArray(studentProfile.credentials)) {
-        setCredentialsList(studentProfile.credentials);
-      }
-      if (Array.isArray(studentProfile.achievements)) {
-        setAchievementsList(studentProfile.achievements);
-      }
-      if (Array.isArray(studentProfile.media)) {
-        setMediaList(studentProfile.media);
-      }
-      if (Array.isArray(studentProfile.links)) {
-        setLinksList(studentProfile.links);
-      }
-
-      if (studentProfile.resume) {
-        setResumeData(studentProfile.resume);
-        setResumeRoleInput(studentProfile.resume.targetRole || '');
-      } else if (studentProfile.resumeFileName) {
-        setResumeData({
-          fileName: studentProfile.resumeFileName,
-          fileSize: 180000,
-          uploadedAt: studentProfile.resumeLastUpdated,
-          contentType: 'application/pdf',
-        });
-      }
-
-      if (studentProfile.contacts) {
-        setContactsState({
-          email: studentProfile.contacts.email || '',
-          phone: studentProfile.contacts.phone || '',
-          countryCode: studentProfile.contacts.countryCode || '',
-          city: studentProfile.contacts.city || '',
-          state: studentProfile.contacts.state || '',
-          country: studentProfile.contacts.country || '',
-          visibility: studentProfile.contacts.visibility || { email: 'private', phone: 'private' },
-          github: studentProfile.contacts.github || '',
-          linkedin: studentProfile.contacts.linkedin || '',
-          twitter: studentProfile.contacts.twitter || '',
-          portfolio: studentProfile.contacts.portfolio || '',
-        });
-      }
+  function applyStudentEditorSource(source) {
+    if (!source) return;
+    setPreferredName(source.preferredName || '');
+    setProfilePhoto(source.profilePhoto || '');
+    setHeadline(source.headline || '');
+    setBio(source.bio || '');
+    setNationality(source.nationality || '');
+    setCountry(source.country || '');
+    setStateRegion(source.state || '');
+    setCity(source.city || '');
+    setCurrentStatus(source.currentStatus || 'student');
+    setCareerInterests(Array.isArray(source.careerInterests) ? source.careerInterests : []);
+    setAreasOfInterest(Array.isArray(source.areasOfInterest) ? source.areasOfInterest : []);
+    setLanguages(Array.isArray(source.languages) ? source.languages : []);
+    if (Array.isArray(source.education)) setEducationList(source.education);
+    setCustomLayout(source.customLayout && Array.isArray(source.customLayout.sections) ? source.customLayout : { schemaVersion: 1, revision: 0, sections: [], bindings: [], entries: [] });
+    if (Array.isArray(source.projects)) setProjectsList(source.projects);
+    if (Array.isArray(source.skills)) setSkillsList(source.skills);
+    if (Array.isArray(source.credentials)) setCredentialsList(source.credentials);
+    if (Array.isArray(source.achievements)) setAchievementsList(source.achievements);
+    if (Array.isArray(source.media)) setMediaList(source.media);
+    if (Array.isArray(source.links)) setLinksList(source.links);
+    if (source.resume) {
+      setResumeData(source.resume);
+      setResumeRoleInput(source.resume.targetRole || '');
+    } else if (source.resumeFileName) {
+      setResumeData({
+        fileName: source.resumeFileName,
+        fileSize: 180000,
+        uploadedAt: source.resumeLastUpdated,
+        contentType: 'application/pdf',
+      });
     }
+    if (source.contacts) {
+      setContactsState({
+        email: source.contacts.email || '',
+        phone: source.contacts.phone || '',
+        countryCode: source.contacts.countryCode || '',
+        city: source.contacts.city || '',
+        state: source.contacts.state || '',
+        country: source.contacts.country || '',
+        visibility: source.contacts.visibility || { email: 'private', phone: 'private' },
+        github: source.contacts.github || '',
+        linkedin: source.contacts.linkedin || '',
+        twitter: source.contacts.twitter || '',
+        portfolio: source.contacts.portfolio || '',
+      });
+    }
+  }
+
+  sUseEffect(() => {
+    if (!studentProfile) return;
+    const stamp = String(studentProfile.updatedAt || studentProfile._id || "loaded");
+    if (studentHydrated.current === stamp) return;
+    const firstLoad = !studentHydrated.current;
+    studentHydrated.current = stamp;
+    const drafts = window.OV && window.OV.editorDraft;
+    if (firstLoad && drafts) {
+      const record = drafts.readDraft(sessionStorage, "student-profile", session);
+      const decision = drafts.decideDraftRestore(record, studentProfile);
+      studentDraftBase.current = decision.baseUpdatedAt || "";
+      if (decision.action === "restore-local") {
+        applyStudentEditorSource(decision.draft);
+        setStudentDraftNotice("unsaved");
+        return;
+      }
+      if (decision.stale) {
+        drafts.clearDraft(sessionStorage, "student-profile", session);
+        setStudentDraftNotice("stale");
+      }
+    } else if (drafts) {
+      studentDraftBase.current = drafts.stampOf(studentProfile);
+    }
+    applyStudentEditorSource(studentProfile);
   }, [studentProfile]);
+
+  sUseEffect(() => {
+    if (!studentHydrated.current) return undefined;
+    if (!studentWriteReady.current) {
+      studentWriteReady.current = true;
+      return undefined;
+    }
+    const drafts = window.OV && window.OV.editorDraft;
+    if (!drafts) return undefined;
+    const timer = setTimeout(() => {
+      drafts.writeDraft(sessionStorage, "student-profile", session, {
+        preferredName,
+        profilePhoto,
+        headline,
+        bio,
+        nationality,
+        country,
+        state: stateRegion,
+        city,
+        currentStatus,
+        careerInterests,
+        areasOfInterest,
+        languages,
+        education: educationList,
+        projects: projectsList,
+        skills: skillsList,
+        credentials: credentialsList,
+        achievements: achievementsList,
+        media: mediaList,
+        links: linksList,
+        contacts: contactsState,
+        resume: resumeData,
+        customLayout,
+      }, studentDraftBase.current);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [preferredName, profilePhoto, headline, bio, nationality, country, stateRegion, city, currentStatus, careerInterests, areasOfInterest, languages, educationList, projectsList, skillsList, credentialsList, achievementsList, mediaList, linksList, contactsState, resumeData, customLayout]);
+
+  sUseEffect(() => {
+    if (loadingProfile || onboardingReady) return;
+    const resolved = onboardingApi
+      ? onboardingApi.resolveStep({
+        profile: studentProfile,
+        done: sessionStorage.getItem(studentOnboardingKey(session, 'done')) === '1',
+        savedStep: sessionStorage.getItem(studentOnboardingKey(session, 'step')) || '',
+      })
+      : (studentProfileHasContent(studentProfile) ? null : 'choice');
+    setOnboardingStep(resolved);
+    setOnboardingReady(true);
+  }, [loadingProfile, studentProfile, onboardingReady, onboardingApi]);
+
+  sUseEffect(() => {
+    if (!onboardingReady) return;
+    const stepKey = studentOnboardingKey(session, 'step');
+    if (onboardingStep) sessionStorage.setItem(stepKey, onboardingStep);
+    else sessionStorage.removeItem(stepKey);
+  }, [onboardingReady, onboardingStep]);
+
+  const showModule = (id) => {
+    if (!onboardingReady || onboardingStep === 'choice' || onboardingStep === 'extract') return false;
+    if (onboardingStep === 'resume') return id === 'resume';
+    if (onboardingStep === 'profile') return activeSection === id && id !== 'resume';
+    return activeSection === id;
+  };
+
+  const rememberOnboardingStep = (step) => {
+    setOnboardingStep(step);
+    if (step) sessionStorage.setItem(studentOnboardingKey(session, 'step'), step);
+  };
+
+  const finishOnboarding = () => {
+    sessionStorage.setItem(studentOnboardingKey(session, 'done'), '1');
+    sessionStorage.removeItem(studentOnboardingKey(session, 'step'));
+    setOnboardingStep(null);
+    setActiveSection('profile');
+  };
+
+  const saveOnboardingProfile = async () => {
+    setIsSubmitting(true);
+    const payload = {
+      preferredName,
+      profilePhoto,
+      headline,
+      bio,
+      nationality,
+      country,
+      state: stateRegion,
+      city,
+      currentStatus,
+      careerInterests,
+      areasOfInterest,
+      languages,
+      education: educationList,
+      projects: projectsList,
+      skills: skillsList,
+      credentials: credentialsList,
+      achievements: achievementsList,
+      media: mediaList,
+      links: linksList,
+      contacts: contactsState,
+    };
+    if (resumeCandidate) {
+      payload.resume = resumeCandidate;
+      payload.resumeFileName = resumeCandidate.fileName;
+    }
+    const saved = await onSaveToDb(payload);
+    setIsSubmitting(false);
+    if (!saved) return false;
+    if (resumeCandidate) setResumeData(resumeCandidate);
+    rememberOnboardingStep('resume');
+    setActiveSection('resume');
+    return true;
+  };
+
+  const applyExtractionToForm = (rows) => {
+    if (!onboardingApi) return;
+    const draft = onboardingApi.applyExtraction({
+      headline,
+      bio,
+      contacts: { email: contactsState.email, phone: contactsState.phone },
+      education: educationList,
+      projects: projectsList,
+      skills: skillsList,
+      credentials: credentialsList,
+      achievements: achievementsList,
+      links: linksList,
+    }, rows);
+    setHeadline(draft.headline || '');
+    setBio(draft.bio || '');
+    setContactsState((current) => ({ ...current, email: draft.contacts.email || '', phone: draft.contacts.phone || '' }));
+    setEducationList(draft.education);
+    setProjectsList(draft.projects);
+    setSkillsList(draft.skills);
+    setCredentialsList(draft.credentials);
+    setAchievementsList(draft.achievements);
+    setLinksList(draft.links);
+  };
 
   const sectionsList = [
     { id: 'profile', label: '1. Personal Profile' },
@@ -630,6 +889,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       liveUrl: '',
       docsUrl: '',
       videoUrl: '',
+      assetId: '',
       isAiMl: false,
       dataset: '',
       algorithms: '',
@@ -663,6 +923,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       liveUrl: item.liveUrl || item.link || '',
       docsUrl: item.docsUrl || '',
       videoUrl: item.videoUrl || '',
+      assetId: item.assetId || '',
       isAiMl: Boolean(item.aiDetails && (item.aiDetails.modelName || item.aiDetails.dataset)),
       dataset: item.aiDetails?.dataset || '',
       algorithms: item.aiDetails?.algorithms || '',
@@ -1125,15 +1386,28 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
         resumeName: file.name.replace(/\.pdf$/i, ''),
         targetRole: resumeRoleInput || 'Software Engineer',
       };
-      const saved = await onSaveToDb({ resume: metadata, resumeFileName: file.name });
-      if (saved) setResumeData(metadata);
+      if (onboardingStep === 'extract') {
+        applyExtractionToForm(data.rows || []);
+        setResumeCandidate(metadata);
+        setResumeReview(null);
+        setResumeSelection({});
+        rememberOnboardingStep('profile');
+        setActiveSection('profile');
+        toast.push({ title: 'Resume read', body: 'The profile form is filled from the resume. Edit anything, then save and continue.', tone: 'success' });
+        return;
+      }
+      const existingProfile = studentProfileHasContent(studentProfile);
       const nextSelection = {};
       (data.rows || []).forEach((row) => {
         const entryRows = (data.rows || []).filter((item) => item.section === row.section && item.entryIndex === row.entryIndex);
-        if (resumeRowSelectable(row, entryRows) && (row.confidence === 'high' || row.confidence === 'medium')) {
+        const current = resumeRowCurrentValue(studentProfile, row, entryRows);
+        const kind = resumeChangeKind(current, row.value);
+        const confident = row.confidence === 'high' || row.confidence === 'medium';
+        if (resumeRowSelectable(row, entryRows) && kind === 'new' && (existingProfile ? confident : true)) {
           nextSelection[row.id] = true;
         }
       });
+      setResumeCandidate(metadata);
       setResumeReview(data);
       setResumeSelection(nextSelection);
       setResumeSkillExtras({});
@@ -1234,12 +1508,17 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
         return;
       }
       if (data.profile && onProfileReplaced) onProfileReplaced(data.profile);
+      if (resumeCandidate) {
+        const savedResume = await onSaveToDb({ resume: resumeCandidate, resumeFileName: resumeCandidate.fileName });
+        if (savedResume) setResumeData(resumeCandidate);
+        setResumeCandidate(null);
+      }
       const skipped = Array.isArray(data.skipped) ? data.skipped.length : 0;
       toast.push({
-        title: 'Identity updated',
+        title: studentProfileHasContent(studentProfile) ? 'Selected changes applied' : 'Profile saved',
         body: skipped > 0
-          ? 'Selected resume fields were saved. ' + skipped + ' already matched your profile.'
-          : 'Selected resume fields were saved to your student identity.',
+          ? 'Approved resume fields were saved. ' + skipped + ' already matched your profile.'
+          : 'Approved resume fields were saved. Unchecked fields were left unchanged.',
         tone: 'success',
       });
       setResumeReview(null);
@@ -1258,6 +1537,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
     setResumeSelection({});
     setResumeSkillExtras({});
     setResumeIssuers({});
+    setResumeCandidate(null);
     if (!reviewId || !token) return;
     try {
       await fetch(studentApiBase() + '/student/resume/reviews/' + reviewId, {
@@ -1289,6 +1569,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
     setMediaForm({
       title: '',
       mediaUrl: '',
+      assetId: '',
       mediaType: 'image',
       category: 'project',
       description: '',
@@ -1304,6 +1585,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
     setMediaForm({
       title: item.title || '',
       mediaUrl: item.mediaUrl || item.url || '',
+      assetId: item.assetId || '',
       mediaType: item.mediaType || 'image',
       category: item.category || 'project',
       description: item.description || '',
@@ -1314,8 +1596,12 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
   };
 
   const handleSaveMediaModal = async () => {
-    if (!mediaForm.title.trim() || !mediaForm.mediaUrl.trim()) {
-      toast.push({ title: 'Validation Error', body: 'Title and Media URL are required.', tone: 'error' });
+    if (!mediaForm.title.trim() || (!mediaForm.mediaUrl.trim() && !mediaForm.assetId)) {
+      toast.push({ title: 'Validation Error', body: 'Add a title and either an https link or an uploaded file.', tone: 'error' });
+      return;
+    }
+    if (mediaForm.mediaUrl.trim() && !/^https?:\/\//i.test(mediaForm.mediaUrl.trim())) {
+      toast.push({ title: 'Invalid media link', body: 'Media links must start with http:// or https://.', tone: 'error' });
       return;
     }
     setIsSubmitting(true);
@@ -1413,18 +1699,116 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
     }
   };
 
+  const studentCustomRecords = (sectionId) => {
+    const lists = {
+      education: educationList.map((item) => ({ id: String(item.id || item._id || ""), title: item.institution || "Education" })),
+      projects: projectsList.map((item) => ({ id: String(item.id || item._id || ""), title: item.title || "Project" })),
+      skills: skillsList.map((item) => ({ id: String(item.id || item._id || ""), title: item.name || "Skill" })),
+      credentials: credentialsList.map((item) => ({ id: String(item.id || item._id || ""), title: item.title || "Credential" })),
+      achievements: achievementsList.map((item) => ({ id: String(item.id || item._id || ""), title: item.title || "Achievement" })),
+      media: mediaList.map((item) => ({ id: String(item.id || item._id || ""), title: item.title || "Media" })),
+    };
+    return lists[sectionId] || [];
+  };
+
+  const saveStudentCustomLayout = async (next, sectionId) => {
+    setCustomLayout(next);
+    const payload = { customLayout: next };
+    if (sectionId === "education") payload.education = educationList;
+    if (sectionId === "projects") payload.projects = projectsList;
+    if (sectionId === "skills") payload.skills = skillsList;
+    if (sectionId === "credentials") payload.credentials = credentialsList;
+    if (sectionId === "achievements") payload.achievements = achievementsList;
+    if (sectionId === "media") payload.media = mediaList;
+    if (sectionId === "contacts") payload.contacts = contactsState;
+    if (sectionId === "resume") payload.resume = resumeData;
+    return onSaveToDb(payload);
+  };
+
   return (
     <div style={{ display: 'grid', gap: 24 }}>
+      <input
+        type="file"
+        accept="application/pdf,.pdf"
+        ref={resumeFileRef}
+        style={{ display: 'none' }}
+        onChange={handleResumeFileSelect}
+      />
       {/* Page Header */}
       <div>
-        <span className="eyebrow" style={{ color: 'var(--accent)', fontSize: 12 }}>Domain Architecture</span>
+        <span className="eyebrow" style={{ color: 'var(--accent)', fontSize: 12 }}>
+          {onboardingStep ? 'Student onboarding' : 'Domain Architecture'}
+        </span>
         <h1 className="h-card" style={{ fontSize: 32, margin: '4px 0 6px' }}>Student Identity</h1>
         <p className="muted" style={{ fontSize: 15, margin: 0 }}>
-          Manage all nine verified profile sections that shape your admissions, internship, and research views.
+          {onboardingStep === 'choice' && 'Choose how you want to start your student profile.'}
+          {onboardingStep === 'extract' && 'Upload a PDF resume. You can edit every field before it is saved.'}
+          {onboardingStep === 'profile' && 'Review the profile, edit any field, then save and continue.'}
+          {onboardingStep === 'resume' && 'Your profile is saved. Keep this resume or replace it.'}
+          {!onboardingStep && 'Manage all nine verified profile sections that shape your admissions, internship, and research views.'}
         </p>
       </div>
 
+      {onboardingStep && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} aria-label="Onboarding progress">
+          {[
+            ['choice', '1. Choose'],
+            ['profile', '2. Profile'],
+            ['resume', '3. Resume'],
+          ].map(([id, label]) => {
+            const current = onboardingStep === id || (id === 'profile' && onboardingStep === 'extract');
+            return (
+              <span key={id} className="badge" style={{ fontSize: 12, opacity: current ? 1 : 0.55 }}>{label}</span>
+            );
+          })}
+        </div>
+      )}
+
+      {onboardingStep === 'choice' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
+          <button
+            type="button"
+            className="glass"
+            onClick={() => rememberOnboardingStep('extract')}
+            style={{ textAlign: 'left', padding: 24, borderRadius: 20, border: '1px solid var(--line)', cursor: 'pointer', background: 'var(--glass)' }}
+          >
+            <h2 style={{ fontSize: 20, margin: '0 0 8px' }}>Upload Resume</h2>
+            <p className="muted" style={{ margin: 0, fontSize: 14 }}>Read a PDF and fill the profile form. You can correct every field before saving.</p>
+          </button>
+          <button
+            type="button"
+            className="glass"
+            onClick={() => { rememberOnboardingStep('profile'); setActiveSection('profile'); }}
+            style={{ textAlign: 'left', padding: 24, borderRadius: 20, border: '1px solid var(--line)', cursor: 'pointer', background: 'var(--glass)' }}
+          >
+            <h2 style={{ fontSize: 20, margin: '0 0 8px' }}>Enter Manually</h2>
+            <p className="muted" style={{ margin: 0, fontSize: 14 }}>Start with an empty profile. A resume is not required.</p>
+          </button>
+        </div>
+      )}
+
+      {onboardingStep === 'extract' && (
+        <section className="glass" style={{ padding: 28, borderRadius: 20, display: 'grid', gap: 14 }}>
+          <h2 style={{ fontSize: 20, margin: 0 }}>Upload Resume</h2>
+          <p className="muted" style={{ margin: 0, fontSize: 14 }}>PDF only, up to 10 MB. Extraction fills the form and does not save until you continue.</p>
+          {resumeUploading && <p className="muted" style={{ margin: 0 }}>Reading the PDF…</p>}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <Button variant="primary" loading={resumeUploading} onClick={() => resumeFileRef.current && resumeFileRef.current.click()}>Choose PDF Resume</Button>
+            <Button variant="ghost" disabled={resumeUploading} onClick={() => rememberOnboardingStep('choice')}>Back</Button>
+            <Button variant="ghost" disabled={resumeUploading} onClick={() => { rememberOnboardingStep('profile'); setActiveSection('profile'); }}>Enter Manually</Button>
+          </div>
+        </section>
+      )}
+
+      {studentDraftNotice === "unsaved" ? (
+        <p role="status" style={{ margin: 0 }}>Unsaved edits for this account were restored. They are not published.</p>
+      ) : null}
+      {studentDraftNotice === "stale" ? (
+        <p role="status" style={{ margin: 0 }}>The saved profile changed on the server. Older browser edits were not applied.</p>
+      ) : null}
+
       {/* 9 Section Tabs */}
+      {onboardingReady && onboardingStep !== 'choice' && onboardingStep !== 'extract' && onboardingStep !== 'resume' && (
       <div
         className="glass"
         style={{
@@ -1436,7 +1820,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
           scrollbarWidth: 'none',
         }}
       >
-        {sectionsList.map((sec) => {
+        {sectionsList.filter((sec) => onboardingStep !== 'profile' || sec.id !== 'resume').map((sec) => {
           const isCurrent = activeSection === sec.id;
           return (
             <button
@@ -1460,17 +1844,30 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
           );
         })}
       </div>
+      )}
+
+      {(onboardingStep === 'profile' || onboardingStep === 'resume') && (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <Button variant="ghost" onClick={() => rememberOnboardingStep(onboardingApi ? onboardingApi.goBack(onboardingStep) : 'choice')}>Back</Button>
+          {onboardingStep === 'profile' && (
+            <Button variant="primary" loading={isSubmitting} onClick={saveOnboardingProfile}>Save & Continue</Button>
+          )}
+          {onboardingStep === 'resume' && (
+            <Button variant="primary" onClick={finishOnboarding}>Continue</Button>
+          )}
+        </div>
+      )}
 
       {/* -------------------------------------------------------------
           MODULE 1: Personal Profile
           ------------------------------------------------------------- */}
-      {activeSection === 'profile' && (
+      {showModule('profile') && (
         <section className="glass" style={{ padding: 28, borderRadius: 20, display: 'grid', gap: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
             <div>
               <h2 className="h-sub" style={{ fontSize: 20, margin: 0 }}>Personal Profile</h2>
               <p className="muted" style={{ fontSize: 14, margin: '4px 0 0' }}>
-                Basic student identity, bio, location, and career focus.
+                Basic student identity, bio, location, and career focus. Unsaved edits stay in this browser until you save. Languages, nationality, interests, and current status are kept even when this template does not show them publicly.
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1510,17 +1907,12 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
               placeholder="e.g. Computer Science Student | Machine Learning Enthusiast"
             />
 
-            <div className="field">
-              <label className="field-label">Academic Bio</label>
-              <textarea
-                className="input"
-                rows={4}
-                style={{ height: 'auto', padding: 14 }}
-                value={bio}
-                onChange={(e) => setBio(e.target.value)}
-                placeholder="Write a brief overview of your academic focus and research interests..."
-              />
-            </div>
+            <EditorRichText
+              label="Academic Bio"
+              value={bio}
+              onChange={setBio}
+              placeholder="Write a brief overview of your academic focus and research interests..."
+            />
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
               <Select
@@ -1664,7 +2056,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       {/* -------------------------------------------------------------
           MODULE 2: Education (Canonical Source of Truth)
           ------------------------------------------------------------- */}
-      {activeSection === 'education' && (
+      {showModule('education') && (
         <section className="glass" style={{ padding: 28, borderRadius: 20, display: 'grid', gap: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
             <div>
@@ -1763,7 +2155,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       {/* -------------------------------------------------------------
           MODULE 3: Projects
           ------------------------------------------------------------- */}
-      {activeSection === 'projects' && (
+      {showModule('projects') && (
         <section className="glass" style={{ padding: 28, borderRadius: 20, display: 'grid', gap: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
             <div>
@@ -1864,7 +2256,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       {/* -------------------------------------------------------------
           MODULE 4: Skills
           ------------------------------------------------------------- */}
-      {activeSection === 'skills' && (
+      {showModule('skills') && (
         <section className="glass" style={{ padding: 28, borderRadius: 20, display: 'grid', gap: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
             <div>
@@ -1948,7 +2340,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       {/* -------------------------------------------------------------
           MODULE 5: Credentials
           ------------------------------------------------------------- */}
-      {activeSection === 'credentials' && (
+      {showModule('credentials') && (
         <section className="glass" style={{ padding: 28, borderRadius: 20, display: 'grid', gap: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
             <div>
@@ -2036,7 +2428,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       {/* -------------------------------------------------------------
           MODULE 6: Achievements
           ------------------------------------------------------------- */}
-      {activeSection === 'achievements' && (
+      {showModule('achievements') && (
         <section className="glass" style={{ padding: 28, borderRadius: 20, display: 'grid', gap: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
             <div>
@@ -2105,7 +2497,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       {/* -------------------------------------------------------------
           MODULE 7: Resume (ONE FILE ONLY)
           ------------------------------------------------------------- */}
-      {activeSection === 'resume' && (
+      {showModule('resume') && (
         <section className="glass" style={{ padding: 28, borderRadius: 20, display: 'grid', gap: 20 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2116,14 +2508,6 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
               One resume slot. Choosing a PDF sends it to the resume extractor. Fields stay off your identity until you save the ones you want.
             </p>
           </div>
-
-          <input
-            type="file"
-            accept="application/pdf,.pdf"
-            ref={resumeFileRef}
-            style={{ display: 'none' }}
-            onChange={handleResumeFileSelect}
-          />
 
           {resumeData && resumeData.fileName ? (
             <div
@@ -2171,7 +2555,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
                       if (resumeFileRef.current) resumeFileRef.current.click();
                     }}
                   >
-                    Replace PDF
+                    Replace Resume
                   </Button>
                   <Button
                     size="sm"
@@ -2231,11 +2615,29 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
             <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>Reading the PDF with the resume extractor…</p>
           )}
 
+          {resumeCandidate && !resumeUploading && (
+            <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>
+              {resumeCandidate.fileName} is a candidate. The saved resume stays in place until you apply the changes.
+            </p>
+          )}
+
           {resumeReview && (
             <ResumeExtractionReview
               review={resumeReview}
+              profile={studentProfile}
               selection={resumeSelection}
               onToggle={handleToggleResumeRow}
+              onSelectApplicable={(checked) => {
+                const next = {};
+                if (checked) {
+                  (resumeReview.rows || []).forEach((row) => {
+                    const entryRows = (resumeReview.rows || []).filter((item) => item.section === row.section && item.entryIndex === row.entryIndex);
+                    const kind = resumeChangeKind(resumeRowCurrentValue(studentProfile, row, entryRows), row.value);
+                    if (resumeRowSelectable(row, entryRows) && kind !== 'unchanged') next[row.id] = true;
+                  });
+                }
+                setResumeSelection(next);
+              }}
               skillExtras={resumeSkillExtras}
               onSkillExtra={(entryIndex, extra) => setResumeSkillExtras((current) => ({ ...current, [entryIndex]: extra }))}
               issuerExtras={resumeIssuers}
@@ -2251,7 +2653,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       {/* -------------------------------------------------------------
           MODULE 8: Media Gallery
           ------------------------------------------------------------- */}
-      {activeSection === 'media' && (
+      {showModule('media') && (
         <section className="glass" style={{ padding: 28, borderRadius: 20, display: 'grid', gap: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
             <div>
@@ -2311,7 +2713,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       {/* -------------------------------------------------------------
           MODULE 9: Links & Contacts
           ------------------------------------------------------------- */}
-      {activeSection === 'contacts' && (
+      {showModule('contacts') && (
         <section className="glass" style={{ padding: 28, borderRadius: 20, display: 'grid', gap: 24 }}>
           {/* Section 9A: Structured Platform Links */}
           <div style={{ display: 'grid', gap: 16 }}>
@@ -2447,6 +2849,28 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
         </section>
       )}
 
+      {onboardingReady && onboardingStep !== "choice" && onboardingStep !== "extract" ? (
+        <>
+          <CustomFieldBoard
+            identity="student"
+            sectionId={activeSection}
+            layout={customLayout}
+            records={studentCustomRecords(activeSection)}
+            disabled={isSubmitting}
+            templateId="magicui-portfolio"
+            onChange={setCustomLayout}
+            onSave={(next) => saveStudentCustomLayout(next, activeSection)}
+          />
+          <CustomSectionManager
+            layout={customLayout}
+            disabled={isSubmitting}
+            templateId="magicui-portfolio"
+            onChange={setCustomLayout}
+            onSave={(next) => saveStudentCustomLayout(next, activeSection)}
+          />
+        </>
+      ) : null}
+
       {/* =============================================================
           MODALS FOR EDITING INDIVIDUAL ITEMS
           ============================================================= */}
@@ -2534,7 +2958,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
           <Input label="Tech Stack (comma-separated)" value={projForm.techStack} onChange={(e) => setProjForm({ ...projForm, techStack: e.target.value })} placeholder="e.g. Python, PyTorch, Docker, React" />
           <div className="field">
             <label className="field-label">Short Summary</label>
-            <textarea className="input" rows={2} style={{ height: 'auto', padding: 10 }} value={projForm.shortDescription} onChange={(e) => setProjForm({ ...projForm, shortDescription: e.target.value })} placeholder="One or two sentences describing what you built..." />
+            <EditorRichText label="Short description" value={projForm.shortDescription} onChange={(next) => setProjForm({ ...projForm, shortDescription: next })} placeholder="One or two sentences describing what you built..." />
           </div>
           <Input label="Metrics / Measurable Results" value={projForm.metricsResults} onChange={(e) => setProjForm({ ...projForm, metricsResults: e.target.value })} placeholder="e.g. 98.4% accuracy, sub-10ms latency" />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -2561,6 +2985,16 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
               </span>
             </div>
           </div>
+          {window.EditorAssetField ? (
+            <EditorAssetField
+              label="Project image"
+              purpose="portfolio-image"
+              value={projForm.assetId || ''}
+              disabled={isSubmitting}
+              onChange={(assetId) => setProjForm({ ...projForm, assetId })}
+              hint="One image. This template does not show a gallery or an uploaded video. An https video link can stay in the video field."
+            />
+          ) : null}
           <Button block variant="primary" loading={isSubmitting} onClick={handleSaveProjectModal}>
             Save Project Record
           </Button>
@@ -2685,7 +3119,17 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
             {editingMediaIdx !== null ? "Edit Media Asset" : "Add Media Asset"}
           </h3>
           <Input label="Asset Title *" value={mediaForm.title} onChange={(e) => setMediaForm({ ...mediaForm, title: e.target.value })} placeholder="e.g. Research Poster / Architecture Diagram" />
-          <Input label="Media URL *" value={mediaForm.mediaUrl} onChange={(e) => setMediaForm({ ...mediaForm, mediaUrl: e.target.value })} placeholder="https://..." />
+          <Input label="Media URL" value={mediaForm.mediaUrl} onChange={(e) => setMediaForm({ ...mediaForm, mediaUrl: e.target.value })} placeholder="https://..." hint="Optional when you upload a file. Use http or https." />
+          {window.EditorAssetField ? (
+            <EditorAssetField
+              label="Uploaded file"
+              purpose="portfolio-media"
+              value={mediaForm.assetId || ''}
+              disabled={isSubmitting}
+              onChange={(assetId) => setMediaForm({ ...mediaForm, assetId })}
+              hint="Images and PDFs are accepted. Galleries and video files are not shown by this template."
+            />
+          ) : null}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Select
               label="Media Type"

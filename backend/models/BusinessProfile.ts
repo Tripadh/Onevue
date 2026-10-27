@@ -1,6 +1,6 @@
 import { Schema, model, models } from "mongoose";
 import { BUSINESS_MODELS, CREDENTIAL_RECORD_TYPES, ORG_TYPES, REGISTRATION_STATUSES, RESOURCE_VISIBILITY, VERIFICATION_STATUSES } from "../lib/domain-profile/constants";
-import { limitedArray, stableId, text, userIdField, visibilitySchema } from "./domain/fragments";
+import { customLayoutField, limitedArray, stableId, text, userIdField, visibilitySchema } from "./domain/fragments";
 
 const BrandingSchema = new Schema(
   {
@@ -195,6 +195,7 @@ const BusinessProfileSchema = new Schema(
     },
     caseStudies: limitedArray(CaseStudySchema, 30),
     resources: limitedArray(ResourceSchema, 30),
+    customLayout: customLayoutField,
   },
   { timestamps: true, strict: true }
 );

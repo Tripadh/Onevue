@@ -1260,7 +1260,9 @@
         if (draft && Object.prototype.hasOwnProperty.call(draft, key)) slice[key] = draft[key];
       });
     }
-    return buildUpdatePayload(identity, slice);
+    const payload = buildUpdatePayload(identity, slice);
+    if (draft && draft.customLayout) payload.customLayout = draft.customLayout;
+    return payload;
   }
 
   function fieldsToShape(fields) {

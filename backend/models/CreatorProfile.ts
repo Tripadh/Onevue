@@ -6,7 +6,7 @@ import {
   CONTENT_FORMATS,
   VERIFICATION_STATUSES,
 } from "../lib/domain-profile/constants";
-import { limitedArray, stableId, text, userIdField, visibilitySchema } from "./domain/fragments";
+import { customLayoutField, limitedArray, stableId, text, userIdField, visibilitySchema } from "./domain/fragments";
 
 const FeaturedSchema = new Schema(
   {
@@ -145,6 +145,7 @@ const CreatorProfileSchema = new Schema(
         visibility: { email: "private", phone: "private", partnershipEmail: "private" },
       }),
     },
+    customLayout: customLayoutField,
   },
   { timestamps: true, strict: true }
 );

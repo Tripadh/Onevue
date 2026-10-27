@@ -7,6 +7,7 @@ import UserWebsiteConfig, {
   ApprovedTemplateId,
 } from "../../../../../models/UserWebsiteConfig";
 import PublishedProfileRevision from "../../../../../models/PublishedProfileRevision";
+import { presentationForTemplate } from "../../../../../lib/templates/registry";
 
 export function OPTIONS(req: Request) {
   return preflightResponse(req.headers.get("origin"));
@@ -76,7 +77,6 @@ export async function GET(req: Request) {
    ========================================================================= */
 
 const USERNAME_REGEX = /^[a-z0-9][a-z0-9._-]{1,28}[a-z0-9]$/;
-const HEX_COLOR_REGEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
 export async function PUT(req: Request) {
   try {
@@ -132,26 +132,9 @@ export async function PUT(req: Request) {
       }
     }
 
-    // Validate Customization
     if (body.customization !== undefined) {
-      if (typeof body.customization !== "object" || body.customization === null) {
+      if (typeof body.customization !== "object" || body.customization === null || Array.isArray(body.customization)) {
         return NextResponse.json({ message: "Customization must be an object." }, { status: 400 });
-      }
-      if (body.customization.accentColor !== undefined) {
-        if (!HEX_COLOR_REGEX.test(String(body.customization.accentColor).trim())) {
-          return NextResponse.json(
-            { message: "Invalid hex accent color. Must be a valid 3- or 6-digit hex string (e.g. #3b82f6)." },
-            { status: 400 }
-          );
-        }
-      }
-      if (body.customization.themeMode !== undefined) {
-        if (!["light", "dark", "system"].includes(body.customization.themeMode)) {
-          return NextResponse.json(
-            { message: "Invalid themeMode. Must be 'light', 'dark', or 'system'." },
-            { status: 400 }
-          );
-        }
       }
     }
 
@@ -184,6 +167,26 @@ export async function PUT(req: Request) {
     }
 
     let config = await UserWebsiteConfig.findOne({ userId: auth.user._id });
+    const templateId = String(
+      body.selectedTemplateId || config?.selectedTemplateId || "magicui-portfolio"
+    );
+    let presentation: ReturnType<typeof presentationForTemplate> | null = null;
+    if (body.customization !== undefined) {
+      const current =
+        config?.customization && typeof (config.customization as { toObject?: () => object }).toObject === "function"
+          ? (config.customization as { toObject: () => object }).toObject()
+          : config?.customization || {};
+      try {
+        presentation = presentationForTemplate(templateId, {
+          ...current,
+          ...body.customization,
+        });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Invalid appearance settings.";
+        return NextResponse.json({ message }, { status: 400 });
+      }
+    }
+
     if (!config) {
       if (!normalizedUsername) {
         return NextResponse.json(
@@ -197,28 +200,16 @@ export async function PUT(req: Request) {
         username: normalizedUsername,
         selectedTemplateId: body.selectedTemplateId || "magicui-portfolio",
         selectedTemplateVersion: body.selectedTemplateVersion || "1.0.0",
-        customization: body.customization,
+        customization: presentation || undefined,
         status: "draft",
       });
     } else {
       if (normalizedUsername) config.username = normalizedUsername;
       if (body.selectedTemplateId) config.selectedTemplateId = body.selectedTemplateId;
       if (body.selectedTemplateVersion) config.selectedTemplateVersion = body.selectedTemplateVersion;
-      if (body.customization) {
-        config.customization = {
-          accentColor: body.customization.accentColor || config.customization?.accentColor || "#3b82f6",
-          themeMode: body.customization.themeMode || config.customization?.themeMode || "system",
-          visibleSections:
-            body.customization.visibleSections ||
-            config.customization?.visibleSections || [
-              "about",
-              "education",
-              "projects",
-              "skills",
-              "achievements",
-              "contact",
-            ],
-        };
+      if (presentation) {
+        config.customization = presentation;
+        config.markModified("customization");
       }
       if (body.status === "draft" || body.status === "suspended") {
         config.status = body.status;

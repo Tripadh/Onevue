@@ -271,7 +271,10 @@ describe("OneVue — Identity workspace for non-student identities", () => {
     assert.equal(dump.includes("https://example.com/p"), false);
     assert.equal(dump.includes("private@example.com"), false);
     assert.equal(source.preferredName, "Acme");
-    assert.equal(source.achievements.length, 1);
+    assert.equal(source.team.length, 1);
+    assert.equal(source.team[0].name, "Shown");
+    assert.equal(source.team[0].role, "CEO");
+    assert.equal(source.achievements.length, 0);
   });
 
   test("1.2 Professional mapping turns employment into experience entries", () => {
@@ -281,10 +284,11 @@ describe("OneVue — Identity workspace for non-student identities", () => {
       employmentHistory: [{ jobTitle: "Engineer", company: "Initech", startDate: "2018-01", endDate: "2020-12" }],
     });
     assert.deepEqual(
-      source.achievements.map((a) => a.title),
+      source.experience.map((item) => `${item.title} at ${item.organization}`),
       ["Lead at Globex", "Engineer at Initech"]
     );
-    assert.equal(source.achievements[0].category, "experience");
+    assert.equal(source.experience[0].isCurrent, true);
+    assert.equal(source.achievements.length, 0);
   });
 
   test("2.1 Freelancer without a saved profile cannot preview or publish", async () => {
@@ -338,7 +342,8 @@ describe("OneVue — Identity workspace for non-student identities", () => {
     assert.equal(publicRes.status, 200);
     const publicData = await publicRes.json();
     assert.equal(publicData.dto.profile.headline, "Staff Platform Engineer");
-    assert.ok(publicData.dto.achievements.some((a) => a.title === "Staff Engineer at Acme Cloud"));
+    assert.ok(publicData.dto.experience.some((item) => item.title === "Staff Engineer" && item.organization === "Acme Cloud"));
+    assert.equal(publicData.dto.achievements.some((item) => item.category === "experience"), false);
     assert.equal(JSON.stringify(publicData).includes("+1-555-PRIVATE"), false);
   });
 
@@ -422,7 +427,8 @@ describe("OneVue — Identity workspace for non-student identities", () => {
     const preview = await previewRes.json();
     assert.equal(preview.dto.profile.displayName, "Cora Writes");
     assert.equal(preview.dto.profile.headline, "Technology essays");
-    assert.match(preview.dto.projects[0].shortDescription, /Thumbnail: https:\/\/cdn.example\/cora.jpg/);
+    assert.equal(preview.dto.projects[0].imageUrl, "https://cdn.example/cora.jpg");
+    assert.equal(String(preview.dto.projects[0].shortDescription || "").includes("Thumbnail:"), false);
     assert.ok(preview.dto.achievements.some((item) => item.title === "Spring essay"));
 
     await configRoute.PUT(authed("http://localhost:3000/api/student/website/config", creatorToken, "PUT", {
@@ -486,7 +492,8 @@ describe("OneVue — Identity workspace for non-student identities", () => {
     assert.equal(preview.dto.profile.headline, "Goods for studios");
     assert.match(preview.dto.profile.bio, /2014/);
     assert.match(preview.dto.projects[0].shortDescription, /USD 80/);
-    assert.match(preview.dto.projects[0].shortDescription, /Image: https:\/\/cdn.example\/lamp.jpg/);
+    assert.equal(preview.dto.projects[0].imageUrl, "https://cdn.example/lamp.jpg");
+    assert.equal(String(preview.dto.projects[0].shortDescription || "").includes("Image:"), false);
     assert.equal(preview.dto.credentials[0].title, "Design prize");
     assert.equal(JSON.stringify(preview).includes("REG-RICH-SECRET"), false);
 

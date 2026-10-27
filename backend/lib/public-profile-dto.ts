@@ -1,4 +1,10 @@
 import * as crypto from "crypto";
+import { isLegacyProfilePhotoKey, isPrefixedProfilePhotoKey } from "./storage/keys";
+import { previewAssetPath, publicAssetPath } from "./storage/asset-refs";
+import { isCustomIdentity } from "./custom-fields/builtins";
+import { projectCustomLayout, sanitizePublicCustomSections } from "./custom-fields/publish";
+import { normalizeCustomLayout } from "./custom-fields/validate";
+import type { CustomIdentity, PublicCustomSection } from "./custom-fields/types";
 
 /* =========================================================================
    OneVue Public Profile Contract — Schema Version 1.0.0
@@ -64,6 +70,8 @@ export interface IPublicProject {
   challengesSolutions?: string;
   metricsResults?: string;
   impact?: string;
+  /** Safe http(s) URL or an authorized asset delivery path. Storage keys are never accepted. */
+  imageUrl?: string;
 }
 
 export interface IPublicSkill {
@@ -105,6 +113,36 @@ export interface IPublicAchievement {
   location?: string;
   proofUrl?: string;
   certificateUrl?: string;
+}
+
+/** Employment or other work history. Optional so schema 1.0.0 snapshots published before this field still validate. */
+export interface IPublicExperience {
+  id: string;
+  title: string;
+  organization: string;
+  employmentType?: string;
+  location?: string;
+  startDate?: string;
+  endDate?: string;
+  isCurrent?: boolean;
+  description?: string;
+}
+
+/** A quoted recommendation. Optional on older 1.0.0 snapshots. */
+export interface IPublicTestimonial {
+  id: string;
+  quote: string;
+  authorName: string;
+  relationship?: string;
+  /** "verified" or "self-reported". Never treated as an independent check by itself. */
+  attribution?: string;
+}
+
+/** A public team member. Private members are removed before this list is built. */
+export interface IPublicTeamMember {
+  id: string;
+  name: string;
+  role?: string;
 }
 
 export interface IPublicResume {
@@ -178,9 +216,15 @@ export interface PublicProfileDTO_v1 {
   skills: IPublicSkill[];
   credentials: IPublicCredential[];
   achievements: IPublicAchievement[];
+  /** Omitted on snapshots published before identity-specific sections were first-class. */
+  experience?: IPublicExperience[];
+  testimonials?: IPublicTestimonial[];
+  team?: IPublicTeamMember[];
   resume?: IPublicResume;
   media: IPublicMediaItem[];
   contact: IPublicContact;
+  /** Public custom fields copied into the revision. Omitted when the profile has none. */
+  customSections?: PublicCustomSection[];
 }
 
 /* =========================================================================
@@ -217,7 +261,48 @@ export function sanitizeDeliveryUrl(val: unknown): string | undefined {
   if (/^\/api\/assets\/private\/ast_[a-f0-9]{24}\?exp=\d{1,12}&sig=[a-f0-9]{64}$/.test(trimmed)) {
     return trimmed;
   }
+  if (accountProfilePhotoPath(photoKeyFromDeliveryPath(trimmed))) return trimmed;
   return undefined;
+}
+
+/** Public path for an uploaded account photo. Rejects any other storage key. */
+export function accountProfilePhotoPath(key: unknown): string | undefined {
+  if (typeof key !== "string") return undefined;
+  const trimmed = key.trim();
+  if (!trimmed || trimmed.length > 180) return undefined;
+  if (!isLegacyProfilePhotoKey(trimmed) && !isPrefixedProfilePhotoKey(trimmed)) return undefined;
+  return `/api/profile/photo/${encodeURIComponent(trimmed)}`;
+}
+
+function photoKeyFromDeliveryPath(path: string): string | undefined {
+  const prefix = "/api/profile/photo/";
+  if (!path.startsWith(prefix)) return undefined;
+  try {
+    return decodeURIComponent(path.slice(prefix.length));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The uploaded account photo is the public avatar. An explicit profile URL is
+ * used only when the account has no uploaded photo. Relative delivery paths
+ * are expanded against the API origin so a portfolio on another port can load them.
+ */
+export function resolvePublicProfilePhoto(
+  snapshotPhoto: unknown,
+  accountKey: unknown,
+  origin?: string
+): string | undefined {
+  const accountPath = accountProfilePhotoPath(accountKey);
+  const chosen = accountPath || sanitizeDeliveryUrl(snapshotPhoto);
+  if (!chosen) return undefined;
+  if (chosen.startsWith("/")) {
+    const base = typeof origin === "string" ? origin.trim().replace(/\/+$/, "") : "";
+    if (!base) return chosen;
+    return `${base}${chosen}`;
+  }
+  return chosen;
 }
 
 /**
@@ -266,7 +351,15 @@ export interface ToPublicProfileDTOOptions {
   templateVersion?: string;
   user?: {
     name?: string;
+    profilePhotoKey?: string | null;
   };
+  /** Identity that owns the draft. Required when strict custom-field checks run. */
+  identity?: string;
+  ownerId?: string;
+  assetDelivery?: "publish" | "preview";
+  recordIds?: Record<string, string[]>;
+  /** Reject incomplete required custom fields instead of omitting them. */
+  strictCustomFields?: boolean;
 }
 
 /* =========================================================================
@@ -391,35 +484,42 @@ export function toPublicProfileDTO(
   const projects: IPublicProject[] = Array.isArray(raw.projects)
     ? raw.projects
         .filter((p: any) => p && p.title)
-        .map((p: any, idx: number) => ({
-          id: String(p.id || p._id || `proj_${idx}`),
-          title: sanitizeString(p.title, 200) || "",
-          shortDescription: sanitizeString(p.shortDescription, 500),
-          detailedDescription: sanitizeString(p.detailedDescription, 5000),
-          projectType: sanitizeString(p.projectType, 50),
-          role: sanitizeString(p.role, 100),
-          status: sanitizeString(p.status, 50),
-          isTeam: typeof p.isTeam === "boolean" ? p.isTeam : undefined,
-          teamSize: typeof p.teamSize === "number" && p.teamSize > 0 ? p.teamSize : undefined,
-          startDate: sanitizeString(p.startDate, 50),
-          endDate: sanitizeString(p.endDate, 50),
-          technologies: Array.isArray(p.technologies)
-            ? p.technologies
-                .map((t: any) => sanitizeString(t, 100))
-                .filter((t: any): t is string => Boolean(t))
-            : [],
-          techStack: sanitizeString(p.techStack, 500),
-          repoUrl: sanitizeUrl(p.repoUrl),
-          liveUrl: sanitizeUrl(p.liveUrl),
-          docsUrl: sanitizeUrl(p.docsUrl),
-          videoUrl: sanitizeUrl(p.videoUrl),
-          websiteUrl: sanitizeUrl(p.websiteUrl),
-          problemSolved: sanitizeString(p.problemSolved, 2000),
-          keyFeatures: sanitizeString(p.keyFeatures, 2000),
-          challengesSolutions: sanitizeString(p.challengesSolutions, 2000),
-          metricsResults: sanitizeString(p.metricsResults, 2000),
-          impact: sanitizeString(p.impact, 2000),
-        }))
+        .map((p: any, idx: number) => {
+          const id = String(p.id || p._id || `proj_${idx}`);
+          const imageUrl =
+            sanitizeDeliveryUrl(p.imageUrl) || relatedProjectImage(raw.media, id);
+          const project: IPublicProject = {
+            id,
+            title: sanitizeString(p.title, 200) || "",
+            shortDescription: sanitizeString(p.shortDescription, 500),
+            detailedDescription: sanitizeString(p.detailedDescription, 5000),
+            projectType: sanitizeString(p.projectType, 50),
+            role: sanitizeString(p.role, 100),
+            status: sanitizeString(p.status, 50),
+            isTeam: typeof p.isTeam === "boolean" ? p.isTeam : undefined,
+            teamSize: typeof p.teamSize === "number" && p.teamSize > 0 ? p.teamSize : undefined,
+            startDate: sanitizeString(p.startDate, 50),
+            endDate: sanitizeString(p.endDate, 50),
+            technologies: Array.isArray(p.technologies)
+              ? p.technologies
+                  .map((t: any) => sanitizeString(t, 100))
+                  .filter((t: any): t is string => Boolean(t))
+              : [],
+            techStack: sanitizeString(p.techStack, 500),
+            repoUrl: sanitizeUrl(p.repoUrl),
+            liveUrl: sanitizeUrl(p.liveUrl),
+            docsUrl: sanitizeUrl(p.docsUrl),
+            videoUrl: sanitizeUrl(p.videoUrl),
+            websiteUrl: sanitizeUrl(p.websiteUrl),
+            problemSolved: sanitizeString(p.problemSolved, 2000),
+            keyFeatures: sanitizeString(p.keyFeatures, 2000),
+            challengesSolutions: sanitizeString(p.challengesSolutions, 2000),
+            metricsResults: sanitizeString(p.metricsResults, 2000),
+            impact: sanitizeString(p.impact, 2000),
+          };
+          if (imageUrl) project.imageUrl = imageUrl;
+          return project;
+        })
     : [];
 
   // 5. Skills Construction
@@ -462,6 +562,11 @@ export function toPublicProfileDTO(
             : undefined,
         }))
     : [];
+
+  // 6b. Identity-specific sections. Empty lists are omitted so older student snapshots stay stable.
+  const experience = mapExperience(raw.experience);
+  const testimonials = mapTestimonials(raw.testimonials);
+  const team = mapTeam(raw.team);
 
   // 7. Achievements Construction (evidenceStorageKey omitted by allowlist)
   const achievements: IPublicAchievement[] = Array.isArray(raw.achievements)
@@ -566,6 +671,8 @@ export function toPublicProfileDTO(
     socialLinks,
   };
 
+  const customSections = publicCustomSections(raw.customLayout, options);
+
   return {
     meta,
     profile: {
@@ -574,7 +681,9 @@ export function toPublicProfileDTO(
       initials,
       headline: sanitizeString(raw.headline, 200),
       bio: sanitizeString(raw.bio, 5000),
-      profilePhoto: sanitizeDeliveryUrl(raw.profilePhoto),
+      profilePhoto:
+        accountProfilePhotoPath(options.user?.profilePhotoKey) ||
+        sanitizeDeliveryUrl(raw.profilePhoto),
       location,
       nationality: sanitizeString(raw.nationality, 80),
       currentStatus: sanitizeString(raw.currentStatus, 100),
@@ -587,8 +696,382 @@ export function toPublicProfileDTO(
     skills,
     credentials,
     achievements,
+    ...(experience.length ? { experience } : {}),
+    ...(testimonials.length ? { testimonials } : {}),
+    ...(team.length ? { team } : {}),
     resume,
     media,
     contact,
+    ...(customSections.length ? { customSections } : {}),
   };
+}
+
+function publicCustomSections(layout: unknown, options: ToPublicProfileDTOOptions): PublicCustomSection[] {
+  let source = layout;
+  const identity = typeof options.identity === "string" ? options.identity : "";
+  if (options.strictCustomFields && layout && isCustomIdentity(identity)) {
+    source = normalizeCustomLayout(layout, {
+      identity: identity as CustomIdentity,
+      existing: layout,
+      recordIds: options.recordIds,
+      enforceRequired: true,
+    });
+  }
+  return projectCustomLayout(source, {
+    templateId: options.templateId || "magicui-portfolio",
+    strict: options.strictCustomFields === true,
+    assetHref: (assetId) => {
+      try {
+        if (options.assetDelivery === "preview" && options.ownerId) {
+          return previewAssetPath(assetId, options.ownerId);
+        }
+        return publicAssetPath(assetId);
+      } catch {
+        return "";
+      }
+    },
+  });
+}
+
+function relatedProjectImage(media: unknown, projectId: string): string | undefined {
+  if (!Array.isArray(media) || !projectId) return undefined;
+  for (const item of media) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as { relatedProject?: unknown; visibility?: unknown; mediaUrl?: unknown };
+    if (row.visibility === "private") continue;
+    if (String(row.relatedProject || "") !== projectId) continue;
+    const safeUrl = sanitizeDeliveryUrl(row.mediaUrl);
+    if (safeUrl) return safeUrl;
+  }
+  return undefined;
+}
+
+function mapExperience(value: unknown): IPublicExperience[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item: any) => item && (item.title || item.organization || item.company || item.jobTitle))
+    .slice(0, 40)
+    .map((item: any, idx: number) => ({
+      id: String(item.id || item._id || `exp_${idx}`),
+      title: sanitizeString(item.title || item.jobTitle, 200) || "",
+      organization: sanitizeString(item.organization || item.company, 200) || "",
+      employmentType: sanitizeString(item.employmentType, 50),
+      location: sanitizeString(item.location, 150),
+      startDate: sanitizeString(item.startDate, 50),
+      endDate: sanitizeString(item.endDate, 50),
+      isCurrent: typeof item.isCurrent === "boolean" ? item.isCurrent : undefined,
+      description: sanitizeString(item.description, 4000),
+    }))
+    .filter((item) => item.title || item.organization);
+}
+
+function mapTestimonials(value: unknown): IPublicTestimonial[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item: any) => item && item.quote && item.authorName)
+    .slice(0, 40)
+    .map((item: any, idx: number) => ({
+      id: String(item.id || item._id || `testimonial_${idx}`),
+      quote: sanitizeString(item.quote, 1000) || "",
+      authorName: sanitizeString(item.authorName, 150) || "",
+      relationship: sanitizeString(item.relationship, 150),
+      attribution: sanitizeString(item.attribution, 40),
+    }))
+    .filter((item) => item.quote && item.authorName);
+}
+
+function mapTeam(value: unknown): IPublicTeamMember[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item: any) => item && item.name)
+    .slice(0, 50)
+    .map((item: any, idx: number) => ({
+      id: String(item.id || item._id || `team_${idx}`),
+      name: sanitizeString(item.name, 150) || "",
+      role: sanitizeString(item.role, 150),
+    }))
+    .filter((item) => item.name);
+}
+
+/**
+ * Copies a stored 1.0.0 snapshot onto the public allowlist.
+ * Unknown keys, storage keys, and unsafe URLs are dropped.
+ * Snapshots published before the optional identity sections simply omit those keys.
+ * Returns null when the payload is not a readable 1.0.0 profile.
+ */
+export function allowlistPublicSnapshot(snapshot: unknown): PublicProfileDTO_v1 | null {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const raw = snapshot as Record<string, any>;
+  if (raw.meta?.schemaVersion !== PUBLIC_PROFILE_SCHEMA_VERSION) return null;
+  if (typeof raw.profile?.displayName !== "string" || !raw.profile.displayName.trim()) return null;
+
+  const profile = raw.profile;
+  const location = profile.location && typeof profile.location === "object" ? profile.location : {};
+  const photo = sanitizeDeliveryUrl(profile.profilePhoto);
+
+  const dto: PublicProfileDTO_v1 = {
+    meta: compact({
+      schemaVersion: PUBLIC_PROFILE_SCHEMA_VERSION,
+      username: sanitizeString(raw.meta.username, 80),
+      canonicalUrl: sanitizeUrl(raw.meta.canonicalUrl),
+      publishedAt: sanitizeString(raw.meta.publishedAt, 40),
+      templateId: sanitizeString(raw.meta.templateId, 80),
+      templateVersion: sanitizeString(raw.meta.templateVersion, 40),
+    }) as IPublicProfileMetadata,
+    profile: compact({
+      displayName: sanitizeString(profile.displayName, 150) || "Student",
+      preferredName: sanitizeString(profile.preferredName, 100),
+      initials: sanitizeString(profile.initials, 8) || deriveInitials(profile.displayName),
+      headline: sanitizeString(profile.headline, 200),
+      bio: sanitizeString(profile.bio, 5000),
+      profilePhoto: photo,
+      location: compact({
+        city: sanitizeString(location.city, 100),
+        state: sanitizeString(location.state, 100),
+        country: sanitizeString(location.country, 100),
+        formatted: sanitizeString(location.formatted, 300),
+      }),
+      nationality: sanitizeString(profile.nationality, 80),
+      currentStatus: sanitizeString(profile.currentStatus, 100),
+      careerInterests: stringList(profile.careerInterests, 100),
+      areasOfInterest: stringList(profile.areasOfInterest, 100),
+      languages: Array.isArray(profile.languages)
+        ? profile.languages
+            .filter((item: any) => item && item.language)
+            .map((item: any) => ({
+              language: sanitizeString(item.language, 80) || "",
+              proficiency: sanitizeString(item.proficiency, 40) || "conversational",
+            }))
+        : [],
+    }) as PublicProfileDTO_v1["profile"],
+    education: mapStoredEducation(raw.education),
+    projects: mapStoredProjects(raw.projects),
+    skills: mapStoredSkills(raw.skills),
+    credentials: mapStoredCredentials(raw.credentials),
+    achievements: mapStoredAchievements(raw.achievements),
+    media: mapStoredMedia(raw.media),
+    contact: mapStoredContact(raw.contact),
+  };
+
+  const experience = mapExperience(raw.experience);
+  const testimonials = mapTestimonials(raw.testimonials);
+  const team = mapTeam(raw.team);
+  if (experience.length) dto.experience = experience;
+  if (testimonials.length) dto.testimonials = testimonials;
+  if (team.length) dto.team = team;
+
+  const resumeUrl = sanitizeUrl(raw.resume?.url);
+  if (resumeUrl) {
+    dto.resume = compact({
+      url: resumeUrl,
+      fileName: sanitizeString(raw.resume.fileName, 255),
+      uploadedAt: sanitizeString(raw.resume.uploadedAt, 40),
+      targetRole: sanitizeString(raw.resume.targetRole, 100),
+    }) as IPublicResume;
+  }
+
+  const customSections = sanitizePublicCustomSections(raw.customSections, (href) => sanitizeDeliveryUrl(href));
+  if (customSections.length) dto.customSections = customSections;
+
+  return dto;
+}
+
+function compact<T extends Record<string, unknown>>(value: T): T {
+  const copy = {} as T;
+  for (const key of Object.keys(value) as (keyof T)[]) {
+    if (value[key] !== undefined) copy[key] = value[key];
+  }
+  return copy;
+}
+
+function stringList(value: unknown, maxLen: number): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => sanitizeString(item, maxLen))
+    .filter((item): item is string => Boolean(item));
+}
+
+function mapStoredEducation(value: unknown): IPublicEducation[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item: any) => item && item.institution && item.degree)
+    .map((item: any, idx: number) =>
+      compact({
+        id: String(item.id || `edu_${idx}`),
+        institution: sanitizeString(item.institution, 150) || "",
+        degree: sanitizeString(item.degree, 150) || "",
+        fieldOfStudy: sanitizeString(item.fieldOfStudy, 150),
+        specialization: sanitizeString(item.specialization, 150),
+        department: sanitizeString(item.department, 150),
+        startDate: sanitizeString(item.startDate, 50),
+        endDate: sanitizeString(item.endDate, 50),
+        expectedGradDate: sanitizeString(item.expectedGradDate, 50),
+        currentStatus: sanitizeString(item.currentStatus, 40) || "studying",
+        gpa: sanitizeString(item.gpa, 50),
+        gpaScale: sanitizeString(item.gpaScale, 20),
+        percentage: sanitizeString(item.percentage, 20),
+        gradeClass: sanitizeString(item.gradeClass, 50),
+        rank: sanitizeString(item.rank, 50),
+        location: sanitizeString(item.location, 150),
+        website: sanitizeUrl(item.website),
+        coursework: sanitizeString(item.coursework, 1000),
+        honors: sanitizeString(item.honors, 500),
+      })
+    ) as IPublicEducation[];
+}
+
+function mapStoredProjects(value: unknown): IPublicProject[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item: any) => item && item.title)
+    .map((item: any, idx: number) => {
+      const project = compact({
+        id: String(item.id || `proj_${idx}`),
+        title: sanitizeString(item.title, 200) || "",
+        shortDescription: sanitizeString(item.shortDescription, 500),
+        detailedDescription: sanitizeString(item.detailedDescription, 5000),
+        projectType: sanitizeString(item.projectType, 50),
+        role: sanitizeString(item.role, 100),
+        status: sanitizeString(item.status, 50),
+        isTeam: typeof item.isTeam === "boolean" ? item.isTeam : undefined,
+        teamSize: typeof item.teamSize === "number" && item.teamSize > 0 ? item.teamSize : undefined,
+        startDate: sanitizeString(item.startDate, 50),
+        endDate: sanitizeString(item.endDate, 50),
+        technologies: stringList(item.technologies, 100),
+        techStack: sanitizeString(item.techStack, 500),
+        repoUrl: sanitizeUrl(item.repoUrl),
+        liveUrl: sanitizeUrl(item.liveUrl),
+        docsUrl: sanitizeUrl(item.docsUrl),
+        videoUrl: sanitizeUrl(item.videoUrl),
+        websiteUrl: sanitizeUrl(item.websiteUrl),
+        problemSolved: sanitizeString(item.problemSolved, 2000),
+        keyFeatures: sanitizeString(item.keyFeatures, 2000),
+        challengesSolutions: sanitizeString(item.challengesSolutions, 2000),
+        metricsResults: sanitizeString(item.metricsResults, 2000),
+        impact: sanitizeString(item.impact, 2000),
+        imageUrl: sanitizeDeliveryUrl(item.imageUrl),
+      }) as IPublicProject;
+      return project;
+    });
+}
+
+function mapStoredSkills(value: unknown): IPublicSkill[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item: any) => item && item.name)
+    .map((item: any, idx: number) =>
+      compact({
+        id: String(item.id || `skill_${idx}`),
+        name: sanitizeString(item.name, 100) || "",
+        category: sanitizeString(item.category, 100) || "Other Skills",
+        proficiency: sanitizeString(item.proficiency, 50) || "Intermediate",
+        yearsExperience:
+          typeof item.yearsExperience === "number" && item.yearsExperience >= 0
+            ? item.yearsExperience
+            : undefined,
+        level: sanitizeString(item.level, 50),
+      })
+    );
+}
+
+function mapStoredCredentials(value: unknown): IPublicCredential[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item: any) => item && item.title)
+    .map((item: any, idx: number) =>
+      compact({
+        id: String(item.id || `cred_${idx}`),
+        title: sanitizeString(item.title, 200) || "",
+        credentialType: sanitizeString(item.credentialType, 100) || "certification",
+        issuer: sanitizeString(item.issuer, 150) || "",
+        issueDate: sanitizeString(item.issueDate, 50),
+        expirationDate: sanitizeString(item.expirationDate, 50),
+        neverExpires: typeof item.neverExpires === "boolean" ? item.neverExpires : undefined,
+        credentialUrl: sanitizeUrl(item.credentialUrl),
+        verificationUrl: sanitizeUrl(item.verificationUrl),
+        verificationStatus: sanitizeString(item.verificationStatus, 50),
+        description: sanitizeString(item.description, 2000),
+        relatedSkills: Array.isArray(item.relatedSkills) ? stringList(item.relatedSkills, 100) : undefined,
+      })
+    );
+}
+
+function mapStoredAchievements(value: unknown): IPublicAchievement[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item: any) => item && item.title)
+    .map((item: any, idx: number) =>
+      compact({
+        id: String(item.id || `ach_${idx}`),
+        title: sanitizeString(item.title, 200) || "",
+        category: sanitizeString(item.category, 100) || "award",
+        organization: sanitizeString(item.organization, 150),
+        date: sanitizeString(item.date, 50),
+        year: sanitizeString(item.year, 20),
+        description: sanitizeString(item.description, 2000),
+        positionRank: sanitizeString(item.positionRank, 100),
+        awardPrize: sanitizeString(item.awardPrize, 150),
+        teamSize: typeof item.teamSize === "number" && item.teamSize > 0 ? item.teamSize : undefined,
+        role: sanitizeString(item.role, 100),
+        location: sanitizeString(item.location, 150),
+        proofUrl: sanitizeUrl(item.proofUrl),
+        certificateUrl: sanitizeUrl(item.certificateUrl),
+      })
+    );
+}
+
+function mapStoredMedia(value: unknown): IPublicMediaItem[] {
+  if (!Array.isArray(value)) return [];
+  const media: IPublicMediaItem[] = [];
+  value.forEach((item: any, idx: number) => {
+    if (!item || !item.mediaUrl) return;
+    const mediaUrl = sanitizeDeliveryUrl(item.mediaUrl);
+    if (!mediaUrl) return;
+    media.push(
+      compact({
+        id: String(item.id || `media_${idx}`),
+        mediaUrl,
+        mediaType: sanitizeString(item.mediaType, 50) || "image",
+        title: sanitizeString(item.title, 150) || "Portfolio Media",
+        description: sanitizeString(item.description, 1000),
+        category: sanitizeString(item.category, 100) || "project",
+        isFeatured: typeof item.isFeatured === "boolean" ? item.isFeatured : undefined,
+        altText: sanitizeString(item.altText, 200),
+      }) as IPublicMediaItem
+    );
+  });
+  return media;
+}
+
+function mapStoredContact(value: unknown): IPublicContact {
+  const contact = value && typeof value === "object" ? (value as Record<string, any>) : {};
+  return compact({
+    email: sanitizeString(contact.email, 150),
+    phone: sanitizeString(contact.phone, 50),
+    countryCode: sanitizeString(contact.countryCode, 10),
+    city: sanitizeString(contact.city, 100),
+    state: sanitizeString(contact.state, 100),
+    country: sanitizeString(contact.country, 100),
+    github: sanitizeUrl(contact.github),
+    linkedin: sanitizeUrl(contact.linkedin),
+    twitter: sanitizeUrl(contact.twitter),
+    portfolio: sanitizeUrl(contact.portfolio),
+    socialLinks: Array.isArray(contact.socialLinks)
+      ? contact.socialLinks
+          .filter((item: any) => item && item.url)
+          .map((item: any, idx: number) => {
+            const url = sanitizeUrl(item.url);
+            if (!url) return null;
+            return compact({
+              id: String(item.id || `link_${idx}`),
+              platform: sanitizeString(item.platform, 100) || "link",
+              url,
+              category: sanitizeString(item.category, 50) || "social",
+              username: sanitizeString(item.username, 100),
+              isPrimary: typeof item.isPrimary === "boolean" ? item.isPrimary : undefined,
+            });
+          })
+          .filter((item: IPublicSocialLink | null): item is IPublicSocialLink => item !== null)
+      : [],
+  }) as IPublicContact;
 }

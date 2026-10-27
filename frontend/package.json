@@ -1,0 +1,14 @@
+{
+  "name": "onevue-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Onevue static React frontend. JSX is compiled in the browser.",
+  "scripts": {
+    "dev": "serve . --listen 8080",
+    "start": "serve . --listen 8080",
+    "test": "node --test tests/student-onboarding.test.js tests/create-customize-editor.test.js tests/editor-draft.test.js tests/custom-fields.test.js"
+  },
+  "devDependencies": {
+    "serve": "^14.2.5"
+  }
+}

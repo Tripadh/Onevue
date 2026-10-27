@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { ArrowUpRight, Globe, Github, Video, FileText } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import Markdown from "react-markdown";
+import { StoredText } from "@/components/section/stored-text";
 
 function renderLinkIcon(link: { icon?: React.ReactNode; iconName?: string }) {
   if (link.icon) return link.icon;
@@ -142,8 +142,8 @@ export function ProjectCard({
         </div>
 
         {/* Markdown Description */}
-        <div className="text-xs flex-1 prose max-w-full text-pretty font-sans leading-relaxed text-muted-foreground dark:prose-invert">
-          <Markdown>{description}</Markdown>
+        <div className="text-xs flex-1">
+          <StoredText text={description} />
         </div>
 
         {/* Technologies / Tags */}

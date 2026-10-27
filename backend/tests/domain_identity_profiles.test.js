@@ -145,6 +145,12 @@ describe("Domain identity profiles", { concurrency: 1 }, () => {
     assert.equal(studentDenied.status, 403);
     assert.equal(await StudentProfile.countDocuments({ userId: professional.user._id }), 0);
 
+    const studentWrite = await studentRoute.PUT(
+      request(professional.token, { headline: "Not a student" })
+    );
+    assert.equal(studentWrite.status, 403);
+    assert.equal(await StudentProfile.countDocuments({ userId: professional.user._id }), 0);
+
     const hijack = await routes.professional.PUT(request(professional.token, {
       userId: outsider.user._id.toString(),
       headline: "Taken over",
@@ -457,7 +463,11 @@ describe("Domain identity profiles", { concurrency: 1 }, () => {
       headline: "Engineer",
       currentEmployment: { jobTitle: "Engineer", company: "Acme" },
     });
-    assert.deepEqual(emptyProfessional.achievements.map((item) => item.title), ["Engineer at Acme"]);
+    assert.deepEqual(
+      emptyProfessional.experience.map((item) => `${item.title} at ${item.organization}`),
+      ["Engineer at Acme"]
+    );
+    assert.deepEqual(emptyProfessional.achievements, []);
     assert.deepEqual(emptyProfessional.links, []);
     const fullProfessional = websiteSource.domainProfileToPublicSource("professional", professionalDoc.toObject());
     assert.ok(fullProfessional.achievements.some((item) => item.title === "Talk"));
@@ -607,6 +617,7 @@ describe("Domain identity profiles", { concurrency: 1 }, () => {
     assert.equal(newBusiness.headline, "Tools for studios");
     assert.match(newBusiness.bio, /2014/);
     assert.equal(newBusiness.credentials[0].credentialType, "other");
-    assert.match(newBusiness.projects[0].shortDescription, /Image: https:\/\/cdn.example\/lamp.jpg/);
+    assert.equal(newBusiness.projects[0].imageUrl, "https://cdn.example/lamp.jpg");
+    assert.equal(String(newBusiness.projects[0].shortDescription || "").includes("Image:"), false);
   });
 });

@@ -4,6 +4,7 @@ import connectToDatabase from "../../../../../lib/db";
 import { verifyAuth } from "../../../../../lib/auth";
 import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
 import PublishedProfileRevision from "../../../../../models/PublishedProfileRevision";
+import { rollbackPresentation } from "../../../../../lib/templates/registry";
 
 export function OPTIONS(req: Request) {
   return preflightResponse(req.headers.get("origin"));
@@ -85,12 +86,24 @@ export async function POST(req: Request) {
       );
     }
 
-    // Atomically activate target historical revision
+    // Atomically activate target historical revision.
+    // Stored appearance is restored. A revision without that record uses the
+    // template defaults, so a newer draft appearance is not applied to it.
     config.activeRevisionId = targetRevision._id;
     config.selectedTemplateId = targetRevision.templateId;
     config.selectedTemplateVersion = targetRevision.templateVersion;
     config.publishedAt = targetRevision.publishedAt;
     config.status = "published";
+    const storedPresentation =
+      targetRevision.presentation && typeof (targetRevision.presentation as { toObject?: () => object }).toObject === "function"
+        ? (targetRevision.presentation as { toObject: () => object }).toObject()
+        : targetRevision.presentation;
+    try {
+      config.customization = rollbackPresentation(storedPresentation, targetRevision.templateId);
+      config.markModified("customization");
+    } catch {
+      /* Leave the current appearance draft when the stored record cannot be read. */
+    }
 
     await config.save();
 

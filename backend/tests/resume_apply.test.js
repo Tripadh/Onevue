@@ -527,7 +527,7 @@ describe("resume review application", () => {
     assert.equal(profile.education[0].institution, "Kept University");
   });
 
-  test("a conflicting field does not write other selected sections and leaves the review usable", async () => {
+  test("an approved different headline and summary replace only those selected fields", async () => {
     const review = await reviewFrom();
     const response = await applyStudentResume(applyRequest(tokenA, {
       reviewId: review.reviewId,
@@ -537,27 +537,57 @@ describe("resume review application", () => {
       ],
     }));
     const body = await response.json();
-    assert.equal(response.status, 409);
-    assert.match(body.message, /headline/);
+    assert.equal(response.status, 200);
+    assert.equal(body.applied, true);
     const profile = await StudentProfile.findOne({ userId: userA._id }).lean();
-    assert.equal(profile.headline, "Original headline");
-    assert.equal(profile.bio, "");
-    assert.equal(profile.education.length, 1);
+    assert.equal(profile.headline, "Student engineer");
+    assert.equal(profile.bio, "Builds tools.");
+    assert.equal(profile.education.length, 2);
     assert.equal(profile.education[0].institution, "Kept University");
-    const stillThere = await readStudentResumeReview(
-      new Request("http://127.0.0.1/review", { headers: { authorization: `Bearer ${tokenA}` } }),
-      review.reviewId,
-    );
-    assert.equal(stillThere.status, 200);
-    const retry = await applyStudentResume(applyRequest(tokenA, {
+    assert.equal(profile.projects[0].title, "Kept Project");
+    assert.equal(profile.links.length, 0);
+  });
+
+  test("a different saved summary stays unchanged unless that field is selected", async () => {
+    await StudentProfile.updateOne({ userId: userA._id }, { $set: { bio: "Kept biography" } });
+    const review = await reviewFrom();
+    const linkOnly = await applyStudentResume(applyRequest(tokenA, {
       reviewId: review.reviewId,
+      selections: [{ section: "socialLinks", index: 0, fields: ["platform", "url"] }],
+    }));
+    assert.equal(linkOnly.status, 200);
+    const kept = await StudentProfile.findOne({ userId: userA._id }).lean();
+    assert.equal(kept.bio, "Kept biography");
+    assert.equal(kept.headline, "Original headline");
+    assert.equal(kept.links[0].url, "https://github.com/ada");
+
+    const second = await reviewFrom();
+    const summary = await applyStudentResume(applyRequest(tokenA, {
+      reviewId: second.reviewId,
       selections: [{ section: "profile", index: 0, fields: ["summary"] }],
     }));
-    assert.equal(retry.status, 200);
+    assert.equal(summary.status, 200);
     const after = await StudentProfile.findOne({ userId: userA._id }).lean();
     assert.equal(after.bio, "Builds tools.");
     assert.equal(after.headline, "Original headline");
-    assert.equal(after.education.length, 1);
+    assert.equal(after.links[0].url, "https://github.com/ada");
+  });
+
+  test("a selected replacement URL updates the existing platform link", async () => {
+    await StudentProfile.updateOne(
+      { userId: userA._id },
+      { $set: { links: [{ platform: "github", url: "https://github.com/old", category: "coding", verificationStatus: "unverified" }] } },
+    );
+    const review = await reviewFrom();
+    const response = await applyStudentResume(applyRequest(tokenA, {
+      reviewId: review.reviewId,
+      selections: [{ section: "socialLinks", index: 0, fields: ["platform", "url"] }],
+    }));
+    assert.equal(response.status, 200);
+    const profile = await StudentProfile.findOne({ userId: userA._id }).lean();
+    assert.equal(profile.links.length, 1);
+    assert.equal(profile.links[0].url, "https://github.com/ada");
+    assert.equal(profile.bio, "");
   });
 
   test("a failed profile write does not consume the review", async () => {

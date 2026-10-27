@@ -234,3 +234,15 @@
   }
 
 }
+
+.portfolio-shell {
+  --portfolio-accent: #3b82f6;
+}
+
+.portfolio-shell h2 {
+  color: var(--portfolio-accent);
+}
+
+.portfolio-shell .portfolio-avatar {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--portfolio-accent) 65%, transparent);
+}

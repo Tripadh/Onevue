@@ -560,8 +560,13 @@ function applyLink(
     skipped.push({ section: "socialLinks", index: group.index, reason: "This link is already on the profile." });
     return;
   }
-  if (links.some((item) => same(item.platform, platform) && text(item.url) !== "" && !same(item.url, url))) {
-    throw new ResumeApplyError(409, "This platform already has a different URL. It was left unchanged.");
+  const samePlatform = links.filter((item) => same(item.platform, platform));
+  if (samePlatform.length > 1 && samePlatform.some((item) => text(item.url) !== "" && !same(item.url, url))) {
+    throw new ResumeApplyError(409, "More than one link matches this platform. It was left unchanged.");
+  }
+  if (samePlatform.length === 1 && text(samePlatform[0].url) !== "" && !same(samePlatform[0].url, url)) {
+    samePlatform[0].url = url;
+    return;
   }
   links.push({
     platform,
@@ -574,28 +579,20 @@ function applyLink(
 function assignScalar(
   current: unknown,
   incoming: string,
-  label: string,
+  _label: string,
   write: (value: string) => void,
 ): void {
-  if (text(current).trim().length === 0) {
-    write(incoming);
-    return;
-  }
-  if (!same(current, incoming)) {
-    throw new ResumeApplyError(409, `The profile already has a different ${label}. It was left unchanged.`);
-  }
+  const next = text(incoming).trim();
+  if (next.length === 0 || same(current, next)) return;
+  write(next);
 }
 
 function fillOrMatch(target: Record<string, unknown>, field: string, incoming: string | undefined): boolean {
   if (incoming === undefined) return true;
   const current = text(target[field]).trim();
-  if (current.length === 0) {
-    target[field] = incoming;
-    return true;
-  }
-  if (!same(current, incoming)) {
-    throw new ResumeApplyError(409, `The profile already has a different ${field}. It was left unchanged.`);
-  }
+  const next = incoming.trim();
+  if (next.length === 0 || same(current, next)) return true;
+  target[field] = next;
   return true;
 }
 

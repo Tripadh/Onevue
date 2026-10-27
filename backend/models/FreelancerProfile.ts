@@ -9,6 +9,7 @@ import {
   visibilitySchema,
   workSampleSchema,
   stableId,
+  customLayoutField,
 } from "./domain/fragments";
 
 const PackageSchema = new Schema(
@@ -130,6 +131,7 @@ const FreelancerProfileSchema = new Schema(
         visibility: { email: "private", phone: "private" },
       }),
     },
+    customLayout: customLayoutField,
   },
   { timestamps: true, strict: true }
 );

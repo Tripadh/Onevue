@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     # LLM Provider Credentials and Models
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
-    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    GROQ_BASE_URL: str = "https://api.groq.com"
     GROQ_REQUEST_TIMEOUT_SECONDS: float = 30.0
     GROQ_MAX_RETRIES: int = 3
 
