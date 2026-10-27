@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import jwt from "jsonwebtoken";
 import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
 import connectToDatabase from "../../../../lib/db";
+import { verifyJwtToken } from "../../../../lib/auth";
 import User, { IdentityType } from "../../../../models/User";
 
 const VALID_IDENTITIES: IdentityType[] = [
@@ -46,11 +46,11 @@ export async function GET(
     const token = authHeader.split(" ")[1];
     let decoded: { id: string; email: string; identity?: string };
     try {
-      decoded = jwt.verify(
-        token,
-        process.env.JWT_SECRET || "fallback_secret"
-      ) as { id: string; email: string; identity?: string };
-    } catch {
+      decoded = verifyJwtToken<{ id: string; email: string; identity?: string }>(token);
+    } catch (err: any) {
+      if (err?.message?.includes("JWT_SECRET") || err?.message?.includes("JWT secret")) {
+        throw err;
+      }
       return json(req,
         { message: "Invalid or expired session token." },
         { status: 401 }

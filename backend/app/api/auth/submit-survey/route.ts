@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import jwt from "jsonwebtoken";
 import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
 import connectToDatabase from "../../../../lib/db";
+import { verifyJwtToken, signJwtToken } from "../../../../lib/auth";
 import User, { DiscoverySourceType } from "../../../../models/User";
 
 const ALLOWED_DISCOVERY_SOURCES: DiscoverySourceType[] = [
@@ -41,11 +41,11 @@ export async function POST(req: Request) {
     const token = authHeader.split(" ")[1];
     let decoded: { id: string; email: string };
     try {
-      decoded = jwt.verify(
-        token,
-        process.env.JWT_SECRET || "fallback_secret"
-      ) as { id: string; email: string };
-    } catch {
+      decoded = verifyJwtToken<{ id: string; email: string }>(token);
+    } catch (err: any) {
+      if (err?.message?.includes("JWT_SECRET") || err?.message?.includes("JWT secret")) {
+        throw err;
+      }
       return json(req,
         { message: "Invalid or expired session token." },
         { status: 401 }
@@ -127,14 +127,13 @@ export async function POST(req: Request) {
       );
     }
 
-    const newToken = jwt.sign(
+    const newToken = signJwtToken(
       {
         id: user._id,
         email: user.email,
         identity: user.identity,
         surveyCompleted: true,
       },
-      process.env.JWT_SECRET || "fallback_secret",
       { expiresIn: "7d" }
     );
 

@@ -39,7 +39,10 @@ const mongoose = require(path.join(projectRoot, 'node_modules', 'mongoose'));
 const { loadEnvConfig } = require(path.join(projectRoot, 'node_modules', '@next', 'env'));
 const { combinedEnv } = loadEnvConfig(projectRoot, true, { info() {}, error() {} });
 const uri = combinedEnv.MONGODB_URI || process.env.MONGODB_URI;
-const jwtSecret = combinedEnv.JWT_SECRET || process.env.JWT_SECRET || 'fallback_secret';
+const jwtSecret = combinedEnv.JWT_SECRET || process.env.JWT_SECRET;
+if (!jwtSecret || Buffer.byteLength(jwtSecret, 'utf8') < 32) {
+  throw new Error('JWT_SECRET is missing or shorter than 32 bytes. Define it in backend/.env.local.');
+}
 if (!uri) {
   throw new Error('MONGODB_URI is not set. Define it in backend/.env.local.');
 }

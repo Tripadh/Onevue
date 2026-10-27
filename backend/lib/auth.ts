@@ -1,22 +1,23 @@
-import * as jwtLib from "jsonwebtoken";
 import connectToDatabase from "./db";
 import User from "../models/User";
+import {
+  MIN_JWT_SECRET_LENGTH,
+  getJwtSecret,
+  signJwtToken,
+  verifyJwtToken as rawVerifyJwtToken,
+} from "./jwt";
 
 /* =========================================================================
    OneVue Authentication & Authorization Helper
    ========================================================================= */
 
-export function verifyJwtToken(token: string, secret: string): { id: string; email: string } {
-  const pkg: any = jwtLib;
-  const verifier =
-    (pkg && typeof pkg.verify === "function" && pkg.verify) ||
-    (pkg && pkg.default && typeof pkg.default.verify === "function" && pkg.default.verify) ||
-    (typeof require === "function" && require("jsonwebtoken").verify);
+export { MIN_JWT_SECRET_LENGTH, getJwtSecret, signJwtToken };
 
-  if (!verifier) {
-    throw new Error("JWT verify function not found.");
-  }
-  return verifier(token, secret) as { id: string; email: string };
+export function verifyJwtToken<T = { id: string; email: string; [key: string]: any }>(
+  token: string,
+  secretOverride?: string
+): T {
+  return rawVerifyJwtToken(token, secretOverride) as T;
 }
 
 export interface AuthSuccess {
@@ -42,8 +43,12 @@ export async function verifyAuth(req: Request): Promise<AuthResult> {
   const token = authHeader.split(" ")[1];
   let decoded: { id: string; email: string };
   try {
-    decoded = verifyJwtToken(token, process.env.JWT_SECRET || "fallback_secret");
-  } catch {
+    decoded = verifyJwtToken<{ id: string; email: string }>(token);
+  } catch (err: any) {
+    // Propagate configuration errors rather than masking as invalid client token
+    if (err?.message?.includes("JWT_SECRET") || err?.message?.includes("JWT secret")) {
+      throw err;
+    }
     return { error: "Invalid or expired session token.", status: 401 };
   }
 

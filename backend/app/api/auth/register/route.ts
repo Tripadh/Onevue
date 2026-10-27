@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
 import connectToDatabase from "../../../../lib/db";
+import { signJwtToken } from "../../../../lib/auth";
 import { ensureStudentProfile } from "../../../../lib/ensure-student-profile";
 import User, { IdentityType } from "../../../../models/User";
 
@@ -76,14 +76,13 @@ export async function POST(req: Request) {
       await ensureStudentProfile(newUser);
     }
 
-    const token = jwt.sign(
+    const token = signJwtToken(
       {
         id: newUser._id,
         email: newUser.email,
         identity: newUser.identity,
         surveyCompleted: false,
       },
-      process.env.JWT_SECRET || "fallback_secret",
       { expiresIn: "7d" }
     );
 

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
 import connectToDatabase from "../../../../lib/db";
+import { signJwtToken } from "../../../../lib/auth";
 import User, { IdentityType } from "../../../../models/User";
 
 function json(req: Request, body: unknown, init: { status: number }) {
@@ -50,14 +50,13 @@ export async function POST(req: Request) {
     const identity: IdentityType | undefined = user.identity;
     const surveyCompleted = !!user.onboarding?.surveyCompleted;
 
-    const token = jwt.sign(
+    const token = signJwtToken(
       {
         id: user._id,
         email: user.email,
         identity,
         surveyCompleted,
       },
-      process.env.JWT_SECRET || "fallback_secret",
       { expiresIn: "7d" }
     );
 
