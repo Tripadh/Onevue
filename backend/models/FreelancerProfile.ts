@@ -10,6 +10,7 @@ import {
   workSampleSchema,
   stableId,
   customLayoutField,
+  recordCustomFieldsArray,
 } from "./domain/fragments";
 
 const PackageSchema = new Schema(
@@ -23,6 +24,7 @@ const PackageSchema = new Schema(
     price: { type: Number, min: 0, max: 10000000 },
     deliveryDays: { type: Number, min: 0, max: 3650 },
     revisionCount: { type: Number, min: 0, max: 100 },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -37,6 +39,7 @@ const WorkExperienceSchema = new Schema(
     startDate: text(10),
     endDate: text(10),
     isCurrent: { type: Boolean, default: false },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -49,6 +52,7 @@ const PortfolioSchema = new Schema(
     url: text(500),
     outcome: text(500),
     assetId: text(32),
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -64,6 +68,7 @@ const ServiceSchema = new Schema(
     rateMax: { type: Number, min: 0, max: 10000000 },
     deliveryDays: { type: Number, min: 0, max: 3650 },
     packages: limitedArray(PackageSchema, 8),
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -79,6 +84,7 @@ const TestimonialSchema = new Schema(
       enum: [...TESTIMONIAL_ATTRIBUTION],
       default: "self-reported",
     },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -89,6 +95,7 @@ const ContactSchema = new Schema(
     phone: text(30),
     preferredChannel: { type: String, enum: [...CONTACT_CHANNELS], default: "email" },
     visibility: { type: visibilitySchema(false), default: () => ({ email: "private", phone: "private" }) },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: false }
 );
@@ -131,6 +138,7 @@ const FreelancerProfileSchema = new Schema(
         visibility: { email: "private", phone: "private" },
       }),
     },
+    aboutCustomFields: recordCustomFieldsArray(),
     customLayout: customLayoutField,
   },
   { timestamps: true, strict: true }

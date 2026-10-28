@@ -103,14 +103,19 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
       )}
 
       {/* 2. About Section */}
-      {visibleSections.about && data.summary && (
+      {visibleSections.about && (data.summary || (data.aboutFields && data.aboutFields.length > 0)) && (
         <section id="about" data-section="about" style={place("about")}>
           <div className="flex min-h-0 flex-col gap-y-4">
             <BlurFade delay={BLUR_FADE_DELAY * 3}>
               <h2 className="text-xl font-bold">About</h2>
             </BlurFade>
+            {data.summary ? (
+              <BlurFade delay={BLUR_FADE_DELAY * 4}>
+                <StoredText text={data.summary} />
+              </BlurFade>
+            ) : null}
             <BlurFade delay={BLUR_FADE_DELAY * 4}>
-              <StoredText text={data.summary} />
+              <CustomFieldList fields={data.aboutFields} />
             </BlurFade>
           </div>
         </section>
@@ -202,13 +207,16 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
                 const IconComp = getSkillIcon(skill.name);
                 return (
                   <BlurFade key={skill.name + id} delay={BLUR_FADE_DELAY * 10 + id * 0.05}>
-                    <div className="border bg-background border-border ring-2 ring-border/20 rounded-xl h-8 w-fit px-4 flex items-center gap-2">
-                      {IconComp ? (
-                        <IconComp className="size-4 rounded overflow-hidden object-contain" />
-                      ) : (
-                        <Code2 className="size-3.5 text-muted-foreground" />
-                      )}
-                      <span className="text-foreground text-sm font-medium">{skill.name}</span>
+                    <div className="flex flex-col gap-1">
+                      <div className="border bg-background border-border ring-2 ring-border/20 rounded-xl h-8 w-fit px-4 flex items-center gap-2">
+                        {IconComp ? (
+                          <IconComp className="size-4 rounded overflow-hidden object-contain" />
+                        ) : (
+                          <Code2 className="size-3.5 text-muted-foreground" />
+                        )}
+                        <span className="text-foreground text-sm font-medium">{skill.name}</span>
+                      </div>
+                      <CustomFieldList fields={skill.customFields} />
                     </div>
                   </BlurFade>
                 );
@@ -330,7 +338,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
       {visibleSections.contact && (
         <section id="contact" data-section="contact" style={place("contact")}>
           <BlurFade delay={BLUR_FADE_DELAY * 16}>
-            <ContactSection contact={data.contact} resumeUrl={data.resumeUrl} />
+            <ContactSection contact={data.contact} resumeUrl={data.resumeUrl} resumeFields={data.resumeFields} />
           </BlurFade>
         </section>
       )}

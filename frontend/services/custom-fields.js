@@ -13,6 +13,7 @@
   const FIELD_TYPES = [
     { type: "text", label: "Text" },
     { type: "textarea", label: "Long text" },
+    { type: "heading", label: "Heading" },
     { type: "number", label: "Number" },
     { type: "url", label: "Link" },
     { type: "date", label: "Date" },
@@ -28,6 +29,69 @@
 
   const MEDIA_TYPES = { image: true, gallery: true, video: true, file: true };
   const MAGICUI = "magicui-portfolio";
+  const TEXT_TYPES = { text: true, textarea: true, select: true };
+  const TAG_TYPES = { tags: true, multiselect: true };
+
+  function mapField(key, label, kind) {
+    return { key, label, kind };
+  }
+
+  const MAPPABLE = {
+    student: {
+      education: [mapField("fieldOfStudy", "Field of study", "text"), mapField("specialization", "Specialization", "text"), mapField("honors", "Honors", "text"), mapField("coursework", "Coursework", "text"), mapField("location", "Location", "text"), mapField("website", "Website", "url"), mapField("startDate", "Start date", "date"), mapField("endDate", "End date", "date")],
+      projects: [mapField("shortDescription", "Short description", "text"), mapField("detailedDescription", "Detailed description", "text"), mapField("role", "Role", "text"), mapField("repoUrl", "Repository URL", "url"), mapField("liveUrl", "Live URL", "url"), mapField("docsUrl", "Docs URL", "url"), mapField("websiteUrl", "Website URL", "url"), mapField("videoUrl", "Video URL", "url"), mapField("startDate", "Start date", "date"), mapField("endDate", "End date", "date")],
+      skills: [mapField("yearsExperience", "Years of experience", "number")],
+      credentials: [mapField("issuer", "Issuer", "text"), mapField("credentialId", "Credential ID", "text"), mapField("description", "Description", "text"), mapField("credentialUrl", "Credential URL", "url"), mapField("verificationUrl", "Verification URL", "url"), mapField("issueDate", "Issue date", "date"), mapField("expirationDate", "Expiration date", "date"), mapField("neverExpires", "Never expires", "boolean"), mapField("relatedSkills", "Related skills", "tags")],
+      achievements: [mapField("organization", "Organization", "text"), mapField("description", "Description", "text"), mapField("awardPrize", "Award", "text"), mapField("proofUrl", "Proof URL", "url"), mapField("certificateUrl", "Certificate URL", "url"), mapField("date", "Date", "date")],
+      media: [mapField("description", "Description", "text"), mapField("altText", "Alt text", "text"), mapField("mediaUrl", "Media URL", "url")],
+      contacts: [mapField("city", "City", "text"), mapField("country", "Country", "text"), mapField("github", "GitHub", "url"), mapField("linkedin", "LinkedIn", "url"), mapField("portfolio", "Portfolio URL", "url")],
+      links: [mapField("platform", "Platform", "text"), mapField("username", "Username", "text"), mapField("url", "URL", "url")],
+    },
+    professional: {
+      currentEmployment: [mapField("company", "Company", "text"), mapField("jobTitle", "Job title", "text"), mapField("location", "Location", "text"), mapField("startDate", "Start date", "date"), mapField("endDate", "End date", "date"), mapField("isCurrent", "Current role", "boolean")],
+      employmentHistory: [mapField("company", "Company", "text"), mapField("jobTitle", "Job title", "text"), mapField("location", "Location", "text"), mapField("startDate", "Start date", "date"), mapField("endDate", "End date", "date"), mapField("isCurrent", "Current role", "boolean")],
+      skills: [mapField("yearsExperience", "Years of experience", "number")],
+      certifications: [mapField("issuer", "Issuer", "text"), mapField("credentialId", "Credential ID", "text"), mapField("credentialUrl", "Credential URL", "url"), mapField("issueDate", "Issue date", "date"), mapField("expirationDate", "Expiration date", "date")],
+      education: [mapField("fieldOfStudy", "Field of study", "text"), mapField("startDate", "Start date", "date"), mapField("endDate", "End date", "date")],
+      portfolio: [mapField("description", "Description", "text"), mapField("role", "Role", "text"), mapField("url", "URL", "url")],
+      achievements: [mapField("description", "Description", "text"), mapField("organization", "Organization", "text"), mapField("evidenceUrl", "Evidence URL", "url"), mapField("date", "Date", "date")],
+      socialLinks: [mapField("label", "Label", "text"), mapField("url", "URL", "url")],
+      contact: [mapField("city", "City", "text"), mapField("country", "Country", "text"), mapField("linkedin", "LinkedIn", "url"), mapField("website", "Website", "url")],
+    },
+    freelancer: {
+      services: [mapField("description", "Description", "text")],
+      workExperience: [mapField("description", "Description", "text"), mapField("startDate", "Start date", "date"), mapField("endDate", "End date", "date"), mapField("isCurrent", "Current role", "boolean")],
+      skills: [mapField("yearsExperience", "Years of experience", "number")],
+      portfolio: [mapField("summary", "Summary", "text"), mapField("outcome", "Outcome", "text"), mapField("url", "URL", "url")],
+      testimonials: [mapField("relationship", "Relationship", "text")],
+      workSamples: [mapField("url", "URL", "url")],
+    },
+    creator: {
+      featuredContent: [mapField("summary", "Summary", "text"), mapField("category", "Category", "text"), mapField("url", "URL", "url"), mapField("publishedAt", "Published date", "date")],
+      channels: [mapField("handle", "Handle", "text"), mapField("url", "URL", "url")],
+      pastCollaborations: [mapField("description", "Description", "text"), mapField("outcome", "Outcome", "text"), mapField("url", "URL", "url"), mapField("date", "Date", "date")],
+    },
+    business: {
+      products: [mapField("description", "Description", "text"), mapField("url", "URL", "url")],
+      credentials: [mapField("issuer", "Issuer", "text"), mapField("description", "Description", "text"), mapField("evidenceUrl", "Evidence URL", "url"), mapField("issueDate", "Issue date", "date"), mapField("expirationDate", "Expiration date", "date")],
+      services: [mapField("description", "Description", "text")],
+      team: [mapField("role", "Role", "text")],
+      caseStudies: [mapField("summary", "Summary", "text"), mapField("url", "URL", "url")],
+      resources: [mapField("url", "URL", "url")],
+      publicContact: [mapField("city", "City", "text"), mapField("country", "Country", "text")],
+    },
+  };
+
+  function typeMatchesKind(type, kind) {
+    if (kind === "text") return !!TEXT_TYPES[type];
+    if (kind === "tags") return !!TAG_TYPES[type];
+    return type === kind;
+  }
+
+  function mappableFields(identity, sectionKey, type) {
+    const table = (MAPPABLE[identity] && MAPPABLE[identity][sectionKey]) || [];
+    return table.filter((field) => typeMatchesKind(type, field.kind));
+  }
 
   const EDITOR_SECTIONS = {
     student: {
@@ -38,6 +102,7 @@
       achievements: { key: "achievements", label: "Achievements", repeatable: true },
       resume: { key: "resume", label: "Resume", repeatable: false },
       media: { key: "media", label: "Media", repeatable: true },
+      links: { key: "links", label: "Links", repeatable: true },
       contacts: { key: "contacts", label: "Contacts", repeatable: false },
     },
     professional: {
@@ -149,6 +214,10 @@
     return section.fields.filter((field) => field && !field.retired).slice().sort((a, b) => a.order - b.order);
   }
 
+  function fieldsForRecord(section, recordId) {
+    return activeFields(section).filter((field) => field.scope !== "record" || field.targetRecordId === recordId);
+  }
+
   function defaultConfig(type) {
     if (type === "text") return { minLength: 0, maxLength: 200 };
     if (type === "textarea") return { minLength: 0, maxLength: 2000 };
@@ -200,9 +269,56 @@
     return layout.sections.find((section) => section.id === sectionId) || null;
   }
 
+  function normalizeAttachment(draft, section, existing) {
+    const scope = draft && (draft.scope === "record" || draft.scope === "section")
+      ? draft.scope
+      : (existing && existing.scope === "record" ? "record" : "section");
+    const targetRecordId = draft && Object.prototype.hasOwnProperty.call(draft, "targetRecordId")
+      ? String(draft.targetRecordId || "").trim()
+      : ((existing && existing.targetRecordId) || "");
+    const mapsTo = draft && Object.prototype.hasOwnProperty.call(draft, "mapsTo")
+      ? String(draft.mapsTo || "").trim()
+      : ((existing && existing.mapsTo) || "");
+    if (!section || !section.builtinKey) {
+      if (scope === "record" || targetRecordId) {
+        return { error: "A custom section uses its own records. Link an existing record from a built-in section." };
+      }
+      if (mapsTo) return { error: "A custom section cannot map onto a built-in field." };
+      return { error: "", scope: "section", targetRecordId: "", mapsTo: "" };
+    }
+    if (scope === "record") {
+      if (!section.repeatable) return { error: "This section has one set of values. Attach the field to the whole section." };
+      if (!targetRecordId) return { error: "Choose the record this field belongs to." };
+      if (Array.isArray(draft.records) && !draft.records.some((record) => record && String(record.id) === targetRecordId)) {
+        return { error: "That record is not on this profile." };
+      }
+    } else if (targetRecordId) {
+      return { error: "A whole-section field cannot target one record." };
+    }
+    if (mapsTo) {
+      if (draft && draft.identity) {
+        const options = mappableFields(draft.identity, section.builtinKey, (draft && draft.type) || (existing && existing.type));
+        if (!options.some((field) => field.key === mapsTo)) {
+          return { error: "That built-in field does not match this custom field." };
+        }
+      } else if (!existing || existing.mapsTo !== mapsTo) {
+        return { error: "That built-in field does not match this custom field." };
+      }
+    }
+    return {
+      error: "",
+      scope,
+      targetRecordId: scope === "record" ? targetRecordId : "",
+      mapsTo,
+    };
+  }
+
   function addField(layout, sectionId, draft) {
     const message = validateFieldDraft(draft);
     if (message) return { layout, error: message };
+    const currentSection = findSection(layoutOf(layout), sectionId);
+    const attachment = normalizeAttachment(draft, currentSection);
+    if (attachment.error) return { layout, error: attachment.error };
     return {
       layout: withLayout(layout, (next) => {
         const section = findSection(next, sectionId);
@@ -224,6 +340,9 @@
           config: draft.config || defaultConfig(draft.type),
           createdAt: now,
           updatedAt: now,
+          scope: attachment.scope,
+          targetRecordId: attachment.targetRecordId,
+          mapsTo: attachment.mapsTo,
         });
       }),
       error: "",
@@ -233,22 +352,79 @@
   function updateField(layout, sectionId, fieldId, draft) {
     const message = validateFieldDraft(draft, true);
     if (message) return { layout, error: message };
+    const currentSection = findSection(layoutOf(layout), sectionId);
+    const currentField = currentSection && currentSection.fields.find((item) => item.id === fieldId);
+    const attachment = normalizeAttachment(Object.assign({ type: currentField && currentField.type }, draft), currentSection, currentField);
+    if (attachment.error) return { layout, error: attachment.error };
     return {
       layout: withLayout(layout, (next) => {
         const section = findSection(next, sectionId);
         if (!section) return;
         const field = section.fields.find((item) => item.id === fieldId);
         if (!field) return;
+        const previousTarget = field.targetRecordId || "";
         field.label = String(draft.label || "").trim();
         field.required = !!draft.required;
         field.visibility = draft.visibility === "private" ? "private" : "public";
         field.helpText = String(draft.helpText || "").trim();
         field.placeholder = String(draft.placeholder || "").trim();
         field.config = draft.config || field.config;
+        field.scope = attachment.scope;
+        field.targetRecordId = attachment.targetRecordId;
+        field.mapsTo = attachment.mapsTo;
         field.updatedAt = new Date().toISOString();
+        if (attachment.scope === "record" && previousTarget && previousTarget !== attachment.targetRecordId) {
+          moveFieldValue(next, section.id, field.id, previousTarget, attachment.targetRecordId);
+        }
       }),
       error: "",
     };
+  }
+
+  function moveFieldValue(layout, sectionId, fieldId, fromId, toId) {
+    const from = layout.bindings.find((item) => item.sectionId === sectionId && item.recordId === fromId);
+    if (!from || !from.values || !Object.prototype.hasOwnProperty.call(from.values, fieldId)) return;
+    const value = from.values[fieldId];
+    delete from.values[fieldId];
+    let to = layout.bindings.find((item) => item.sectionId === sectionId && item.recordId === toId);
+    if (!to) {
+      to = { sectionId, recordId: toId, values: {} };
+      layout.bindings.push(to);
+    }
+    to.values = to.values || {};
+    to.values[fieldId] = value;
+  }
+
+  function unlinkField(layout, sectionId, fieldId) {
+    return withLayout(layout, (next) => {
+      const section = findSection(next, sectionId);
+      if (!section) return;
+      const field = section.fields.find((item) => item.id === fieldId);
+      if (!field) return;
+      field.scope = "section";
+      field.targetRecordId = "";
+      field.mapsTo = "";
+      field.updatedAt = new Date().toISOString();
+    });
+  }
+
+  function setFieldTarget(layout, sectionId, fieldId, recordId, records) {
+    const section = findSection(layoutOf(layout), sectionId);
+    const field = section && section.fields.find((item) => item.id === fieldId);
+    if (!field) return { layout, error: "That field is no longer on this section." };
+    return updateField(layout, sectionId, fieldId, {
+      label: field.label,
+      type: field.type,
+      required: field.required,
+      visibility: field.visibility,
+      helpText: field.helpText,
+      placeholder: field.placeholder,
+      config: field.config,
+      scope: "record",
+      targetRecordId: recordId,
+      mapsTo: field.mapsTo || "",
+      records: records,
+    });
   }
 
   function removeField(layout, sectionId, fieldId) {
@@ -436,8 +612,60 @@
     }
   }
 
+
+  function createRecordField(type, label) {
+    const defaultLabels = {
+      heading: "Section Heading",
+      text: "Custom Field",
+      textarea: "Additional Details",
+      url: "Web Link",
+      image: "Custom Image",
+      file: "Attachment",
+      tags: "Keywords",
+      number: "Metric",
+      date: "Date",
+      boolean: "Feature Enabled",
+      select: "Category",
+    };
+    const fType = type || "text";
+    return {
+      id: "fld_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7),
+      label: (typeof label === "string" && label.trim()) || defaultLabels[fType] || "Custom Field",
+      type: fType,
+      visibility: "public",
+      order: 0,
+      value: null,
+    };
+  }
+
+  function updateRecordField(fields, fieldId, patch) {
+    if (!Array.isArray(fields)) return [];
+    return fields.map((f) => (f.id === fieldId ? Object.assign({}, f, patch) : f));
+  }
+
+  function removeRecordField(fields, fieldId) {
+    if (!Array.isArray(fields)) return [];
+    return fields.filter((f) => f.id !== fieldId).map((f, idx) => Object.assign({}, f, { order: idx }));
+  }
+
+  function reorderRecordFields(fields, fieldId, direction) {
+    if (!Array.isArray(fields)) return [];
+    const index = fields.findIndex((f) => f.id === fieldId);
+    if (index === -1) return fields;
+    const target = index + direction;
+    if (target < 0 || target >= fields.length) return fields;
+    const copy = fields.slice();
+    const [moved] = copy.splice(index, 1);
+    copy.splice(target, 0, moved);
+    return copy.map((f, idx) => Object.assign({}, f, { order: idx }));
+  }
+
   return {
     FIELD_TYPES,
+    createRecordField,
+    updateRecordField,
+    removeRecordField,
+    reorderRecordFields,
     EDITOR_SECTIONS,
     MAGICUI,
     builtinFor,
@@ -446,10 +674,14 @@
     sectionByBuiltin,
     userSections,
     activeFields,
+    fieldsForRecord,
+    mappableFields,
     defaultConfig,
     ensureBuiltin,
     addField,
     updateField,
+    unlinkField,
+    setFieldTarget,
     removeField,
     reorderField,
     setRetired,

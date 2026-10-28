@@ -6,6 +6,7 @@ import { Timeline, TimelineItem, TimelineConnectItem } from "@/components/timeli
 import { AdaptedHackathon } from "@/lib/onevue-profile-adapter";
 import { Globe, Github } from "lucide-react";
 import { StoredText } from "@/components/section/stored-text";
+import { CustomFieldList } from "@/components/section/custom-fields";
 
 interface HackathonsSectionProps {
   hackathons?: AdaptedHackathon[];
@@ -64,6 +65,7 @@ export default function HackathonsSection({ hackathons }: HackathonsSectionProps
                   <p className="text-sm text-muted-foreground">{hackathon.location}</p>
                 )}
                 {hackathon.description ? <StoredText text={hackathon.description} /> : null}
+                <CustomFieldList fields={hackathon.customFields} />
                 {hackathon.links && hackathon.links.length > 0 && (
                   <div className="mt-1 flex flex-row flex-wrap items-start gap-2">
                     {hackathon.links.map((link, lIdx) => (

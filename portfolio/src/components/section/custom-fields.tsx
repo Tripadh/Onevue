@@ -4,6 +4,9 @@ const EMBEDDABLE = /^https:\/\/(?:www\.|m\.|player\.)?(?:youtube\.com|youtu\.be|
 
 function FieldValue({ field }: { field: AdaptedCustomField }) {
   if (field.presentation === "hidden") return null;
+  if (field.presentation === "heading") {
+    return <h4 className="text-sm font-semibold text-foreground">{field.text || field.label}</h4>;
+  }
   if (field.images && field.images.length) {
     return (
       <div className="flex flex-wrap gap-2">
@@ -56,7 +59,7 @@ export function CustomFieldList({ fields }: { fields?: AdaptedCustomField[] }) {
     <dl className="mt-2 grid gap-2">
       {visible.map((field) => (
         <div key={field.id} className="grid gap-0.5">
-          <dt className="text-xs text-muted-foreground">{field.label}</dt>
+          {field.presentation !== "heading" && <dt className="text-xs text-muted-foreground">{field.label}</dt>}
           <dd><FieldValue field={field} /></dd>
         </div>
       ))}

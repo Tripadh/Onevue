@@ -8,6 +8,7 @@ export const CUSTOM_LAYOUT_SCHEMA_VERSION = 1 as const;
 export const CUSTOM_FIELD_TYPES = [
   "text",
   "textarea",
+  "heading",
   "number",
   "url",
   "date",
@@ -71,6 +72,9 @@ export interface CustomFieldConfig {
   maxBytes?: number;
 }
 
+/** section: the field belongs to the whole section. record: one existing identity record. */
+export type AttachmentScope = "section" | "record";
+
 export interface CustomFieldDefinition {
   id: string;
   key: string;
@@ -85,6 +89,12 @@ export interface CustomFieldDefinition {
   config: CustomFieldConfig;
   createdAt: string;
   updatedAt: string;
+  /** Missing on older layouts. Readers treat that as a section field. */
+  scope: AttachmentScope;
+  /** Stable identity-record id when scope is "record". Empty otherwise. */
+  targetRecordId: string;
+  /** Built-in field key this value may fill when the types match. Empty when unmapped. */
+  mapsTo: string;
 }
 
 export interface AssetFieldValue {
@@ -143,6 +153,7 @@ export interface CustomLayout {
 }
 
 export type CustomPresentation =
+  | "heading"
   | "inline"
   | "detail"
   | "link"
@@ -164,6 +175,8 @@ export interface PublicCustomField {
   helpText?: string;
   presentation: CustomPresentation;
   value: PublicCustomValue;
+  /** Set when this value is allowed to fill an empty built-in field. */
+  mapsTo?: string;
 }
 
 export type PublicCustomValue =
@@ -199,4 +212,13 @@ export function emptyCustomLayout(): CustomLayout {
     bindings: [],
     entries: [],
   };
+}
+
+export interface RecordCustomField {
+  id: string;
+  label: string;
+  type: CustomFieldType;
+  visibility: "public" | "private";
+  order: number;
+  value: unknown;
 }

@@ -801,6 +801,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       accreditation: '',
       coursework: '',
       honors: '',
+      customFields: [],
     });
     setEduModalOpen(true);
   };
@@ -830,6 +831,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       accreditation: item.accreditation || '',
       coursework: item.coursework || '',
       honors: item.honors || '',
+      customFields: item.customFields || [],
     });
     setEduModalOpen(true);
   };
@@ -1035,6 +1037,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       yearsExperience: 0,
       lastUsed: '',
       evidence: '',
+      customFields: [],
     });
     setSkillModalOpen(true);
   };
@@ -1049,6 +1052,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       yearsExperience: item.yearsExperience || 0,
       lastUsed: item.lastUsed || '',
       evidence: item.evidence || '',
+      customFields: item.customFields || [],
     });
     setSkillModalOpen(true);
   };
@@ -1286,6 +1290,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       location: '',
       description: '',
       proofUrl: '',
+      customFields: [],
     });
     setAchModalOpen(true);
   };
@@ -1305,6 +1310,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       location: item.location || '',
       description: item.description || '',
       proofUrl: item.proofUrl || '',
+      customFields: item.customFields || [],
     });
     setAchModalOpen(true);
   };
@@ -1575,6 +1581,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       description: '',
       altText: '',
       isFeatured: false,
+      customFields: [],
     });
     setMediaModalOpen(true);
   };
@@ -1707,8 +1714,26 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       credentials: credentialsList.map((item) => ({ id: String(item.id || item._id || ""), title: item.title || "Credential" })),
       achievements: achievementsList.map((item) => ({ id: String(item.id || item._id || ""), title: item.title || "Achievement" })),
       media: mediaList.map((item) => ({ id: String(item.id || item._id || ""), title: item.title || "Media" })),
+      links: linksList.map((item) => ({ id: String(item.id || item._id || ""), title: item.platform || "Link" })),
     };
     return lists[sectionId] || [];
+  };
+
+  const renderRecordFields = (sectionId, record) => {
+    if (!window.RecordLinkedFields) return null;
+    const recordId = String((record && (record.id || record._id)) || "");
+    if (!recordId) return null;
+    return (
+      <RecordLinkedFields
+        identity="student"
+        sectionId={sectionId}
+        recordId={recordId}
+        layout={customLayout}
+        records={studentCustomRecords(sectionId)}
+        disabled={isSubmitting}
+        onChange={setCustomLayout}
+      />
+    );
   };
 
   const saveStudentCustomLayout = async (next, sectionId) => {
@@ -1720,6 +1745,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
     if (sectionId === "credentials") payload.credentials = credentialsList;
     if (sectionId === "achievements") payload.achievements = achievementsList;
     if (sectionId === "media") payload.media = mediaList;
+    if (sectionId === "links") payload.links = linksList;
     if (sectionId === "contacts") payload.contacts = contactsState;
     if (sectionId === "resume") payload.resume = resumeData;
     return onSaveToDb(payload);
@@ -2145,6 +2171,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
                       <strong>Honors:</strong> {edu.honors}
                     </p>
                   )}
+                  {renderRecordFields('education', edu)}
                 </div>
               ))}
             </div>
@@ -2246,6 +2273,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
                       </a>
                     )}
                   </div>
+                  {renderRecordFields('projects', p)}
                 </div>
               ))}
             </div>
@@ -2296,12 +2324,12 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
                           style={{
                             padding: '8px 14px',
                             borderRadius: 14,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 10,
+                            display: 'grid',
+                            gap: 8,
                             border: '1px solid var(--line)',
                           }}
                         >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <div>
                             <strong style={{ fontSize: 13.5, display: 'block' }}>{sk.name}</strong>
                             <span className="faint" style={{ fontSize: 11.5 }}>
@@ -2326,6 +2354,8 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
                               <StudentIcons.trash width="12" height="12" />
                             </button>
                           </div>
+                          </div>
+                          {renderRecordFields('skills', sk)}
                         </div>
                       ))}
                     </div>
@@ -2405,6 +2435,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
                   </div>
 
                   {crd.description && <p style={{ fontSize: 13.5, margin: 0 }}>{crd.description}</p>}
+                  {renderRecordFields('credentials', crd)}
 
                   <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 4 }}>
                     {crd.credentialUrl && (
@@ -2487,6 +2518,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
                       </a>
                     </div>
                   )}
+                  {renderRecordFields('achievements', ach)}
                 </div>
               ))}
             </div>
@@ -2703,6 +2735,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
                       Open Asset ↗
                     </a>
                   )}
+                  {renderRecordFields('media', m)}
                 </div>
               ))}
             </div>
@@ -2738,7 +2771,8 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
                 {linksList.map((lnk, idx) => (
-                  <div key={lnk.id || lnk._id || idx} className="glass" style={{ padding: 14, borderRadius: 14, border: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div key={lnk.id || lnk._id || idx} className="glass" style={{ padding: 14, borderRadius: 14, border: '1px solid var(--line)', display: 'grid', gap: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <strong style={{ fontSize: 14 }}>{lnk.platform}</strong>
@@ -2756,6 +2790,8 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
                         <StudentIcons.trash width="13" height="13" />
                       </button>
                     </div>
+                    </div>
+                    {renderRecordFields('links', lnk)}
                   </div>
                 ))}
               </div>
@@ -2851,16 +2887,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
 
       {onboardingReady && onboardingStep !== "choice" && onboardingStep !== "extract" ? (
         <>
-          <CustomFieldBoard
-            identity="student"
-            sectionId={activeSection}
-            layout={customLayout}
-            records={studentCustomRecords(activeSection)}
-            disabled={isSubmitting}
-            templateId="magicui-portfolio"
-            onChange={setCustomLayout}
-            onSave={(next) => saveStudentCustomLayout(next, activeSection)}
-          />
+
           <CustomSectionManager
             layout={customLayout}
             disabled={isSubmitting}
@@ -2926,6 +2953,13 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
             <label className="field-label">Coursework</label>
             <input className="input" value={eduForm.coursework} onChange={(e) => setEduForm({ ...eduForm, coursework: e.target.value })} placeholder="Distributed Systems, Compilers, Machine Learning..." />
           </div>
+          {window.RecordCustomFieldsEditor && (
+            <RecordCustomFieldsEditor
+              fields={eduForm.customFields || []}
+              disabled={isSubmitting}
+              onChange={(next) => setEduForm({ ...eduForm, customFields: next })}
+            />
+          )}
           <Button block variant="primary" loading={isSubmitting} onClick={handleSaveEduModal}>
             Save Education Record
           </Button>
@@ -2995,6 +3029,13 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
               hint="One image. This template does not show a gallery or an uploaded video. An https video link can stay in the video field."
             />
           ) : null}
+          {window.RecordCustomFieldsEditor && (
+            <RecordCustomFieldsEditor
+              fields={projForm.customFields || []}
+              disabled={isSubmitting}
+              onChange={(next) => setProjForm({ ...projForm, customFields: next })}
+            />
+          )}
           <Button block variant="primary" loading={isSubmitting} onClick={handleSaveProjectModal}>
             Save Project Record
           </Button>
@@ -3036,6 +3077,13 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
             ]}
           />
           <Input label="Supporting Evidence" value={skillForm.evidence} onChange={(e) => setSkillForm({ ...skillForm, evidence: e.target.value })} placeholder="e.g. Built 3 production services; CS 224N course" />
+          {window.RecordCustomFieldsEditor && (
+            <RecordCustomFieldsEditor
+              fields={skillForm.customFields || []}
+              disabled={isSubmitting}
+              onChange={(next) => setSkillForm({ ...skillForm, customFields: next })}
+            />
+          )}
           <Button block variant="primary" loading={isSubmitting} onClick={handleSaveSkillModal}>
             Save Skill Record
           </Button>
@@ -3070,6 +3118,13 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
             <Input label="Credential ID" value={credForm.credentialId} onChange={(e) => setCredForm({ ...credForm, credentialId: e.target.value })} placeholder="e.g. ABC-123456" />
           </div>
           <Input label="Verification URL" hint="A Credly badge link (https://www.credly.com/badges/...) is checked by the certificate service. Other links stay self-reported." value={credForm.verificationUrl} onChange={(e) => setCredForm({ ...credForm, verificationUrl: e.target.value })} placeholder="https://www.credly.com/badges/..." />
+          {window.RecordCustomFieldsEditor && (
+            <RecordCustomFieldsEditor
+              fields={credForm.customFields || []}
+              disabled={isSubmitting}
+              onChange={(next) => setCredForm({ ...credForm, customFields: next })}
+            />
+          )}
           <Button block variant="primary" loading={isSubmitting} onClick={handleSaveCredModal}>
             Save Credential Record
           </Button>
@@ -3106,6 +3161,13 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
           </div>
           <Input label="Award / Prize Details" value={achForm.awardPrize} onChange={(e) => setAchForm({ ...achForm, awardPrize: e.target.value })} placeholder="e.g. $10,000 Grand Prize" />
           <Input label="Proof / Announcement URL" value={achForm.proofUrl} onChange={(e) => setAchForm({ ...achForm, proofUrl: e.target.value })} placeholder="https://..." />
+          {window.RecordCustomFieldsEditor && (
+            <RecordCustomFieldsEditor
+              fields={achForm.customFields || []}
+              disabled={isSubmitting}
+              onChange={(next) => setAchForm({ ...achForm, customFields: next })}
+            />
+          )}
           <Button block variant="primary" loading={isSubmitting} onClick={handleSaveAchModal}>
             Save Achievement Record
           </Button>
@@ -3155,6 +3217,13 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
             />
           </div>
           <Input label="Description / Caption" value={mediaForm.description} onChange={(e) => setMediaForm({ ...mediaForm, description: e.target.value })} placeholder="Brief caption..." />
+          {window.RecordCustomFieldsEditor && (
+            <RecordCustomFieldsEditor
+              fields={mediaForm.customFields || []}
+              disabled={isSubmitting}
+              onChange={(next) => setMediaForm({ ...mediaForm, customFields: next })}
+            />
+          )}
           <Button block variant="primary" loading={isSubmitting} onClick={handleSaveMediaModal}>
             Save Media Asset
           </Button>
@@ -3212,6 +3281,13 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
               Highlight as primary link on visiting card and portfolio
             </label>
           </div>
+          {window.RecordCustomFieldsEditor && (
+            <RecordCustomFieldsEditor
+              fields={linkForm.customFields || []}
+              disabled={isSubmitting}
+              onChange={(next) => setLinkForm({ ...linkForm, customFields: next })}
+            />
+          )}
           <Button block variant="primary" loading={isSubmitting} onClick={handleSaveLinkModal}>
             Save Platform Link
           </Button>

@@ -1,6 +1,6 @@
 import { Schema, model, models } from "mongoose";
 import { BUSINESS_MODELS, CREDENTIAL_RECORD_TYPES, ORG_TYPES, REGISTRATION_STATUSES, RESOURCE_VISIBILITY, VERIFICATION_STATUSES } from "../lib/domain-profile/constants";
-import { customLayoutField, limitedArray, stableId, text, userIdField, visibilitySchema } from "./domain/fragments";
+import { customLayoutField, limitedArray, stableId, text, userIdField, visibilitySchema, recordCustomFieldsArray } from "./domain/fragments";
 
 const BrandingSchema = new Schema(
   {
@@ -8,6 +8,7 @@ const BrandingSchema = new Schema(
     assetId: text(32),
     primaryColor: text(7),
     guidelinesUrl: text(500),
+    customFields: recordCustomFieldsArray(),
   },
   { _id: false }
 );
@@ -19,6 +20,7 @@ const PublicContactSchema = new Schema(
     city: text(100),
     country: text(100),
     visibility: { type: visibilitySchema(false), default: () => ({ email: "private", phone: "private" }) },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: false }
 );
@@ -33,6 +35,7 @@ const ProductSchema = new Schema(
     currency: text(8),
     imageUrl: text(500),
     assetId: text(32),
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -53,6 +56,7 @@ const CredentialSchema = new Schema(
       enum: [...VERIFICATION_STATUSES],
       default: "self-reported",
     },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -62,6 +66,7 @@ const ServiceSchema = new Schema(
     id: stableId,
     name: text(150, true),
     description: text(2000),
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -72,6 +77,7 @@ const TeamSchema = new Schema(
     name: text(120, true),
     role: text(120, true),
     isPublic: { type: Boolean, default: false },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -101,6 +107,7 @@ const RegistrationSchema = new Schema(
       enum: [...REGISTRATION_STATUSES],
       default: "self-reported",
     },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: false }
 );
@@ -112,6 +119,7 @@ const CaseStudySchema = new Schema(
     summary: text(2000),
     url: text(500),
     assetId: text(32),
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -122,6 +130,7 @@ const ResourceSchema = new Schema(
     title: text(150, true),
     url: text(500, true),
     visibility: { type: String, enum: [...RESOURCE_VISIBILITY], default: "private" },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -195,6 +204,7 @@ const BusinessProfileSchema = new Schema(
     },
     caseStudies: limitedArray(CaseStudySchema, 30),
     resources: limitedArray(ResourceSchema, 30),
+    aboutCustomFields: recordCustomFieldsArray(),
     customLayout: customLayoutField,
   },
   { timestamps: true, strict: true }

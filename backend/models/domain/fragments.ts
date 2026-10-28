@@ -1,4 +1,5 @@
 import { Schema } from "mongoose";
+import { CUSTOM_FIELD_TYPES } from "../../lib/custom-fields/types";
 import {
   EDUCATION_STATUSES,
   EMPLOYMENT_TYPES,
@@ -36,6 +37,39 @@ export function limitedArray(sub: Schema, maxItems: number) {
   };
 }
 
+
+export const RecordCustomFieldSchema = new Schema(
+  {
+    id: { type: String, required: true, trim: true, maxlength: 100 },
+    label: { type: String, required: true, trim: true, maxlength: 80 },
+    type: {
+      type: String,
+      required: true,
+      enum: [...CUSTOM_FIELD_TYPES],
+      default: "text",
+    },
+    visibility: {
+      type: String,
+      enum: ["public", "private"],
+      default: "public",
+    },
+    order: { type: Number, default: 0 },
+    value: { type: Schema.Types.Mixed, default: null },
+  },
+  { _id: false }
+);
+
+export function recordCustomFieldsArray() {
+  return {
+    type: [RecordCustomFieldSchema],
+    default: () => [],
+    validate: {
+      validator: (arr: unknown[]) => Array.isArray(arr) && arr.length <= 30,
+      message: "Cannot exceed 30 custom fields per record",
+    },
+  };
+}
+
 export const stableId = { type: String, trim: true, maxlength: 100, default: "" };
 
 export function employmentSchema(withId: boolean, requireCore: boolean) {
@@ -56,6 +90,7 @@ export function employmentSchema(withId: boolean, requireCore: boolean) {
       isCurrent: { type: Boolean, default: false },
       responsibilities: stringList(300, 20),
       achievements: stringList(300, 20),
+      customFields: recordCustomFieldsArray(),
     },
     { _id: withId }
   );
@@ -72,6 +107,7 @@ export function skillSchema() {
         default: "Intermediate",
       },
       yearsExperience: { type: Number, min: 0, max: 60, default: 0 },
+      customFields: recordCustomFieldsArray(),
     },
     { _id: true }
   );
@@ -93,6 +129,7 @@ export function certificationSchema() {
         enum: [...VERIFICATION_STATUSES],
         default: "self-reported",
       },
+      customFields: recordCustomFieldsArray(),
     },
     { _id: true }
   );
@@ -112,6 +149,7 @@ export function educationSchema() {
         enum: [...EDUCATION_STATUSES],
         default: "studying",
       },
+      customFields: recordCustomFieldsArray(),
     },
     { _id: true }
   );
@@ -126,6 +164,7 @@ export function portfolioSchema() {
       url: text(500),
       role: text(120),
       assetId: text(32),
+      customFields: recordCustomFieldsArray(),
     },
     { _id: true }
   );
@@ -154,6 +193,7 @@ export function workSampleSchema() {
         enum: [...MEDIA_SAMPLE_TYPES],
         default: "link",
       },
+      customFields: recordCustomFieldsArray(),
     },
     { _id: true }
   );

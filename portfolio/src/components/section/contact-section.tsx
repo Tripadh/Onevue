@@ -1,16 +1,19 @@
 import Link from "next/link";
 import { FlickeringGrid } from "@/components/magicui/flickering-grid";
 import { DATA } from "@/data/resume";
-import { AdaptedSocialLink } from "@/lib/onevue-profile-adapter";
+import { AdaptedCustomField, AdaptedSocialLink } from "@/lib/onevue-profile-adapter";
 import { Icons } from "@/components/icons";
+import { CustomFieldList } from "@/components/section/custom-fields";
 
 interface ContactSectionProps {
   contact?: {
     email?: string;
     tel?: string;
     social: Record<string, AdaptedSocialLink>;
+    customFields?: AdaptedCustomField[];
   };
   resumeUrl?: string;
+  resumeFields?: AdaptedCustomField[];
 }
 
 function renderContactIcon(iconName: string) {
@@ -30,7 +33,7 @@ function renderContactIcon(iconName: string) {
   }
 }
 
-export default function ContactSection({ contact, resumeUrl }: ContactSectionProps) {
+export default function ContactSection({ contact, resumeUrl, resumeFields }: ContactSectionProps) {
   const isDynamic = contact !== undefined;
 
   // Build the list of all available social/contact channels
@@ -100,23 +103,31 @@ export default function ContactSection({ contact, resumeUrl }: ContactSectionPro
           </a>
         )}
 
+        <CustomFieldList fields={resumeFields} />
+        <CustomFieldList fields={contact?.customFields} />
+
         {socialList.length > 0 && (
-          <div className="flex flex-wrap items-center justify-center gap-2.5 mt-2">
-            {socialList.map((social) => {
-              const isExternal = social.url.startsWith("http");
-              return (
-                <a
-                  key={`btn-${social.name}-${social.url}`}
-                  href={social.url}
-                  target={isExternal ? "_blank" : undefined}
-                  rel={isExternal ? "noopener noreferrer" : undefined}
-                  className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-medium border border-border bg-card/60 hover:bg-muted text-foreground transition-all duration-200 hover:scale-105 shadow-sm"
-                >
-                  {renderContactIcon(social.iconName)}
-                  <span>{social.name}</span>
-                </a>
-              );
-            })}
+          <div className="flex flex-col items-center gap-3 mt-2 w-full">
+            <div className="flex flex-wrap items-center justify-center gap-2.5">
+              {socialList.map((social) => {
+                const isExternal = social.url.startsWith("http");
+                return (
+                  <a
+                    key={`btn-${social.name}-${social.url}`}
+                    href={social.url}
+                    target={isExternal ? "_blank" : undefined}
+                    rel={isExternal ? "noopener noreferrer" : undefined}
+                    className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-medium border border-border bg-card/60 hover:bg-muted text-foreground transition-all duration-200 hover:scale-105 shadow-sm"
+                  >
+                    {renderContactIcon(social.iconName)}
+                    <span>{social.name}</span>
+                  </a>
+                );
+              })}
+            </div>
+            {socialList.map((social) => (
+              <CustomFieldList key={`fields-${social.name}-${social.url}`} fields={"customFields" in social ? social.customFields : undefined} />
+            ))}
           </div>
         )}
       </div>

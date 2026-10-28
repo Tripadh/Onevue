@@ -217,7 +217,16 @@ function mapEmployment(job: Row, idx: number): Row | null {
     endDate: job.isCurrent ? "" : str(job.endDate),
     isCurrent: Boolean(job.isCurrent),
     description: [...strings(job.responsibilities), ...strings(job.achievements)].filter(Boolean).join("\n"),
+    ...(Array.isArray(job.customFields) ? { customFields: job.customFields } : {}),
   };
+}
+
+
+function withCustom(row: Row, source: Row): Row {
+  if (Array.isArray(source.customFields) && source.customFields.length > 0) {
+    return { ...row, customFields: source.customFields };
+  }
+  return row;
 }
 
 function withImage(row: Row, imageUrl: string): Row {
@@ -231,6 +240,9 @@ function professionalSource(p: Row, delivery: Delivery): Row {
   const experience = [current, ...rows(p.employmentHistory)]
     .map((job, idx) => mapEmployment(job, idx))
     .filter((row): row is Row => row !== null);
+  if ((str(current.jobTitle) || str(current.company)) && experience[0]) {
+    experience[0].id = "currentEmployment";
+  }
   return {
     headline: str(p.headline),
     bio: str(p.bio),
@@ -369,7 +381,7 @@ function freelancerSource(p: Row, delivery: Delivery): Row {
         attribution: str(t.attribution) === "verified" ? "verified" : "self-reported",
       })),
     media: rows(p.workSamples)
-      .filter((w) => str(w.url))
+      .filter((w) => str(w.url) || str(w.title))
       .map((w, idx) => ({
         id: rowId(w, "sample", idx),
         mediaUrl: str(w.url),

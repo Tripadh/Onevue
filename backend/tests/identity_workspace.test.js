@@ -288,7 +288,13 @@ describe("OneVue — Identity workspace for non-student identities", () => {
       ["Lead at Globex", "Engineer at Initech"]
     );
     assert.equal(source.experience[0].isCurrent, true);
+    assert.equal(source.experience[0].id, "currentEmployment");
+    assert.equal(source.experience[1].id, "exp_1");
     assert.equal(source.achievements.length, 0);
+    const historyOnly = websiteSource.domainProfileToPublicSource("professional", {
+      employmentHistory: [{ id: "job_9", jobTitle: "Engineer", company: "Initech" }],
+    });
+    assert.equal(historyOnly.experience[0].id, "job_9");
   });
 
   test("2.1 Freelancer without a saved profile cannot preview or publish", async () => {

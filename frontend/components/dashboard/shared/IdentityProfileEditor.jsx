@@ -717,6 +717,17 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
                       </div>
                     </div>
                     {body ? <p style={{ fontSize: 13.5, margin: 0, whiteSpace: "pre-wrap", color: "var(--text-2)" }}>{body}</p> : null}
+                    {window.RecordLinkedFields ? (
+                      <RecordLinkedFields
+                        identity={identity}
+                        sectionId={current.id}
+                        recordId={String(record.id || "")}
+                        layout={draft.customLayout}
+                        records={(draft[current.collection] || []).map((item) => ({ id: String(item.id || ""), title: cardTitle(current, item) }))}
+                        disabled={disabled}
+                        onChange={(next) => editDraft(Object.assign({}, draft, { customLayout: next }))}
+                      />
+                    ) : null}
                     {current.collection === "services" && Array.isArray(record.packages) && record.packages.length > 0 ? (
                       <p className="muted" style={{ fontSize: 13, margin: 0 }}>{record.packages.length + (record.packages.length === 1 ? " package" : " packages")}</p>
                     ) : null}

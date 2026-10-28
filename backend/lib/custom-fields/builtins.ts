@@ -1,4 +1,4 @@
-import type { CustomIdentity } from "./types";
+import type { CustomFieldType, CustomIdentity } from "./types";
 
 /**
  * Built-in sections that can host shared field definitions.
@@ -114,4 +114,209 @@ export function patchTouchesBuiltinRecords(identity: CustomIdentity, patch: Reco
   return BUILTIN_SECTIONS[identity].some(
     (section) => section.repeatable && section.collection && Object.prototype.hasOwnProperty.call(patch, section.collection)
   );
+}
+
+export type BuiltinValueKind = "text" | "url" | "date" | "boolean" | "number" | "tags";
+
+export interface MappableBuiltinField {
+  key: string;
+  label: string;
+  kind: BuiltinValueKind;
+  /** Public DTO key when it differs from the stored profile field. */
+  publicKey?: string;
+}
+
+/**
+ * Built-in fields a custom value may fill. The list is taken from the stored
+ * profile schemas and the public DTO. Internal asset ids, storage keys, and
+ * verification state are omitted so a mapping cannot replace those values.
+ * Student credentials have no public image field, so an image stays on the record.
+ */
+const MAPPABLE: Record<CustomIdentity, Record<string, readonly MappableBuiltinField[]>> = {
+  student: {
+    education: [
+      { key: "fieldOfStudy", label: "Field of study", kind: "text" },
+      { key: "specialization", label: "Specialization", kind: "text" },
+      { key: "honors", label: "Honors", kind: "text" },
+      { key: "coursework", label: "Coursework", kind: "text" },
+      { key: "location", label: "Location", kind: "text" },
+      { key: "website", label: "Website", kind: "url" },
+      { key: "startDate", label: "Start date", kind: "date" },
+      { key: "endDate", label: "End date", kind: "date" },
+    ],
+    projects: [
+      { key: "shortDescription", label: "Short description", kind: "text" },
+      { key: "detailedDescription", label: "Detailed description", kind: "text" },
+      { key: "role", label: "Role", kind: "text" },
+      { key: "repoUrl", label: "Repository URL", kind: "url" },
+      { key: "liveUrl", label: "Live URL", kind: "url" },
+      { key: "docsUrl", label: "Docs URL", kind: "url" },
+      { key: "websiteUrl", label: "Website URL", kind: "url" },
+      { key: "videoUrl", label: "Video URL", kind: "url" },
+      { key: "startDate", label: "Start date", kind: "date" },
+      { key: "endDate", label: "End date", kind: "date" },
+    ],
+    skills: [{ key: "yearsExperience", label: "Years of experience", kind: "number" }],
+    credentials: [
+      { key: "issuer", label: "Issuer", kind: "text" },
+      { key: "credentialId", label: "Credential ID", kind: "text" },
+      { key: "description", label: "Description", kind: "text" },
+      { key: "credentialUrl", label: "Credential URL", kind: "url" },
+      { key: "verificationUrl", label: "Verification URL", kind: "url" },
+      { key: "issueDate", label: "Issue date", kind: "date" },
+      { key: "expirationDate", label: "Expiration date", kind: "date" },
+      { key: "neverExpires", label: "Never expires", kind: "boolean" },
+      { key: "relatedSkills", label: "Related skills", kind: "tags" },
+    ],
+    achievements: [
+      { key: "organization", label: "Organization", kind: "text" },
+      { key: "description", label: "Description", kind: "text" },
+      { key: "awardPrize", label: "Award", kind: "text" },
+      { key: "proofUrl", label: "Proof URL", kind: "url" },
+      { key: "certificateUrl", label: "Certificate URL", kind: "url" },
+      { key: "date", label: "Date", kind: "date" },
+    ],
+    media: [
+      { key: "description", label: "Description", kind: "text" },
+      { key: "altText", label: "Alt text", kind: "text" },
+      { key: "mediaUrl", label: "Media URL", kind: "url" },
+    ],
+    contacts: [
+      { key: "city", label: "City", kind: "text" },
+      { key: "country", label: "Country", kind: "text" },
+      { key: "github", label: "GitHub", kind: "url" },
+      { key: "linkedin", label: "LinkedIn", kind: "url" },
+      { key: "portfolio", label: "Portfolio URL", kind: "url" },
+    ],
+    links: [
+      { key: "platform", label: "Platform", kind: "text" },
+      { key: "username", label: "Username", kind: "text" },
+      { key: "url", label: "URL", kind: "url" },
+    ],
+  },
+  professional: {
+    currentEmployment: [
+      { key: "company", label: "Company", kind: "text", publicKey: "organization" },
+      { key: "jobTitle", label: "Job title", kind: "text", publicKey: "title" },
+      { key: "location", label: "Location", kind: "text" },
+      { key: "startDate", label: "Start date", kind: "date" },
+      { key: "endDate", label: "End date", kind: "date" },
+      { key: "isCurrent", label: "Current role", kind: "boolean" },
+    ],
+    employmentHistory: [
+      { key: "company", label: "Company", kind: "text", publicKey: "organization" },
+      { key: "jobTitle", label: "Job title", kind: "text", publicKey: "title" },
+      { key: "location", label: "Location", kind: "text" },
+      { key: "startDate", label: "Start date", kind: "date" },
+      { key: "endDate", label: "End date", kind: "date" },
+      { key: "isCurrent", label: "Current role", kind: "boolean" },
+    ],
+    skills: [{ key: "yearsExperience", label: "Years of experience", kind: "number" }],
+    certifications: [
+      { key: "issuer", label: "Issuer", kind: "text" },
+      { key: "credentialId", label: "Credential ID", kind: "text" },
+      { key: "credentialUrl", label: "Credential URL", kind: "url" },
+      { key: "issueDate", label: "Issue date", kind: "date" },
+      { key: "expirationDate", label: "Expiration date", kind: "date" },
+    ],
+    education: [
+      { key: "fieldOfStudy", label: "Field of study", kind: "text" },
+      { key: "startDate", label: "Start date", kind: "date" },
+      { key: "endDate", label: "End date", kind: "date" },
+    ],
+    portfolio: [
+      { key: "description", label: "Description", kind: "text", publicKey: "shortDescription" },
+      { key: "role", label: "Role", kind: "text" },
+      { key: "url", label: "URL", kind: "url", publicKey: "liveUrl" },
+    ],
+    achievements: [
+      { key: "description", label: "Description", kind: "text" },
+      { key: "organization", label: "Organization", kind: "text" },
+      { key: "evidenceUrl", label: "Evidence URL", kind: "url", publicKey: "proofUrl" },
+      { key: "date", label: "Date", kind: "date" },
+    ],
+    socialLinks: [
+      { key: "label", label: "Label", kind: "text", publicKey: "username" },
+      { key: "url", label: "URL", kind: "url" },
+    ],
+    contact: [
+      { key: "city", label: "City", kind: "text" },
+      { key: "country", label: "Country", kind: "text" },
+      { key: "linkedin", label: "LinkedIn", kind: "url" },
+      { key: "website", label: "Website", kind: "url", publicKey: "portfolio" },
+    ],
+  },
+  freelancer: {
+    services: [{ key: "description", label: "Description", kind: "text", publicKey: "shortDescription" }],
+    workExperience: [
+      { key: "description", label: "Description", kind: "text" },
+      { key: "startDate", label: "Start date", kind: "date" },
+      { key: "endDate", label: "End date", kind: "date" },
+      { key: "isCurrent", label: "Current role", kind: "boolean" },
+    ],
+    skills: [{ key: "yearsExperience", label: "Years of experience", kind: "number" }],
+    portfolio: [
+      { key: "summary", label: "Summary", kind: "text", publicKey: "shortDescription" },
+      { key: "outcome", label: "Outcome", kind: "text", publicKey: "impact" },
+      { key: "url", label: "URL", kind: "url", publicKey: "liveUrl" },
+    ],
+    testimonials: [{ key: "relationship", label: "Relationship", kind: "text" }],
+    workSamples: [{ key: "url", label: "URL", kind: "url", publicKey: "mediaUrl" }],
+  },
+  creator: {
+    featuredContent: [
+      { key: "summary", label: "Summary", kind: "text", publicKey: "shortDescription" },
+      { key: "category", label: "Category", kind: "text" },
+      { key: "url", label: "URL", kind: "url", publicKey: "liveUrl" },
+      { key: "publishedAt", label: "Published date", kind: "date", publicKey: "startDate" },
+    ],
+    channels: [
+      { key: "handle", label: "Handle", kind: "text", publicKey: "username" },
+      { key: "url", label: "URL", kind: "url" },
+    ],
+    pastCollaborations: [
+      { key: "description", label: "Description", kind: "text" },
+      { key: "outcome", label: "Outcome", kind: "text" },
+      { key: "url", label: "URL", kind: "url", publicKey: "proofUrl" },
+      { key: "date", label: "Date", kind: "date" },
+    ],
+  },
+  business: {
+    products: [
+      { key: "description", label: "Description", kind: "text", publicKey: "shortDescription" },
+      { key: "url", label: "URL", kind: "url", publicKey: "liveUrl" },
+    ],
+    credentials: [
+      { key: "issuer", label: "Issuer", kind: "text" },
+      { key: "description", label: "Description", kind: "text" },
+      { key: "evidenceUrl", label: "Evidence URL", kind: "url", publicKey: "credentialUrl" },
+      { key: "issueDate", label: "Issue date", kind: "date" },
+      { key: "expirationDate", label: "Expiration date", kind: "date" },
+    ],
+    services: [{ key: "description", label: "Description", kind: "text", publicKey: "shortDescription" }],
+    team: [{ key: "role", label: "Role", kind: "text" }],
+    caseStudies: [
+      { key: "summary", label: "Summary", kind: "text", publicKey: "shortDescription" },
+      { key: "url", label: "URL", kind: "url", publicKey: "liveUrl" },
+    ],
+    resources: [{ key: "url", label: "URL", kind: "url" }],
+    publicContact: [
+      { key: "city", label: "City", kind: "text" },
+      { key: "country", label: "Country", kind: "text" },
+    ],
+  },
+};
+
+export function mappableFields(identity: CustomIdentity, sectionKey: string): readonly MappableBuiltinField[] {
+  return MAPPABLE[identity][sectionKey] || [];
+}
+
+export function mappingCompatible(type: CustomFieldType, kind: BuiltinValueKind): boolean {
+  if (kind === "text") return type === "text" || type === "textarea" || type === "select";
+  if (kind === "url") return type === "url";
+  if (kind === "date") return type === "date";
+  if (kind === "boolean") return type === "boolean";
+  if (kind === "number") return type === "number";
+  if (kind === "tags") return type === "tags" || type === "multiselect";
+  return false;
 }

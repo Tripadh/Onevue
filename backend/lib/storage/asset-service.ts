@@ -48,6 +48,8 @@ const PURPOSE_BY_PATH: { test: RegExp; purpose: AssetPurpose }[] = [
   { test: /(^|\.)portfolio(?:\.\d+)?\.assetId$/, purpose: "portfolio-image" },
   { test: /(^|\.)projects(?:\.\d+)?\.assetId$/, purpose: "portfolio-image" },
   { test: /(^|\.)media(?:\.\d+)?\.assetId$/, purpose: "portfolio-media" },
+  { test: /(^|\.)customFields(?:\.\d+)?\.(?:value\.)?assetId$/, purpose: "portfolio-image" },
+  { test: /(^|\.)aboutCustomFields(?:\.\d+)?\.(?:value\.)?assetId$/, purpose: "portfolio-image" },
 ];
 
 function asModel<T>(model: T): T {
@@ -95,6 +97,41 @@ export function collectAssetBindings(value: unknown, path = ""): AssetBinding[] 
   if (!value || typeof value !== "object") return found;
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
     const childPath = path ? `${path}.${key}` : key;
+    if (key === "customFields" || key === "aboutCustomFields") {
+      if (Array.isArray(child)) {
+        for (let i = 0; i < child.length; i += 1) {
+          const field = child[i];
+          if (!field || typeof field !== "object") continue;
+          const fType = (field as Record<string, unknown>).type;
+          const purpose: AssetPurpose = fType === "file" ? "portfolio-media" : "portfolio-image";
+          const val = (field as Record<string, unknown>).value;
+          if (val && typeof val === "object" && !Array.isArray(val)) {
+            const rawAid = (val as Record<string, unknown>).assetId;
+            if (typeof rawAid === "string" && rawAid.trim()) {
+              const aid = rawAid.trim();
+              if (!isAssetId(aid)) {
+                throw new ProfileValidationError(`Field '${childPath}[${i}].value.assetId' is not a valid asset reference.`);
+              }
+              found.push({ assetId: aid, purpose });
+            }
+          } else if (Array.isArray(val)) {
+            for (let j = 0; j < val.length; j += 1) {
+              const item = val[j];
+              if (item && typeof item === "object" && typeof (item as Record<string, unknown>).assetId === "string") {
+                const aid = ((item as Record<string, unknown>).assetId as string).trim();
+                if (aid) {
+                  if (!isAssetId(aid)) {
+                    throw new ProfileValidationError(`Field '${childPath}[${i}].value[${j}].assetId' is not a valid asset reference.`);
+                  }
+                  found.push({ assetId: aid, purpose: "portfolio-image" });
+                }
+              }
+            }
+          }
+        }
+      }
+      continue;
+    }
     if ((key === "assetId" || key.endsWith(".assetId")) && typeof child === "string" && child.trim()) {
       const purpose = purposeForPath(childPath);
       if (!purpose) {
@@ -117,7 +154,13 @@ export async function assertProfileAssetRefs(ownerId: string, bindings: AssetBin
   const Model = assetModel();
   for (const binding of bindings) {
     const asset = await Model.findOne({ assetId: binding.assetId, status: "verified" });
-    if (!asset || String(asset.ownerId) !== String(ownerId) || asset.purpose !== binding.purpose) {
+    const purposeMatches = asset && (
+      asset.purpose === binding.purpose ||
+      (binding.purpose.startsWith("portfolio-") && asset.purpose.startsWith("portfolio-")) ||
+      (binding.purpose === "evidence" && (asset.purpose === "evidence" || asset.purpose.startsWith("portfolio-"))) ||
+      (binding.purpose === "certificate" && (asset.purpose === "certificate" || asset.purpose.startsWith("portfolio-")))
+    );
+    if (!asset || String(asset.ownerId) !== String(ownerId) || !purposeMatches) {
       throw new ProfileValidationError(
         "That uploaded file is not available for this profile field.",
         403

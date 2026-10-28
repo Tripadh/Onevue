@@ -3,11 +3,19 @@ export {
   builtinByKey,
   builtinSections,
   isCustomIdentity,
+  mappableFields,
+  mappingCompatible,
   patchTouchesBuiltinRecords,
   recordIdsForIdentity,
 } from "./builtins";
 export { fieldCompatibility, presentationForField, templateSupportsField, MAGICUI_TEMPLATE_ID } from "./capabilities";
-export { projectCustomLayout, sanitizePublicCustomSections } from "./publish";
+export {
+  applyRecordMappings,
+  projectCustomLayout,
+  projectRecordFields,
+  retainOwnedCustomRecords,
+  sanitizePublicCustomSections,
+} from "./publish";
 export {
   CUSTOM_FIELD_LIMITS,
   CUSTOM_FIELD_TYPES,
@@ -15,11 +23,13 @@ export {
   emptyCustomLayout,
 } from "./types";
 export type {
+  AttachmentScope,
   CustomFieldDefinition,
   CustomFieldType,
   CustomIdentity,
   CustomLayout,
   PublicCustomField,
   PublicCustomSection,
+  RecordCustomField,
 } from "./types";
-export { collectCustomAssetBindings, normalizeCustomLayout, syncCustomLayout, videoEmbedAllowed } from "./validate";
+export { collectCustomAssetBindings, collectRecordCustomFieldAssets, normalizeCustomLayout, syncCustomLayout, validateRecordCustomFields, videoEmbedAllowed } from "./validate";

@@ -195,6 +195,9 @@ export interface IPublicCustomField {
   helpText?: string;
   presentation: string;
   value: unknown;
+  mapsTo?: string;
+  /** Present only on a leaked or legacy field. Public snapshots omit private fields. */
+  visibility?: "public" | "private";
 }
 
 export interface IPublicCustomSection {
@@ -277,6 +280,7 @@ export interface AdaptedCustomField {
   tags?: string[];
   checked?: boolean;
   embed?: boolean;
+  mapsTo?: string;
 }
 
 export interface AdaptedCustomSection {
@@ -313,12 +317,14 @@ export interface AdaptedProject {
   links: AdaptedProjectLink[];
   image: string;
   video: string;
+  customFields?: AdaptedCustomField[];
 }
 
 export interface AdaptedSkill {
   name: string;
   category?: string;
   proficiency?: string;
+  customFields?: AdaptedCustomField[];
 }
 
 export interface AdaptedWorkItem {
@@ -331,6 +337,9 @@ export interface AdaptedWorkItem {
   start: string;
   end: string;
   description: string;
+  /** Stable id of the profile record this row was projected from. */
+  sourceRecordId?: string;
+  customFields?: AdaptedCustomField[];
 }
 
 export interface AdaptedHackathonLink {
@@ -346,6 +355,7 @@ export interface AdaptedHackathon {
   description: string;
   image?: string;
   links: AdaptedHackathonLink[];
+  customFields?: AdaptedCustomField[];
 }
 
 export interface AdaptedHighlight {
@@ -353,14 +363,17 @@ export interface AdaptedHighlight {
   date: string;
   description: string;
   href: string;
+  customFields?: AdaptedCustomField[];
 }
 
 export interface AdaptedCredential {
+  id?: string;
   title: string;
   issuer: string;
   date: string;
   href: string;
   description: string;
+  customFields?: AdaptedCustomField[];
 }
 
 export interface AdaptedTestimonial {
@@ -368,11 +381,13 @@ export interface AdaptedTestimonial {
   author: string;
   relationship: string;
   note: string;
+  customFields?: AdaptedCustomField[];
 }
 
 export interface AdaptedTeamMember {
   name: string;
   role: string;
+  customFields?: AdaptedCustomField[];
 }
 
 export interface AdaptedMediaItem {
@@ -380,6 +395,7 @@ export interface AdaptedMediaItem {
   href: string;
   mediaType: string;
   alt: string;
+  customFields?: AdaptedCustomField[];
 }
 
 export interface AdaptedSocialLink {
@@ -387,6 +403,8 @@ export interface AdaptedSocialLink {
   url: string;
   iconName: "github" | "linkedin" | "x" | "email" | "globe" | "phone" | "instagram";
   navbar: boolean;
+  sourceId?: string;
+  customFields?: AdaptedCustomField[];
 }
 
 export interface AdaptedPortfolioData {
@@ -412,10 +430,13 @@ export interface AdaptedPortfolioData {
   team: AdaptedTeamMember[];
   media: AdaptedMediaItem[];
   customSections: AdaptedCustomSection[];
+  aboutFields?: AdaptedCustomField[];
+  resumeFields?: AdaptedCustomField[];
   contact: {
     email?: string;
     tel?: string;
     social: Record<string, AdaptedSocialLink>;
+    customFields?: AdaptedCustomField[];
   };
   resumeUrl?: string;
   /** Test adapter that rendered this view. Stored content is not removed when it cannot be shown. */
@@ -504,12 +525,54 @@ export function resolveAvatarUrl(val: unknown, assetOrigin?: string): string | u
   }
 }
 
-function customFieldsFor(dto: PublicProfileDTO_v1, builtinKey: string, recordId: string): IPublicCustomField[] {
-  const sections = Array.isArray(dto.customSections) ? dto.customSections : [];
-  const section = sections.find((item) => item && item.builtinKey === builtinKey);
-  if (!section) return [];
+/**
+ * Older snapshots used these section keys for the same stored records.
+ * A legacy key is used only when the current key is absent and exactly one
+ * section contains the requested record id.
+ */
+const LEGACY_SECTION_KEYS: Record<string, readonly string[]> = {
+  employmentHistory: ["experience", "work", "jobs"],
+  workExperience: ["experience", "work", "jobs"],
+  achievements: ["highlights"],
+  pastCollaborations: ["highlights"],
+  audienceStats: ["highlights"],
+  credentials: ["certifications", "certification"],
+  certifications: ["credentials"],
+  projects: ["project"],
+  portfolio: ["project"],
+  products: ["project"],
+  services: ["project"],
+  caseStudies: ["project"],
+  featuredContent: ["featured"],
+  socialLinks: ["social", "social_links"],
+  links: ["social", "social_links"],
+  channels: ["social"],
+  resources: ["social"],
+  testimonials: ["testimonial"],
+  team: ["team_members"],
+};
+
+function fieldsOnSection(section: IPublicCustomSection, recordId: string): IPublicCustomField[] {
   const record = (section.records || []).find((item) => item && item.id === recordId);
   return record && Array.isArray(record.fields) ? record.fields : [];
+}
+
+function customFieldsFor(dto: PublicProfileDTO_v1, builtinKey: string, recordId: string): IPublicCustomField[] {
+  const sections = (Array.isArray(dto.customSections) ? dto.customSections : []).filter(
+    (item): item is IPublicCustomSection => Boolean(item)
+  );
+  const exact = sections.filter((section) => section.builtinKey === builtinKey || section.key === builtinKey);
+  for (const section of exact) {
+    const fields = fieldsOnSection(section, recordId);
+    if (fields.length) return fields;
+  }
+  if (exact.length) return [];
+  const aliases = LEGACY_SECTION_KEYS[builtinKey] || [];
+  const matches = sections
+    .filter((section) => aliases.includes(section.builtinKey || section.key))
+    .map((section) => fieldsOnSection(section, recordId))
+    .filter((fields) => fields.length > 0);
+  return matches.length === 1 ? matches[0] : [];
 }
 
 function safeFieldHref(value: unknown, assetOrigin?: string): string | undefined {
@@ -521,7 +584,13 @@ function adaptCustomFields(fields: IPublicCustomField[] | undefined, assetOrigin
   const adapted: AdaptedCustomField[] = [];
   for (const field of fields) {
     if (!field || field.presentation === "hidden" || typeof field.label !== "string") continue;
-    const base = { id: String(field.id || field.key || field.label), label: field.label, presentation: field.presentation };
+    if ((field as { visibility?: string }).visibility === "private") continue;
+    const base = {
+      id: String(field.id || field.key || field.label),
+      label: field.label,
+      presentation: field.presentation,
+      ...(typeof field.mapsTo === "string" && field.mapsTo ? { mapsTo: field.mapsTo } : {}),
+    };
     if (field.presentation === "link" || field.type === "url") {
       const href = safeFieldHref(field.value, assetOrigin);
       if (!href) continue;
@@ -573,6 +642,54 @@ function adaptCustomFields(fields: IPublicCustomField[] | undefined, assetOrigin
     }
   }
   return adapted;
+}
+
+const STORED_TO_PUBLIC: Record<string, string[]> = {
+  company: ["organization"],
+  jobTitle: ["title"],
+  evidenceUrl: ["proofUrl", "credentialUrl"],
+  website: ["portfolio"],
+  description: ["shortDescription"],
+  summary: ["shortDescription"],
+  url: ["liveUrl", "mediaUrl"],
+  publishedAt: ["startDate"],
+  outcome: ["impact"],
+  label: ["username"],
+  handle: ["username"],
+};
+
+function shownOnRecord(field: AdaptedCustomField, source: Record<string, unknown> | undefined): boolean {
+  if (!field.mapsTo || !source) return true;
+  const direct = source[field.mapsTo];
+  const alias = (STORED_TO_PUBLIC[field.mapsTo] || [])
+    .map((key) => source[key])
+    .find((value) => value !== undefined && value !== null && value !== "");
+  const current = direct !== undefined && direct !== null && direct !== "" ? direct : alias;
+  if (current === undefined || current === null || current === "") return true;
+  if (field.href && current === field.href) return false;
+  if (field.text && String(current) === field.text) return false;
+  if (typeof current === "boolean" && field.checked === current) return false;
+  if (Array.isArray(current) && field.tags && current.join("\u0000") === field.tags.join("\u0000")) return false;
+  return true;
+}
+
+function recordCustomFields(
+  dto: PublicProfileDTO_v1,
+  builtinKeys: string[],
+  recordId: string,
+  assetOrigin: string | undefined,
+  source?: Record<string, unknown>
+): AdaptedCustomField[] {
+  const seen = new Set<string>();
+  const direct = Array.isArray(source?.customFields) ? (source!.customFields as IPublicCustomField[]) : [];
+  const fromSections = builtinKeys.flatMap((key) => customFieldsFor(dto, key, recordId));
+  const raw = [...direct, ...fromSections].filter((field) => {
+    const id = String(field.id || field.key || "");
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  return adaptCustomFields(raw, assetOrigin).filter((field) => shownOnRecord(field, source));
 }
 
 function adaptCustomSections(dto: PublicProfileDTO_v1, assetOrigin?: string): AdaptedCustomSection[] {
@@ -651,7 +768,7 @@ export function adaptOneVueProfile(
             degree: degreeText,
             start: start || "Enrolled",
             end: end || "Present",
-            customFields: adaptCustomFields(customFieldsFor(dto, "education", e.id), options?.assetOrigin),
+            customFields: recordCustomFields(dto, ["education"], e.id, options?.assetOrigin, e as unknown as Record<string, unknown>),
           };
         })
     : [];
@@ -706,6 +823,13 @@ export function adaptOneVueProfile(
         links,
         image: directImage || legacyImage || "",
         video: safeVideoUrl || "",
+        customFields: recordCustomFields(
+          dto,
+          ["projects", "portfolio", "products", "caseStudies", "featuredContent", "services"],
+          p.id,
+          options?.assetOrigin,
+          p as unknown as Record<string, unknown>
+        ),
       };
       projectBuckets[projectGroup(p.projectType)].push(adapted);
     });
@@ -719,6 +843,22 @@ export function adaptOneVueProfile(
   for (const job of explicitExperience) {
     if (!job || (!job.title && !job.organization)) continue;
     const end = job.isCurrent ? "Present" : job.endDate || "";
+    const roleFields = recordCustomFields(
+      dto,
+      ["employmentHistory", "workExperience"],
+      job.id,
+      options?.assetOrigin,
+      job as unknown as Record<string, unknown>
+    );
+    const currentRoleFields = job.id === "currentEmployment"
+      ? recordCustomFields(
+          dto,
+          ["currentEmployment"],
+          "",
+          options?.assetOrigin,
+          job as unknown as Record<string, unknown>
+        )
+      : [];
     adaptedWork.push({
       company: job.organization || job.title,
       href: "#",
@@ -728,6 +868,7 @@ export function adaptOneVueProfile(
       start: job.startDate || "",
       end,
       description: job.description || "",
+      customFields: [...currentRoleFields, ...roleFields],
     });
   }
   if (explicitExperience.length === 0 && Array.isArray(achievements)) {
@@ -743,6 +884,14 @@ export function adaptOneVueProfile(
         start: "",
         end: item.date || item.year || "",
         description: item.description || "",
+        sourceRecordId: item.id,
+        customFields: recordCustomFields(
+          dto,
+          ["achievements"],
+          item.id,
+          options?.assetOrigin,
+          item as unknown as Record<string, unknown>
+        ),
       });
     }
   }
@@ -752,6 +901,7 @@ export function adaptOneVueProfile(
         p.projectType &&
         (p.projectType.toLowerCase() === "internship" || p.projectType.toLowerCase() === "employment")
       ) {
+        const sourceId = typeof p.id === "string" ? p.id : "";
         adaptedWork.push({
           company: p.title,
           href: sanitizeSafeUrl(p.liveUrl) || sanitizeSafeUrl(p.repoUrl) || "#",
@@ -761,6 +911,16 @@ export function adaptOneVueProfile(
           start: p.startDate || "",
           end: p.endDate || "Present",
           description: p.shortDescription || p.detailedDescription || "",
+          ...(sourceId ? { sourceRecordId: sourceId } : {}),
+          customFields: sourceId
+            ? recordCustomFields(
+                dto,
+                ["projects", "portfolio", "products", "caseStudies", "featuredContent", "services"],
+                sourceId,
+                options?.assetOrigin,
+                p as unknown as Record<string, unknown>
+              )
+            : [],
         });
       }
     }
@@ -774,6 +934,7 @@ export function adaptOneVueProfile(
           name: s.name,
           category: s.category || "General",
           proficiency: s.proficiency,
+          customFields: recordCustomFields(dto, ["skills"], s.id, options?.assetOrigin, s as unknown as Record<string, unknown>),
         }))
     : [];
 
@@ -808,6 +969,13 @@ export function adaptOneVueProfile(
           location: a.location || a.organization || "",
           description: a.description || (a.awardPrize ? `Award: ${a.awardPrize}` : ""),
           links,
+          customFields: recordCustomFields(
+            dto,
+            ["achievements", "pastCollaborations", "audienceStats"],
+            a.id,
+            options?.assetOrigin,
+            a as unknown as Record<string, unknown>
+          ),
         });
       }
     }
@@ -827,16 +995,31 @@ export function adaptOneVueProfile(
       date: item.date || item.year || "",
       description: item.description || "",
       href: sanitizeSafeUrl(item.proofUrl) || sanitizeSafeUrl(item.certificateUrl) || "#",
+      customFields: recordCustomFields(
+        dto,
+        ["achievements", "pastCollaborations", "audienceStats"],
+        item.id,
+        options?.assetOrigin,
+        item as unknown as Record<string, unknown>
+      ),
     }));
 
   const credentials: AdaptedCredential[] = (Array.isArray(dto.credentials) ? dto.credentials : [])
     .filter((item) => Boolean(item && item.title))
     .map((item) => ({
+      id: item.id,
       title: item.title,
       issuer: item.issuer || "",
       date: item.issueDate || "",
       href: sanitizeSafeUrl(item.credentialUrl) || sanitizeSafeUrl(item.verificationUrl) || "#",
       description: item.description || "",
+      customFields: recordCustomFields(
+        dto,
+        ["credentials", "certifications"],
+        item.id,
+        options?.assetOrigin,
+        item as unknown as Record<string, unknown>
+      ),
     }));
 
   const explicitTestimonials = Array.isArray(dto.testimonials) ? dto.testimonials : [];
@@ -848,6 +1031,13 @@ export function adaptOneVueProfile(
           author: item.authorName,
           relationship: item.relationship || "",
           note: item.attribution === "verified" ? "Verified" : "Self-reported",
+          customFields: recordCustomFields(
+            dto,
+            ["testimonials"],
+            item.id,
+            options?.assetOrigin,
+            item as unknown as Record<string, unknown>
+          ),
         }))
     : achievementList
         .filter((item) => String(item?.category || "").toLowerCase() === "testimonial" && item.title)
@@ -856,16 +1046,43 @@ export function adaptOneVueProfile(
           author: item.organization || "",
           relationship: item.role || "",
           note: item.description || "",
+          customFields: recordCustomFields(
+            dto,
+            ["achievements"],
+            item.id,
+            options?.assetOrigin,
+            item as unknown as Record<string, unknown>
+          ),
         }));
 
   const explicitTeam = Array.isArray(dto.team) ? dto.team : [];
   const team: AdaptedTeamMember[] = explicitTeam.length
     ? explicitTeam
         .filter((item) => Boolean(item && item.name))
-        .map((item) => ({ name: item.name, role: item.role || "" }))
+        .map((item) => ({
+          name: item.name,
+          role: item.role || "",
+          customFields: recordCustomFields(
+            dto,
+            ["team"],
+            item.id,
+            options?.assetOrigin,
+            item as unknown as Record<string, unknown>
+          ),
+        }))
     : achievementList
         .filter((item) => String(item?.category || "").toLowerCase() === "team" && item.title)
-        .map((item) => ({ name: item.title, role: item.role || "" }));
+        .map((item) => ({
+          name: item.title,
+          role: item.role || "",
+          customFields: recordCustomFields(
+            dto,
+            ["achievements"],
+            item.id,
+            options?.assetOrigin,
+            item as unknown as Record<string, unknown>
+          ),
+        }));
 
   const media: AdaptedMediaItem[] = mediaItems.flatMap((item) => {
     if (!item?.mediaUrl) return [];
@@ -879,6 +1096,13 @@ export function adaptOneVueProfile(
         href,
         mediaType: item.mediaType || "link",
         alt: item.altText || item.title || "Media",
+        customFields: recordCustomFields(
+          dto,
+          ["media", "workSamples"],
+          item.id,
+          options?.assetOrigin,
+          item as unknown as Record<string, unknown>
+        ),
       },
     ];
   });
@@ -959,17 +1183,60 @@ export function adaptOneVueProfile(
           canonicalName = "Email";
         }
 
-        if (!socialMap[canonicalName]) {
+        const sourceId = typeof link.id === "string" ? link.id : "";
+        const linkedFields = sourceId
+          ? recordCustomFields(
+              dto,
+              ["socialLinks", "channels", "links", "resources"],
+              sourceId,
+              options?.assetOrigin,
+              link as unknown as Record<string, unknown>
+            )
+          : [];
+        const current = socialMap[canonicalName];
+        const sameLink = current && current.url.replace(/\/+$/, "") === safeUrl.replace(/\/+$/, "");
+        if (!current) {
           socialMap[canonicalName] = {
             name: canonicalName,
             url: safeUrl,
             iconName,
             navbar: link.isPrimary !== undefined ? Boolean(link.isPrimary) : true,
+            ...(sourceId ? { sourceId } : {}),
+            ...(linkedFields.length ? { customFields: linkedFields } : {}),
+          };
+        } else if (sameLink && (!current.sourceId || current.sourceId === sourceId)) {
+          const existing = current.customFields || [];
+          socialMap[canonicalName] = {
+            ...current,
+            ...(sourceId ? { sourceId } : {}),
+            ...(linkedFields.length ? { customFields: [...existing, ...linkedFields] } : {}),
+          };
+        } else if (sourceId && !socialMap[`link:${sourceId}`]) {
+          socialMap[`link:${sourceId}`] = {
+            name: canonicalName,
+            url: safeUrl,
+            iconName,
+            navbar: false,
+            sourceId,
+            ...(linkedFields.length ? { customFields: linkedFields } : {}),
           };
         }
       }
     }
   }
+
+  const aboutFields = recordCustomFields(dto, ["about", "branding"], "", options?.assetOrigin);
+  const resumeFields = recordCustomFields(dto, ["resume"], "", options?.assetOrigin);
+  const contactFields = [
+    ...recordCustomFields(
+      dto,
+      ["contacts", "contact", "publicContact"],
+      "",
+      options?.assetOrigin,
+      contact as unknown as Record<string, unknown>
+    ),
+    ...recordCustomFields(dto, ["mediaKit"], "", options?.assetOrigin),
+  ];
 
   const projectSectionVisible = isVisible("projects");
   const achievementSectionVisible = isVisible("achievements") || isVisible("credentials");
@@ -1000,10 +1267,13 @@ export function adaptOneVueProfile(
     team,
     media,
     customSections,
+    aboutFields,
+    resumeFields,
     contact: {
       email: contact?.email,
       tel: contact?.phone,
       social: socialMap,
+      customFields: contactFields,
     },
     resumeUrl: sanitizeSafeUrl(dto.resume?.url),
     templateId: website?.templateId || dto.meta.templateId || MAGICUI_TEMPLATE_ID,
@@ -1020,7 +1290,7 @@ export function adaptOneVueProfile(
     sectionOrder: normalizeSectionOrder(website?.customization?.sectionOrder),
     visibleSections: {
       hero: true,
-      about: isVisible("about") && Boolean(summary),
+      about: isVisible("about") && (Boolean(summary) || aboutFields.length > 0),
       work: workVisible,
       education: isVisible("education") && adaptedEducation.length > 0,
       skills: isVisible("skills") && adaptedSkills.length > 0,

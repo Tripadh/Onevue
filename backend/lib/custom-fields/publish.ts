@@ -1,5 +1,6 @@
 import { ProfileValidationError } from "../domain-profile/validate";
 import { sanitizeStoredText } from "../templates/registry";
+import { isCustomIdentity, mappableFields, mappingCompatible } from "./builtins";
 import { presentationForField } from "./capabilities";
 import type {
   AssetFieldValue,
@@ -102,7 +103,12 @@ function projectField(
     ...(field.helpText ? { helpText: field.helpText } : {}),
     presentation,
     value: rendered,
+    ...(field.mapsTo ? { mapsTo: field.mapsTo } : {}),
   };
+}
+
+function fieldsForRecord(fields: CustomFieldDefinition[], recordId: string): CustomFieldDefinition[] {
+  return fields.filter((field) => field.scope !== "record" || field.targetRecordId === recordId);
 }
 
 /**
@@ -121,7 +127,7 @@ export function projectCustomLayout(layout: unknown, options: ProjectCustomLayou
     if (section.repeatable && section.builtinKey) {
       for (const binding of layout.bindings) {
         if (binding.sectionId !== section.id) continue;
-        const fields = section.fields
+        const fields = fieldsForRecord(section.fields, binding.recordId)
           .map((field) => projectField(field, binding.values?.[field.id], options.templateId, hrefFor, strict))
           .filter((field): field is PublicCustomField => Boolean(field));
         if (fields.length) records.push({ id: binding.recordId, fields });
@@ -129,14 +135,14 @@ export function projectCustomLayout(layout: unknown, options: ProjectCustomLayou
     } else if (section.repeatable) {
       for (const entry of layout.entries) {
         if (entry.sectionId !== section.id) continue;
-        const fields = section.fields
+        const fields = fieldsForRecord(section.fields, entry.id)
           .map((field) => projectField(field, entry.values?.[field.id], options.templateId, hrefFor, strict))
           .filter((field): field is PublicCustomField => Boolean(field));
         if (fields.length) records.push({ id: entry.id, fields });
       }
     } else {
       const binding = layout.bindings.find((item) => item.sectionId === section.id && item.recordId === "");
-      const fields = section.fields
+      const fields = fieldsForRecord(section.fields, "")
         .map((field) => projectField(field, binding?.values?.[field.id], options.templateId, hrefFor, strict))
         .filter((field): field is PublicCustomField => Boolean(field));
       if (fields.length) records.push({ id: "", fields });
@@ -242,6 +248,7 @@ export function sanitizePublicCustomSections(
         if (typeof field.presentation !== "string" || !PRESENTATIONS.has(field.presentation)) continue;
         const rendered = cleanPublicValue(field.type, field.value, hrefOk);
         if (rendered === null) continue;
+        const mapsTo = typeof field.mapsTo === "string" && /^[a-z][a-z0-9_]{0,39}$/.test(field.mapsTo) ? field.mapsTo : "";
         fields.push({
           id: field.id.slice(0, 40),
           key: typeof field.key === "string" ? field.key.slice(0, 40) : field.id.slice(0, 40),
@@ -250,6 +257,7 @@ export function sanitizePublicCustomSections(
           order: typeof field.order === "number" ? field.order : fields.length,
           presentation: field.presentation as PublicCustomField["presentation"],
           value: rendered,
+          ...(mapsTo ? { mapsTo } : {}),
         });
       }
       if (fields.length) records.push({ id: typeof record.id === "string" ? record.id.slice(0, 100) : "", fields });
@@ -268,4 +276,143 @@ export function sanitizePublicCustomSections(
     });
   }
   return sections;
+}
+
+function bucketFor(builtinKey: string, buckets: Record<string, Record<string, unknown>[]>): Record<string, unknown>[] {
+  if (builtinKey === "certifications") return buckets.credentials || [];
+  if (builtinKey === "contacts" || builtinKey === "contact" || builtinKey === "publicContact") return buckets.contact || [];
+  if (builtinKey === "currentEmployment" || builtinKey === "employmentHistory" || builtinKey === "workExperience") {
+    return buckets.experience || [];
+  }
+  if (builtinKey === "socialLinks" || builtinKey === "channels" || builtinKey === "links" || builtinKey === "resources") {
+    return buckets.socialLinks || [];
+  }
+  if (
+    builtinKey === "portfolio" ||
+    builtinKey === "products" ||
+    builtinKey === "caseStudies" ||
+    builtinKey === "featuredContent" ||
+    builtinKey === "services"
+  ) {
+    return buckets.projects || [];
+  }
+  if (builtinKey === "workSamples") return buckets.media || [];
+  if (builtinKey === "pastCollaborations" || builtinKey === "audienceStats") return buckets.achievements || [];
+  return buckets[builtinKey] || [];
+}
+
+function findMappedRecord(
+  list: Record<string, unknown>[],
+  recordId: string,
+  builtinKey: string
+): Record<string, unknown> | undefined {
+  const match = list.find((item) => String(item.id || "") === recordId);
+  if (match) return match;
+  if (!recordId && builtinKey === "currentEmployment") {
+    return list.find((item) => String(item.id || "") === "currentEmployment");
+  }
+  if (!recordId && list.length === 1 && !list[0].id) return list[0];
+  return undefined;
+}
+
+function valueEmpty(value: unknown): boolean {
+  if (value === undefined || value === null || value === "") return true;
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
+
+/**
+ * Fills an empty built-in public field from a mapped custom value.
+ * A stored value always wins. The custom field remains available to the record card.
+ */
+export function applyRecordMappings(
+  sections: PublicCustomSection[],
+  buckets: Record<string, Record<string, unknown>[]>,
+  identity: string
+): void {
+  if (!isCustomIdentity(identity)) return;
+  for (const section of sections) {
+    if (!section.builtinKey) continue;
+    const catalog = mappableFields(identity, section.builtinKey);
+    if (!catalog.length) continue;
+    const list = bucketFor(section.builtinKey, buckets);
+    for (const record of section.records) {
+      const target = findMappedRecord(list, record.id, section.builtinKey || "");
+      if (!target) continue;
+      for (const field of record.fields) {
+        if (!field.mapsTo) continue;
+        const spec = catalog.find((item) => item.key === field.mapsTo);
+        if (!spec || !mappingCompatible(field.type, spec.kind)) continue;
+        const publicKey = spec.publicKey || spec.key;
+        if (!valueEmpty(target[publicKey])) continue;
+        const value = field.value;
+        if (spec.kind === "text" || spec.kind === "url" || spec.kind === "date") {
+          if (typeof value === "string" && value) target[publicKey] = value;
+        } else if (spec.kind === "boolean" && typeof value === "boolean") {
+          target[publicKey] = value;
+        } else if (spec.kind === "number" && typeof value === "number") {
+          target[publicKey] = value;
+        } else if (spec.kind === "tags" && Array.isArray(value) && value.length) {
+          target[publicKey] = value;
+        }
+      }
+    }
+  }
+}
+
+/** Drops built-in custom records whose ids are no longer on the profile. */
+export function retainOwnedCustomRecords(
+  sections: PublicCustomSection[],
+  recordIds: Record<string, string[]> | undefined
+): PublicCustomSection[] {
+  if (!recordIds) return sections;
+  const kept: PublicCustomSection[] = [];
+  for (const section of sections) {
+    if (!section.builtinKey || !section.repeatable) {
+      kept.push(section);
+      continue;
+    }
+    const allowed = recordIds[section.builtinKey];
+    if (!allowed) {
+      kept.push(section);
+      continue;
+    }
+    const records = section.records.filter((record) => allowed.includes(record.id));
+    if (records.length) kept.push({ ...section, records });
+  }
+  return kept;
+}
+
+export function projectRecordFields(
+  fields: unknown,
+  options: ProjectCustomLayoutOptions
+): PublicCustomField[] {
+  if (!Array.isArray(fields)) return [];
+  const hrefFor = options.assetHref || defaultHref;
+  const out: PublicCustomField[] = [];
+  for (const item of fields) {
+    if (!item || typeof item !== "object") continue;
+    if ((item as Record<string, unknown>).visibility === "private") continue;
+    const def: CustomFieldDefinition = {
+      id: String((item as Record<string, unknown>).id || ""),
+      key: String((item as Record<string, unknown>).key || (item as Record<string, unknown>).id || ""),
+      label: String((item as Record<string, unknown>).label || ""),
+      type: (item as Record<string, unknown>).type as any,
+      required: false,
+      visibility: ((item as Record<string, unknown>).visibility as any) || "public",
+      order: Number((item as Record<string, unknown>).order) || 0,
+      helpText: "",
+      placeholder: "",
+      retired: false,
+      config: ((item as Record<string, unknown>).config as any) || {},
+      createdAt: "",
+      updatedAt: "",
+      scope: "record",
+      targetRecordId: "",
+      mapsTo: String((item as Record<string, unknown>).mapsTo || ""),
+    };
+    const projected = projectField(def, (item as Record<string, unknown>).value, options.templateId, hrefFor, options.strict === true);
+    if (projected) out.push(projected);
+  }
+  return out.sort((a, b) => a.order - b.order);
 }

@@ -1,4 +1,6 @@
 import { Schema, model, models } from "mongoose";
+import { recordCustomFieldsArray } from "./domain/fragments";
+import type { RecordCustomField } from "../lib/custom-fields/types";
 
 /* =========================================================================
    Student Identity — TypeScript Interfaces
@@ -40,6 +42,7 @@ export interface IStudentEducation {
   startYear?: string;
   gradYear?: string;
   verificationStatus?: "pending" | "verified" | "rejected" | "self-reported";
+  customFields?: RecordCustomField[];
 }
 
 export type ProjectType =
@@ -96,6 +99,7 @@ export interface IStudentProject {
   };
   summary?: string;
   link?: string;
+  customFields?: RecordCustomField[];
 }
 
 export const SKILL_CATEGORIES = [
@@ -131,6 +135,7 @@ export interface IStudentSkill {
   relatedProjects?: string[];
   relatedCredentials?: string[];
   level?: string;
+  customFields?: RecordCustomField[];
 }
 
 export type CredentialType =
@@ -167,6 +172,7 @@ export interface IStudentCredential {
   verificationStatus?: "pending" | "verified" | "rejected" | "self-reported";
   verificationMethod?: string;
   certificateVerificationId?: string;
+  customFields?: RecordCustomField[];
 }
 
 export type AchievementCategory =
@@ -206,6 +212,7 @@ export interface IStudentAchievement {
   relatedProject?: string;
   skillsDemonstrated?: string[];
   verificationStatus?: "pending" | "verified" | "rejected" | "self-reported";
+  customFields?: RecordCustomField[];
 }
 
 export interface IStudentResumeMetadata {
@@ -253,6 +260,7 @@ export interface IStudentMediaItem {
   mimeType?: string;
   fileSize?: number;
   uploadedAt?: Date;
+  customFields?: RecordCustomField[];
 }
 
 export type LinkCategory =
@@ -290,6 +298,7 @@ export interface IStudentContacts {
   linkedin?: string;
   twitter?: string;
   portfolio?: string;
+  customFields?: RecordCustomField[];
 }
 
 export interface ILanguageProficiency {
@@ -341,6 +350,7 @@ export interface IStudentProfile {
 
   // Module 9: Contacts
   contacts: IStudentContacts;
+  aboutCustomFields?: RecordCustomField[];
 
   /** Section-agnostic custom fields. Missing on profiles saved before this feature. */
   customLayout?: {
@@ -425,6 +435,7 @@ const EducationSubSchema = new Schema(
       enum: ["pending", "verified", "rejected", "self-reported"],
       default: "self-reported",
     },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -501,6 +512,7 @@ const ProjectSubSchema = new Schema(
     summary: { type: String, default: "", trim: true, maxlength: 1000 },
     link: { type: String, default: "", trim: true, maxlength: 500 },
     assetId: { type: String, default: "", trim: true, maxlength: 32 },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -557,6 +569,7 @@ const SkillSubSchema = new Schema(
       default: [],
     },
     level: { type: String, default: "Intermediate", trim: true, maxlength: 50 },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -626,6 +639,7 @@ const CredentialSubSchema = new Schema(
     },
     verificationMethod: { type: String, default: "self-reported", trim: true, maxlength: 100 },
     certificateVerificationId: { type: String, default: "", trim: true, maxlength: 64 },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -689,6 +703,7 @@ const AchievementSubSchema = new Schema(
       enum: ["pending", "verified", "rejected", "self-reported"],
       default: "self-reported",
     },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -755,6 +770,7 @@ const MediaItemSubSchema = new Schema(
     mimeType: { type: String, default: "", trim: true, maxlength: 100 },
     fileSize: { type: Number, default: 0, min: 0 },
     uploadedAt: { type: Date, default: Date.now },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -798,6 +814,7 @@ const PlatformLinkSubSchema = new Schema(
       enum: ["unverified", "verified", "failed", "pending"],
       default: "unverified",
     },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -827,6 +844,7 @@ const ContactsSubSchema = new Schema(
     linkedin: { type: String, default: "", trim: true, maxlength: 200 },
     twitter: { type: String, default: "", trim: true, maxlength: 200 },
     portfolio: { type: String, default: "", trim: true, maxlength: 300 },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: false }
 );
@@ -1028,6 +1046,7 @@ const StudentProfileSchema = new Schema(
         portfolio: "",
       }),
     },
+    aboutCustomFields: recordCustomFieldsArray(),
     customLayout: { type: Schema.Types.Mixed, required: false },
   },
   {

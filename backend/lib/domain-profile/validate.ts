@@ -1,5 +1,6 @@
 import { Types } from "mongoose";
 import { sanitizeStoredText } from "../templates/registry";
+import { validateRecordCustomFields } from "../custom-fields";
 import type {
   CollectionField,
   DomainContract,
@@ -365,6 +366,13 @@ function applyObject(
     set[`${prefix}${key}`] = resolved;
   }
 
+  if (Object.prototype.hasOwnProperty.call(input, "customFields")) {
+    const val = validateRecordCustomFields((input as Record<string, unknown>).customFields, `${path}.customFields`);
+    picture.customFields = val;
+    set[`${prefix}customFields`] = val;
+  } else if (existing && Array.isArray((existing as Record<string, unknown>).customFields)) {
+    picture.customFields = (existing as Record<string, unknown>).customFields;
+  }
   enforceRules(spec.rules, picture, path);
   if (spec.rules?.includes("touchUploadedAt") && Object.prototype.hasOwnProperty.call(input, "storageKey")) {
     set[`${prefix}uploadedAt`] = input.storageKey ? new Date() : null;
@@ -394,7 +402,7 @@ function applyCollection(
       throw new ProfileValidationError(`Field '${itemPath}' must be an object.`);
     }
     for (const key of Object.keys(item)) {
-      if (key === "id") continue;
+      if (key === "id" || key === "customFields") continue;
       if (!spec.fields[key] && !managed.has(key)) {
         throw new ProfileValidationError(`Unsupported field '${itemPath}.${key}'.`);
       }
@@ -462,6 +470,11 @@ function applyCollection(
       record[key] = resolveManaged(rule, item[key], existing?.[key], `${itemPath}.${key}`);
     }
 
+    if (Object.prototype.hasOwnProperty.call(item, "customFields")) {
+      record.customFields = validateRecordCustomFields(item.customFields, `${itemPath}.customFields`);
+    } else if (existing && Array.isArray((existing as Record<string, unknown>).customFields)) {
+      record.customFields = (existing as Record<string, unknown>).customFields;
+    }
     enforceRules(spec.rules, record, itemPath);
     stored.push(record);
   });
@@ -498,6 +511,10 @@ export function buildDomainUpdate(
   const set: Record<string, unknown> = {};
   for (const key of Object.keys(body)) {
     if (key === "userId" || key === "identity") continue;
+    if (key === "aboutCustomFields") {
+      set.aboutCustomFields = validateRecordCustomFields((body as Record<string, unknown>).aboutCustomFields, "aboutCustomFields");
+      continue;
+    }
     const spec: FieldSpec | undefined = contract.fields[key];
     if (!spec) {
       throw new ProfileValidationError(`Unsupported field '${key}'.`);

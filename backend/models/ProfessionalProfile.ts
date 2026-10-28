@@ -11,6 +11,7 @@ import {
   userIdField,
   visibilitySchema,
   customLayoutField,
+  recordCustomFieldsArray,
 } from "./domain/fragments";
 
 const AchievementSchema = new Schema(
@@ -22,6 +23,7 @@ const AchievementSchema = new Schema(
     date: text(10),
     evidenceUrl: text(500),
     assetId: text(32),
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -32,6 +34,7 @@ const SocialLinkSchema = new Schema(
     platform: text(80, true),
     url: text(500, true),
     label: text(80),
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -62,6 +65,7 @@ const ContactSchema = new Schema(
     linkedin: text(500),
     website: text(500),
     visibility: { type: visibilitySchema(false), default: () => ({ email: "private", phone: "private" }) },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: false }
 );
@@ -114,6 +118,7 @@ const ProfessionalProfileSchema = new Schema(
         visibility: { email: "private", phone: "private" },
       }),
     },
+    aboutCustomFields: recordCustomFieldsArray(),
     customLayout: customLayoutField,
   },
   { timestamps: true, strict: true }

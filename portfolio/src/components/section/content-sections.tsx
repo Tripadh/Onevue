@@ -10,6 +10,7 @@ import type {
   AdaptedTestimonial,
 } from "@/lib/onevue-profile-adapter";
 import { StoredText } from "@/components/section/stored-text";
+import { CustomFieldList } from "@/components/section/custom-fields";
 
 function SectionHeading({ children }: { children: string }) {
   return <h2 className="text-xl font-bold">{children}</h2>;
@@ -23,7 +24,7 @@ export function CredentialsSection({ credentials }: { credentials: AdaptedCreden
         <SectionHeading>Credentials</SectionHeading>
         <div className="flex flex-col gap-4">
           {credentials.map((item, index) => (
-            <div key={item.title + index} className="flex flex-col gap-1">
+            <div key={item.id || item.title + index} className="flex flex-col gap-1">
               <div className="font-semibold leading-none">{item.title}</div>
               {(item.issuer || item.date) && (
                 <div className="text-sm text-muted-foreground">
@@ -36,6 +37,7 @@ export function CredentialsSection({ credentials }: { credentials: AdaptedCreden
                   View credential
                 </a>
               )}
+              <CustomFieldList fields={item.customFields} />
             </div>
           ))}
         </div>
@@ -61,6 +63,7 @@ export function HighlightsSection({ highlights }: { highlights: AdaptedHighlight
                   View details
                 </a>
               )}
+              <CustomFieldList fields={item.customFields} />
             </div>
           ))}
         </div>
@@ -85,6 +88,7 @@ export function TestimonialsSection({ testimonials }: { testimonials: AdaptedTes
                 </footer>
               )}
               {item.note && <p className="text-xs text-muted-foreground">{item.note}</p>}
+              <CustomFieldList fields={item.customFields} />
             </blockquote>
           ))}
         </div>
@@ -104,6 +108,7 @@ export function TeamSection({ team }: { team: AdaptedTeamMember[] }) {
             <div key={member.name + index}>
               <div className="font-semibold leading-none">{member.name}</div>
               {member.role && <div className="text-sm text-muted-foreground">{member.role}</div>}
+              <CustomFieldList fields={member.customFields} />
             </div>
           ))}
         </div>
@@ -135,16 +140,18 @@ export function MediaSection({ media }: { media: AdaptedMediaItem[] }) {
           {media.map((item, index) => {
             const isImage = item.mediaType === "image" || /\.(png|jpe?g|gif|webp|avif)(\?|$)/i.test(item.href);
             return (
-              <a
-                key={item.href + index}
-                href={item.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="overflow-hidden rounded-xl border border-border/60"
-              >
-                {isImage ? <MediaImage src={item.href} alt={item.alt || item.title} /> : null}
-                <div className="px-3 py-2 text-sm font-medium">{item.title}</div>
-              </a>
+              <div key={item.href + index} className="flex flex-col gap-2">
+                <a
+                  href={item.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="overflow-hidden rounded-xl border border-border/60"
+                >
+                  {isImage ? <MediaImage src={item.href} alt={item.alt || item.title} /> : null}
+                  <div className="px-3 py-2 text-sm font-medium">{item.title}</div>
+                </a>
+                <CustomFieldList fields={item.customFields} />
+              </div>
             );
           })}
         </div>

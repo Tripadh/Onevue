@@ -6,7 +6,7 @@ import {
   CONTENT_FORMATS,
   VERIFICATION_STATUSES,
 } from "../lib/domain-profile/constants";
-import { customLayoutField, limitedArray, stableId, text, userIdField, visibilitySchema } from "./domain/fragments";
+import { customLayoutField, limitedArray, stableId, text, userIdField, visibilitySchema, recordCustomFieldsArray } from "./domain/fragments";
 
 const FeaturedSchema = new Schema(
   {
@@ -19,6 +19,7 @@ const FeaturedSchema = new Schema(
     summary: text(1000),
     thumbnailUrl: text(500),
     assetId: text(32),
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -33,6 +34,7 @@ const PastCollaborationSchema = new Schema(
     date: text(10),
     url: text(500),
     outcome: text(500),
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -43,6 +45,7 @@ const ChannelSchema = new Schema(
     platform: text(80, true),
     url: text(500, true),
     handle: text(80),
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
@@ -60,12 +63,13 @@ const AudienceSchema = new Schema(
       enum: [...VERIFICATION_STATUSES],
       default: "self-reported",
     },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: true }
 );
 
 const MediaKitSchema = new Schema(
-  { summary: text(2000), kitUrl: text(500), assetId: text(32) },
+  { summary: text(2000), kitUrl: text(500), assetId: text(32), customFields: recordCustomFieldsArray() },
   { _id: false }
 );
 
@@ -97,6 +101,7 @@ const ContactSchema = new Schema(
       type: visibilitySchema(true),
       default: () => ({ email: "private", phone: "private", partnershipEmail: "private" }),
     },
+    customFields: recordCustomFieldsArray(),
   },
   { _id: false }
 );
@@ -145,6 +150,7 @@ const CreatorProfileSchema = new Schema(
         visibility: { email: "private", phone: "private", partnershipEmail: "private" },
       }),
     },
+    aboutCustomFields: recordCustomFieldsArray(),
     customLayout: customLayoutField,
   },
   { timestamps: true, strict: true }

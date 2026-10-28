@@ -2,7 +2,14 @@ import { randomBytes } from "crypto";
 import { ProfileValidationError } from "../domain-profile/validate";
 import { sanitizeStoredText } from "../templates/registry";
 import type { AssetPurpose } from "../storage/purposes";
-import { builtinByKey, isCustomIdentity, patchTouchesBuiltinRecords, recordIdsForIdentity } from "./builtins";
+import {
+  builtinByKey,
+  isCustomIdentity,
+  mappableFields,
+  mappingCompatible,
+  patchTouchesBuiltinRecords,
+  recordIdsForIdentity,
+} from "./builtins";
 import {
   CUSTOM_FIELD_LIMITS as LIMITS,
   CUSTOM_FIELD_TYPES,
@@ -13,9 +20,11 @@ import {
   type AssetFieldValue,
   type CustomBinding,
   type CustomEntry,
+  type AttachmentScope,
   type CustomFieldConfig,
   type CustomFieldDefinition,
   type CustomFieldType,
+  type RecordCustomField,
   type CustomFieldValue,
   type CustomIdentity,
   type CustomLayout,
@@ -47,6 +56,11 @@ export interface NormalizeCustomLayoutOptions {
   now?: string;
   /** Publish-time check. Draft saves accept missing required values. */
   enforceRequired?: boolean;
+  /**
+   * A profile save that removed a record keeps the old link instead of failing
+   * or moving its values onto another record. A direct custom-field save still rejects unknown ids.
+   */
+  preserveMissingRecords?: boolean;
 }
 
 export interface SyncCustomLayoutInput {
@@ -171,7 +185,8 @@ function mimeAllowlist(type: CustomFieldType): readonly string[] {
 
 function normalizeConfig(type: CustomFieldType, raw: unknown, path: string): CustomFieldConfig {
   const source = raw === undefined || raw === null ? {} : assertPlain(raw, `${path}.config`);
-  if (type === "text" || type === "textarea") {
+  if (type === "text" || type === "textarea" || type === "heading") {
+    const maxLen = type === "heading" ? 150 : (config.maxLength || LIMITS.textMax);
     const cap = type === "text" ? LIMITS.textMax : LIMITS.textareaMax;
     const maxLength = readBound(source.maxLength, 1, cap, cap, `${path}.maxLength`);
     const minLength = readBound(source.minLength, 0, maxLength, 0, `${path}.minLength`);
@@ -278,8 +293,9 @@ function valueMissing(type: CustomFieldType, value: CustomFieldValue | undefined
 function normalizeValue(field: CustomFieldDefinition, value: unknown, path: string): CustomFieldValue {
   const { type, config } = field;
   if (value === undefined || value === null || value === "") return null;
-  if (type === "text" || type === "textarea") {
-    const text = cleanText(value, path, config.maxLength || LIMITS.textMax);
+  if (type === "text" || type === "textarea" || type === "heading") {
+    const maxLen = type === "heading" ? 150 : (config.maxLength || LIMITS.textMax);
+    const text = cleanText(value, path, typeof maxLen !== "undefined" ? maxLen : (config.maxLength || LIMITS.textMax));
     const min = config.minLength || 0;
     if (text && text.length < min) fail(`Field '${path}' must be at least ${min} characters.`);
     return text;
@@ -347,12 +363,94 @@ function normalizeValue(field: CustomFieldDefinition, value: unknown, path: stri
   return { kind: "url", url: httpUrl(url, `${path}.url`) };
 }
 
+function cleanRecordId(value: unknown, path: string): string {
+  if (typeof value !== "string") fail(`Field '${path}' must be a record id.`);
+  const id = value.trim();
+  if (!id || id.length > 100 || id.includes("$") || id.includes(".") || id.includes("/")) {
+    fail(`Field '${path}' is not a valid record id.`);
+  }
+  return id;
+}
+
+function fieldsOnRecord(section: CustomSection, recordId: string): CustomFieldDefinition[] {
+  return section.fields.filter((field) => field.scope !== "record" || field.targetRecordId === recordId);
+}
+
+function assertMappingConflicts(fields: CustomFieldDefinition[], sectionTitle: string) {
+  const active = fields.filter((field) => field.mapsTo && !field.retired);
+  for (let i = 0; i < active.length; i += 1) {
+    for (let j = i + 1; j < active.length; j += 1) {
+      if (active[i].mapsTo !== active[j].mapsTo) continue;
+      const left = active[i].scope === "record" ? active[i].targetRecordId : "*";
+      const right = active[j].scope === "record" ? active[j].targetRecordId : "*";
+      if (left === "*" || right === "*" || left === right) {
+        fail(`Only one custom field can map to ${active[i].mapsTo} on ${sectionTitle}.`);
+      }
+    }
+  }
+}
+
+interface AttachmentContext {
+  identity: CustomIdentity;
+  builtinKey: string | null;
+  sectionTitle: string;
+  repeatable: boolean;
+  recordIds: Record<string, string[]>;
+  preserveMissingRecords: boolean;
+}
+
+function attachmentFor(
+  row: Record<string, unknown>,
+  id: string,
+  label: string,
+  type: CustomFieldType,
+  path: string,
+  previous: Map<string, CustomFieldDefinition>,
+  context: AttachmentContext
+): { scope: AttachmentScope; targetRecordId: string; mapsTo: string } {
+  const requested = row.scope === "record" ? "record" : "section";
+  const rawTarget = typeof row.targetRecordId === "string" ? row.targetRecordId.trim() : "";
+  const mapsTo = typeof row.mapsTo === "string" ? row.mapsTo.trim() : "";
+  if (!context.builtinKey) {
+    if (requested === "record" || rawTarget) {
+      fail(`Custom section '${context.sectionTitle}' uses its own records. Link an existing record from a built-in section.`);
+    }
+    if (mapsTo) fail(`Custom section '${context.sectionTitle}' cannot map onto a built-in field.`);
+    return { scope: "section", targetRecordId: "", mapsTo: "" };
+  }
+  if (!context.repeatable && requested === "record") {
+    fail(`'${label}' applies to the whole ${context.sectionTitle} section.`);
+  }
+  let targetRecordId = "";
+  if (requested === "record") {
+    targetRecordId = cleanRecordId(rawTarget, `${path}.targetRecordId`);
+    const allowed = context.recordIds[context.builtinKey] || [];
+    const prior = previous.get(id);
+    const preserved =
+      context.preserveMissingRecords && prior?.scope === "record" && prior.targetRecordId === targetRecordId;
+    if (!allowed.includes(targetRecordId) && !preserved) {
+      fail(`'${label}' is linked to a record that is not on this profile.`);
+    }
+  } else if (rawTarget) {
+    fail(`'${label}' targets one record. Choose the existing-record attachment.`);
+  }
+  if (mapsTo) {
+    const match = mappableFields(context.identity, context.builtinKey).find((field) => field.key === mapsTo);
+    if (!match) fail(`'${label}' cannot map to '${mapsTo}'. That field is not on this section.`);
+    if (!mappingCompatible(type, match.kind)) {
+      fail(`'${label}' cannot map to ${match.label} because the field types do not match.`);
+    }
+  }
+  return { scope: requested, targetRecordId, mapsTo };
+}
+
 function normalizeFields(
   rawFields: unknown,
   path: string,
   previous: Map<string, CustomFieldDefinition>,
   usedIds: Set<string>,
-  now: string
+  now: string,
+  attachment: AttachmentContext
 ): CustomFieldDefinition[] {
   if (!Array.isArray(rawFields)) fail(`Field '${path}.fields' must be a list.`);
   if (rawFields.length > LIMITS.maxFieldsPerSection) {
@@ -372,7 +470,7 @@ function normalizeFields(
     const right = isPlainObject(b.raw) && typeof b.raw.order === "number" ? b.raw.order : b.index;
     return left - right || a.index - b.index;
   });
-  return sortable.map(({ raw }, order) => {
+  const fields: CustomFieldDefinition[] = sortable.map(({ raw }, order) => {
     const row = assertPlain(raw, `${path}.fields[${order}]`);
     const id = readId(row.id, "fld");
     if (usedIds.has(id)) fail("Custom field ids must be unique.");
@@ -391,7 +489,8 @@ function normalizeFields(
           typeof row.key === "string" && KEY_RE.test(row.key) ? row.key : slugKey(label),
           takenKeys
         );
-    const visibility = row.visibility === "private" ? "private" : "public";
+    const visibility: "public" | "private" = row.visibility === "private" ? "private" : "public";
+    const linked = attachmentFor(row, id, label, type, `${path}.fields[${order}]`, previous, attachment);
     return {
       id,
       key,
@@ -407,8 +506,13 @@ function normalizeFields(
       config: normalizeConfig(type, row.config, `${path}.fields[${order}]`),
       createdAt: prior?.createdAt || now,
       updatedAt: prior && prior.label === label && prior.required === (row.required === true) ? prior.updatedAt : now,
+      scope: linked.scope,
+      targetRecordId: linked.targetRecordId,
+      mapsTo: linked.mapsTo,
     };
   });
+  assertMappingConflicts(fields, attachment.sectionTitle);
+  return fields;
 }
 
 function normalizeValueMap(
@@ -474,6 +578,7 @@ export function normalizeCustomLayout(input: unknown, options: NormalizeCustomLa
     return left - right || a.index - b.index;
   });
 
+  const recordIds = options.recordIds || {};
   const usedBuiltin = new Set<string>();
   const sectionKeys = new Set<string>();
   for (const item of sortable) {
@@ -499,6 +604,7 @@ export function normalizeCustomLayout(input: unknown, options: NormalizeCustomLa
     const repeatable = builtinKey
       ? builtinByKey(options.identity, builtinKey)!.repeatable
       : row.repeatable !== false;
+    const sectionTitle = title;
     const priorSection = previousSections.get(id);
     const key = priorSection
       ? priorSection.key
@@ -520,12 +626,18 @@ export function normalizeCustomLayout(input: unknown, options: NormalizeCustomLa
       order,
       repeatable,
       hidden: row.hidden === true,
-      fields: normalizeFields(row.fields, `customLayout.sections[${order}]`, previousFields, usedIds, now),
+      fields: normalizeFields(row.fields, `customLayout.sections[${order}]`, previousFields, usedIds, now, {
+        identity: options.identity,
+        builtinKey,
+        sectionTitle,
+        repeatable,
+        recordIds,
+        preserveMissingRecords: options.preserveMissingRecords === true,
+      }),
     };
   });
 
   const sectionById = new Map(sections.map((section) => [section.id, section]));
-  const recordIds = options.recordIds || {};
   const bindings: CustomBinding[] = [];
   const rawBindings = body.bindings === undefined ? [] : body.bindings;
   if (!Array.isArray(rawBindings)) fail("Field 'customLayout.bindings' must be a list.");
@@ -543,7 +655,11 @@ export function normalizeCustomLayout(input: unknown, options: NormalizeCustomLa
     if (section.repeatable) {
       const allowed = recordIds[section.builtinKey || ""] || [];
       if (!recordId || !allowed.includes(recordId)) {
-        fail(`Custom values for ${section.title} must belong to an existing record.`);
+        if (options.preserveMissingRecords === true && recordId) {
+          // Keep the values on the removed record. Do not copy them onto another id.
+        } else {
+          fail(`Custom values for ${section.title} must belong to an existing record.`);
+        }
       }
     } else if (recordId) {
       fail(`Custom values for ${section.title} do not use a record id.`);
@@ -555,7 +671,7 @@ export function normalizeCustomLayout(input: unknown, options: NormalizeCustomLa
       sectionId,
       recordId,
       values: normalizeValueMap(
-        section.fields,
+        fieldsOnRecord(section, recordId),
         row.values,
         `customLayout.bindings[${index}].values`,
         options.enforceRequired === true,
@@ -593,7 +709,7 @@ export function normalizeCustomLayout(input: unknown, options: NormalizeCustomLa
       sectionId,
       order: count,
       values: normalizeValueMap(
-        section.fields,
+        fieldsOnRecord(section, id),
         row.values,
         `customLayout.entries.${id}.values`,
         options.enforceRequired === true,
@@ -606,14 +722,14 @@ export function normalizeCustomLayout(input: unknown, options: NormalizeCustomLa
     for (const section of sections) {
       if (!section.repeatable) {
         const binding = bindings.find((item) => item.sectionId === section.id);
-        normalizeValueMap(section.fields, binding?.values || {}, section.title, true, section.title);
+        normalizeValueMap(fieldsOnRecord(section, ""), binding?.values || {}, section.title, true, section.title);
         continue;
       }
       if (!section.builtinKey) continue;
       const ids = recordIds[section.builtinKey] || [];
       for (const recordId of ids) {
         const binding = bindings.find((item) => item.sectionId === section.id && item.recordId === recordId);
-        normalizeValueMap(section.fields, binding?.values || {}, section.title, true, recordId);
+        normalizeValueMap(fieldsOnRecord(section, recordId), binding?.values || {}, section.title, true, recordId);
       }
     }
   }
@@ -643,6 +759,7 @@ export function syncCustomLayout(input: SyncCustomLayoutInput): CustomLayout | u
     identity: input.identity,
     existing,
     recordIds,
+    preserveMissingRecords: !input.incomingPresent,
   });
   if (!input.incomingPresent && layoutSignature(normalized) === layoutSignature(existing)) return undefined;
   return normalized;
@@ -704,4 +821,109 @@ export function videoEmbedAllowed(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+
+export function validateRecordCustomFields(
+  input: unknown,
+  path = "customFields",
+  options: { enforceRequired?: boolean } = {}
+): RecordCustomField[] {
+  if (input === undefined || input === null) return [];
+  if (!Array.isArray(input)) fail(`Field '${path}' must be an array.`);
+  if (input.length > 30) fail(`Field '${path}' cannot exceed 30 items.`);
+
+  const seenIds = new Set<string>();
+  const result: RecordCustomField[] = [];
+
+  for (let i = 0; i < input.length; i += 1) {
+    const row = input[i];
+    const fieldPath = `${path}[${i}]`;
+    if (!isPlainObject(row)) fail(`Field '${fieldPath}' must be an object.`);
+
+    let id = typeof row.id === "string" ? row.id.trim() : "";
+    if (!id) id = createId("fld");
+    if (seenIds.has(id)) fail(`Field '${fieldPath}.id' duplicates another custom field.`);
+    seenIds.add(id);
+
+    const label = cleanText(row.label, `${fieldPath}.label`, LIMITS.maxLabel);
+    if (!label) fail(`Field '${fieldPath}.label' is required.`);
+
+    const type = row.type as CustomFieldType;
+    if (!CUSTOM_FIELD_TYPES.includes(type)) {
+      fail(`Field '${fieldPath}.type' is not supported.`);
+    }
+
+    const visibility = row.visibility === "private" ? "private" : "public";
+    const order = typeof row.order === "number" && Number.isFinite(row.order) ? row.order : i;
+
+    const def: CustomFieldDefinition = {
+      id,
+      key: slugKey(label),
+      label,
+      type,
+      required: row.required === true,
+      visibility,
+      order,
+      helpText: typeof row.helpText === "string" ? row.helpText.slice(0, LIMITS.maxHelp) : "",
+      placeholder: typeof row.placeholder === "string" ? row.placeholder.slice(0, LIMITS.maxPlaceholder) : "",
+      retired: false,
+      config: isPlainObject(row.config) ? normalizeConfig(type, row.config, `${fieldPath}.config`) : {},
+      createdAt: "",
+      updatedAt: "",
+      scope: "record",
+      targetRecordId: "",
+      mapsTo: "",
+    };
+
+    const normValue = normalizeValue(def, row.value, `${fieldPath}.value`);
+    if (options.enforceRequired && def.required && valueMissing(type, normValue)) {
+      fail(`${label} is required.`);
+    }
+
+    result.push({
+      id,
+      label,
+      type,
+      visibility,
+      order,
+      value: normValue,
+    });
+  }
+
+  return result.sort((a, b) => a.order - b.order);
+}
+
+export function collectRecordCustomFieldAssets(fields: unknown): { assetId: string; purpose: AssetPurpose }[] {
+  if (!Array.isArray(fields)) return [];
+  const found: { assetId: string; purpose: AssetPurpose }[] = [];
+  const seen = new Set<string>();
+
+  for (const field of fields) {
+    if (!isPlainObject(field)) continue;
+    const type = field.type;
+    const purpose: AssetPurpose = type === "file" ? "portfolio-media" : "portfolio-image";
+    const val = field.value;
+    if (!val) continue;
+
+    if ((type === "image" || type === "file") && isPlainObject(val)) {
+      const assetId = typeof val.assetId === "string" ? val.assetId.trim() : "";
+      if (assetId && !seen.has(assetId)) {
+        seen.add(assetId);
+        found.push({ assetId, purpose });
+      }
+    } else if (type === "gallery" && Array.isArray(val)) {
+      for (const item of val) {
+        if (isPlainObject(item)) {
+          const assetId = typeof item.assetId === "string" ? item.assetId.trim() : "";
+          if (assetId && !seen.has(assetId)) {
+            seen.add(assetId);
+            found.push({ assetId, purpose: "portfolio-image" });
+          }
+        }
+      }
+    }
+  }
+
+  return found;
 }

@@ -46,6 +46,9 @@ function field(type, extra = {}) {
     placeholder: "",
     config: extra.config,
     retired: extra.retired === true,
+    ...(extra.scope ? { scope: extra.scope } : {}),
+    ...(extra.targetRecordId ? { targetRecordId: extra.targetRecordId } : {}),
+    ...(extra.mapsTo ? { mapsTo: extra.mapsTo } : {}),
   };
 }
 
@@ -390,6 +393,450 @@ describe("custom field security and publishing", () => {
     assert.equal(builtinSections("freelancer").some((section) => section.key === "education"), false);
     assert.equal(builtinSections("creator").some((section) => section.key === "education"), false);
     assert.equal(builtinSections("business").some((section) => section.key === "education"), false);
+  });
+});
+
+describe("record linking and built-in mapping", () => {
+  const credentialId = "crd_aws";
+
+  function credentialLayout(fields, bindings, entries) {
+    return {
+      schemaVersion: 1,
+      revision: 0,
+      sections: [
+        {
+          id: "sec_cred000001",
+          key: "credentials",
+          title: "Credentials",
+          builtinKey: "credentials",
+          visibility: "public",
+          order: 0,
+          repeatable: true,
+          fields,
+        },
+      ],
+      bindings: bindings || [],
+      entries: entries || [],
+    };
+  }
+
+  test("links an image to the AWS credential without creating another credential", () => {
+    const credential = {
+      id: credentialId,
+      title: "AWS Cloud Practitioner",
+      credentialType: "certification",
+      issuer: "Amazon Web Services",
+      credentialUrl: "https://aws.amazon.com/certification",
+    };
+    const beforeCredential = JSON.stringify(credential);
+    const layout = normalizeCustomLayout(credentialLayout(
+      [field("image", { id: "fld_image00001", label: "Certificate image", scope: "record", targetRecordId: credentialId })],
+      [{ sectionId: "sec_cred000001", recordId: credentialId, values: { fld_image00001: { assetId: ASSET, fileName: "aws.png" } } }]
+    ), { identity: "student", recordIds: { credentials: [credentialId] }, now: NOW });
+    assert.equal(layout.sections[0].fields[0].targetRecordId, credentialId);
+    assert.equal(layout.sections[0].fields[0].scope, "record");
+    assert.equal(layout.sections[0].fields[0].mapsTo, "");
+    assert.equal(JSON.stringify(credential), beforeCredential);
+    const dto = toPublicProfileDTO({
+      preferredName: "Ada",
+      credentials: [credential],
+      customLayout: layout,
+    }, {
+      username: "ada",
+      templateId: "magicui-portfolio",
+      identity: "student",
+      recordIds: { credentials: [credentialId] },
+    });
+    assert.equal(dto.credentials.length, 1);
+    assert.equal(dto.credentials[0].id, credentialId);
+    assert.equal(dto.credentials[0].title, "AWS Cloud Practitioner");
+    assert.equal(dto.credentials[0].credentialUrl, "https://aws.amazon.com/certification");
+    const linked = dto.customSections.find((section) => section.builtinKey === "credentials");
+    assert.equal(linked.records.length, 1);
+    assert.equal(linked.records[0].id, credentialId);
+    assert.equal(linked.records[0].fields.length, 1);
+    assert.equal(linked.records[0].fields[0].type, "image");
+    assert.match(linked.records[0].fields[0].value.href, new RegExp(ASSET));
+    assert.equal(dto.customSections.some((section) => !section.builtinKey), false);
+    assert.equal(dto.credentials.filter((item) => item.title === "Certificate image").length, 0);
+  });
+
+  test("keeps the link when the credential title changes and rejects another user's record id", () => {
+    const layout = normalizeCustomLayout(credentialLayout(
+      [field("image", { id: "fld_image00001", label: "Certificate image", scope: "record", targetRecordId: credentialId })],
+      [{ sectionId: "sec_cred000001", recordId: credentialId, values: { fld_image00001: { assetId: ASSET, fileName: "aws.png" } } }]
+    ), { identity: "student", recordIds: { credentials: [credentialId] }, now: NOW });
+    const renamed = normalizeCustomLayout({
+      ...layout,
+      sections: layout.sections.map((section) => ({
+        ...section,
+        fields: section.fields.map((item) => ({ ...item, label: "Badge image" })),
+      })),
+    }, {
+      identity: "student",
+      existing: layout,
+      recordIds: { credentials: [credentialId] },
+      now: "2026-10-27T01:00:00.000Z",
+    });
+    assert.equal(renamed.sections[0].fields[0].id, "fld_image00001");
+    assert.equal(renamed.sections[0].fields[0].targetRecordId, credentialId);
+    assert.equal(renamed.bindings[0].recordId, credentialId);
+    assert.throws(
+      () => normalizeCustomLayout(credentialLayout(
+        [field("image", { id: "fld_image00001", label: "Certificate image", scope: "record", targetRecordId: "crd_other_user" })],
+        [{ sectionId: "sec_cred000001", recordId: "crd_other_user", values: { fld_image00001: { assetId: ASSET, fileName: "aws.png" } } }]
+      ), { identity: "student", recordIds: { credentials: [credentialId] }, now: NOW }),
+      (error) => error instanceof ProfileValidationError && /not on this profile|existing record/.test(error.message)
+    );
+    assert.throws(
+      () => normalizeCustomLayout(credentialLayout(
+        [field("text", { id: "fld_note000001", label: "Note", scope: "record", targetRecordId: "crd_$bad" })]
+      ), { identity: "student", recordIds: { credentials: [credentialId] }, now: NOW }),
+      (error) => error instanceof ProfileValidationError
+    );
+  });
+
+  test("unlinking keeps the asset and does not copy it onto another credential", () => {
+    const otherAsset = "ast_" + "cd".repeat(12);
+    const layout = normalizeCustomLayout(credentialLayout(
+      [
+        field("image", { id: "fld_image00001", label: "Certificate image", scope: "record", targetRecordId: credentialId }),
+        field("text", { id: "fld_note000001", label: "Cohort", scope: "section" }),
+      ],
+      [
+        { sectionId: "sec_cred000001", recordId: credentialId, values: { fld_image00001: { assetId: ASSET, fileName: "aws.png" }, fld_note000001: "2026" } },
+        { sectionId: "sec_cred000001", recordId: "crd_other", values: { fld_note000001: "Kept", fld_image00001: { assetId: otherAsset, fileName: "other.png" } } },
+      ]
+    ), { identity: "student", recordIds: { credentials: [credentialId, "crd_other"] }, now: NOW });
+    const imageOnOther = layout.bindings.find((item) => item.recordId === "crd_other").values.fld_image00001;
+    assert.equal(imageOnOther, undefined);
+    const unlinked = normalizeCustomLayout({
+      ...layout,
+      sections: layout.sections.map((section) => ({
+        ...section,
+        fields: section.fields.map((item) => item.id === "fld_image00001"
+          ? { ...item, scope: "section", targetRecordId: "", mapsTo: "" }
+          : item),
+      })),
+    }, {
+      identity: "student",
+      existing: layout,
+      recordIds: { credentials: [credentialId, "crd_other"] },
+      now: "2026-10-27T02:00:00.000Z",
+    });
+    assert.equal(unlinked.sections[0].fields[0].targetRecordId, "");
+    assert.equal(unlinked.bindings.find((item) => item.recordId === credentialId).values.fld_image00001.assetId, ASSET);
+    assert.equal(unlinked.bindings.find((item) => item.recordId === "crd_other").values.fld_note000001, "Kept");
+    assert.equal(unlinked.bindings.find((item) => item.recordId === "crd_other").values.fld_image00001, undefined);
+    assert.deepEqual(collectCustomAssetBindings(unlinked), [{ assetId: ASSET, purpose: "portfolio-image" }]);
+  });
+
+  test("maps a compatible url onto an empty credential field and leaves a filled field unchanged", () => {
+    const layout = normalizeCustomLayout(credentialLayout(
+      [field("url", { id: "fld_url0000001", label: "Badge link", scope: "record", targetRecordId: credentialId, mapsTo: "credentialUrl" })],
+      [{ sectionId: "sec_cred000001", recordId: credentialId, values: { fld_url0000001: "https://example.com/badge" } }]
+    ), { identity: "student", recordIds: { credentials: [credentialId] }, now: NOW });
+    const filled = toPublicProfileDTO({
+      preferredName: "Ada",
+      credentials: [{ id: credentialId, title: "AWS Cloud Practitioner", credentialType: "certification", issuer: "Amazon", credentialUrl: "https://aws.amazon.com/keep" }],
+      customLayout: layout,
+    }, { username: "ada", identity: "student", templateId: "magicui-portfolio", recordIds: { credentials: [credentialId] } });
+    assert.equal(filled.credentials[0].credentialUrl, "https://aws.amazon.com/keep");
+    assert.equal(filled.credentials[0].issuer, "Amazon");
+    const empty = toPublicProfileDTO({
+      preferredName: "Ada",
+      credentials: [{ id: credentialId, title: "AWS Cloud Practitioner", credentialType: "certification", issuer: "Amazon" }],
+      customLayout: layout,
+    }, { username: "ada", identity: "student", templateId: "magicui-portfolio", recordIds: { credentials: [credentialId] } });
+    assert.equal(empty.credentials[0].credentialUrl, "https://example.com/badge");
+    assert.equal(empty.credentials[0].issuer, "Amazon");
+    assert.throws(
+      () => normalizeCustomLayout(credentialLayout([
+        field("url", { id: "fld_url0000001", label: "Badge link", mapsTo: "credentialUrl" }),
+        field("url", { id: "fld_url0000002", label: "Second link", mapsTo: "credentialUrl" }),
+      ]), { identity: "student", recordIds: { credentials: [] }, now: NOW }),
+      (error) => error instanceof ProfileValidationError && /Only one custom field can map/.test(error.message)
+    );
+    assert.throws(
+      () => normalizeCustomLayout(credentialLayout(
+        [field("image", { id: "fld_image00001", label: "Certificate image", scope: "record", targetRecordId: credentialId, mapsTo: "certificateImage" })]
+      ), { identity: "student", recordIds: { credentials: [credentialId] }, now: NOW }),
+      (error) => error instanceof ProfileValidationError && /cannot map/.test(error.message)
+    );
+  });
+
+  test("a removed record keeps its values off every other record, and drafts do not change a published snapshot", () => {
+    const layout = normalizeCustomLayout(credentialLayout(
+      [field("image", { id: "fld_image00001", label: "Certificate image", scope: "record", targetRecordId: credentialId })],
+      [{ sectionId: "sec_cred000001", recordId: credentialId, values: { fld_image00001: { assetId: ASSET, fileName: "aws.png" } } }]
+    ), { identity: "student", recordIds: { credentials: [credentialId, "crd_other"] }, now: NOW });
+    const orphaned = normalizeCustomLayout(layout, {
+      identity: "student",
+      existing: layout,
+      recordIds: { credentials: ["crd_other"] },
+      preserveMissingRecords: true,
+      now: "2026-10-27T03:00:00.000Z",
+    });
+    assert.equal(orphaned.bindings[0].recordId, credentialId);
+    assert.equal(orphaned.bindings.some((item) => item.recordId === "crd_other"), false);
+    assert.equal(orphaned.sections[0].fields[0].targetRecordId, credentialId);
+    const published = projectCustomLayout(layout, {
+      templateId: "magicui-portfolio",
+      assetHref: (assetId) => "/api/assets/public/" + assetId,
+    });
+    const live = JSON.parse(JSON.stringify(published));
+    layout.bindings[0].values.fld_image00001 = { assetId: "ast_" + "ef".repeat(12), fileName: "draft.png" };
+    assert.equal(live[0].records[0].fields[0].value.href, "/api/assets/public/" + ASSET);
+    const hidden = toPublicProfileDTO({
+      preferredName: "Ada",
+      credentials: [{ id: "crd_other", title: "Other", credentialType: "certification", issuer: "Other" }],
+      customLayout: orphaned,
+    }, { username: "ada", identity: "student", templateId: "magicui-portfolio", recordIds: { credentials: ["crd_other"] } });
+    assert.equal(JSON.stringify(hidden.customSections || []).includes(ASSET), false);
+    assert.equal(hidden.credentials.length, 1);
+    assert.equal(hidden.credentials[0].id, "crd_other");
+  });
+
+  test("record links and standalone sections work for every identity", () => {
+    for (const identity of ["student", "professional", "freelancer", "creator", "business"]) {
+      const section = builtinSections(identity).find((item) => item.repeatable && item.collection);
+      assert.ok(section);
+      const recordId = "rec_stable_1";
+      const linked = normalizeCustomLayout({
+        schemaVersion: 1,
+        revision: 0,
+        sections: [{
+          id: "sec_link000001",
+          title: section.label,
+          builtinKey: section.key,
+          repeatable: true,
+          fields: [field("text", { id: "fld_link000001", label: "Note", scope: "record", targetRecordId: recordId })],
+        }],
+        bindings: [{ sectionId: "sec_link000001", recordId, values: { fld_link000001: "Kept" } }],
+        entries: [],
+      }, { identity, recordIds: { [section.key]: [recordId] }, now: NOW });
+      assert.equal(linked.sections[0].fields[0].targetRecordId, recordId);
+      const published = projectCustomLayout(linked, { templateId: "magicui-portfolio", assetHref: () => "" });
+      assert.equal(published[0].records[0].id, recordId);
+      assert.equal(published[0].records[0].fields[0].value, "Kept");
+      const standalone = normalizeCustomLayout({
+        schemaVersion: 1,
+        revision: 0,
+        sections: [{
+          id: "sec_custom0001",
+          title: "Press",
+          builtinKey: null,
+          repeatable: true,
+          fields: [field("text", { id: "fld_note000001", label: "Note" })],
+        }],
+        bindings: [],
+        entries: [{ id: "ent_one0000001", sectionId: "sec_custom0001", values: { fld_note000001: "Independent" } }],
+      }, { identity, recordIds: {}, now: NOW });
+      assert.equal(standalone.entries[0].values.fld_note000001, "Independent");
+      assert.equal(standalone.sections[0].builtinKey, null);
+    }
+  });
+
+  test("fills empty public fields on employment, links, testimonials, portfolio, and work samples", () => {
+    const professional = normalizeCustomLayout({
+      schemaVersion: 1,
+      revision: 0,
+      sections: [
+        {
+          id: "sec_job0000001",
+          key: "current_employment",
+          title: "Current employment",
+          builtinKey: "currentEmployment",
+          visibility: "public",
+          order: 0,
+          repeatable: false,
+          fields: [field("text", { id: "fld_company001", key: "employer", label: "Employer", mapsTo: "company" })],
+        },
+        {
+          id: "sec_hist000001",
+          key: "employment_history",
+          title: "Employment history",
+          builtinKey: "employmentHistory",
+          visibility: "public",
+          order: 1,
+          repeatable: true,
+          fields: [field("text", { id: "fld_title00001", key: "role_title", label: "Role", scope: "record", targetRecordId: "job_1", mapsTo: "jobTitle" })],
+        },
+        {
+          id: "sec_port000001",
+          key: "portfolio",
+          title: "Portfolio",
+          builtinKey: "portfolio",
+          visibility: "public",
+          order: 2,
+          repeatable: true,
+          fields: [field("url", { id: "fld_url0000001", key: "site", label: "Site", scope: "record", targetRecordId: "proj_1", mapsTo: "url" })],
+        },
+      ],
+      bindings: [
+        { sectionId: "sec_job0000001", recordId: "", values: { fld_company001: "Globex" } },
+        { sectionId: "sec_hist000001", recordId: "job_1", values: { fld_title00001: "Designer" } },
+        { sectionId: "sec_port000001", recordId: "proj_1", values: { fld_url0000001: "https://example.com/work" } },
+      ],
+      entries: [],
+    }, {
+      identity: "professional",
+      recordIds: { employmentHistory: ["job_1"], portfolio: ["proj_1"] },
+      now: NOW,
+    });
+    const filled = toPublicProfileDTO({
+      preferredName: "Ada",
+      experience: [
+        { id: "currentEmployment", title: "Lead", organization: "" },
+        { id: "job_1", title: "", organization: "Initech" },
+      ],
+      projects: [{ id: "proj_1", title: "Audit" }, { id: "proj_kept", title: "Kept", liveUrl: "https://example.com/kept" }],
+      customLayout: professional,
+    }, {
+      username: "ada",
+      identity: "professional",
+      templateId: "magicui-portfolio",
+      recordIds: { employmentHistory: ["job_1"], portfolio: ["proj_1"] },
+    });
+    assert.equal(filled.experience[0].organization, "Globex");
+    assert.equal(filled.experience[0].title, "Lead");
+    assert.equal(filled.experience[1].title, "Designer");
+    assert.equal(filled.experience[1].organization, "Initech");
+    assert.equal(filled.projects[0].liveUrl, "https://example.com/work");
+    assert.equal(filled.projects[1].liveUrl, "https://example.com/kept");
+    const kept = toPublicProfileDTO({
+      preferredName: "Ada",
+      experience: [{ id: "currentEmployment", title: "Lead", organization: "Acme" }],
+      projects: [{ id: "proj_1", title: "Audit", liveUrl: "https://example.com/original" }],
+      customLayout: professional,
+    }, {
+      username: "ada",
+      identity: "professional",
+      templateId: "magicui-portfolio",
+      recordIds: { employmentHistory: ["job_1"], portfolio: ["proj_1"] },
+    });
+    assert.equal(kept.experience[0].organization, "Acme");
+    assert.equal(kept.projects[0].liveUrl, "https://example.com/original");
+
+    const links = normalizeCustomLayout({
+      schemaVersion: 1,
+      revision: 0,
+      sections: [{
+        id: "sec_link000001",
+        key: "links",
+        title: "Links",
+        builtinKey: "links",
+        visibility: "public",
+        order: 0,
+        repeatable: true,
+        fields: [field("text", { id: "fld_user000001", key: "handle", label: "Handle", scope: "record", targetRecordId: "lnk_1", mapsTo: "username" })],
+      }],
+      bindings: [{ sectionId: "sec_link000001", recordId: "lnk_1", values: { fld_user000001: "ada" } }],
+      entries: [],
+    }, { identity: "student", recordIds: { links: ["lnk_1"] }, now: NOW });
+    const linked = toPublicProfileDTO({
+      preferredName: "Ada",
+      links: [{ id: "lnk_1", platform: "GitHub", url: "https://github.com/ada", username: "" }],
+      customLayout: links,
+    }, { username: "ada", identity: "student", templateId: "magicui-portfolio", recordIds: { links: ["lnk_1"] } });
+    assert.equal(linked.contact.socialLinks[0].username, "ada");
+    assert.equal(linked.contact.socialLinks[0].platform, "GitHub");
+    const renamed = toPublicProfileDTO({
+      preferredName: "Ada",
+      links: [{ id: "lnk_1", platform: "GitHub profile", url: "https://github.com/ada", username: "kept" }],
+      customLayout: links,
+    }, { username: "ada", identity: "student", templateId: "magicui-portfolio", recordIds: { links: ["lnk_1"] } });
+    assert.equal(renamed.contact.socialLinks[0].username, "kept");
+    assert.equal(renamed.contact.socialLinks[0].id, "lnk_1");
+
+    const freelancer = normalizeCustomLayout({
+      schemaVersion: 1,
+      revision: 0,
+      sections: [
+        {
+          id: "sec_quote00001",
+          key: "testimonials",
+          title: "Testimonials",
+          builtinKey: "testimonials",
+          visibility: "public",
+          order: 0,
+          repeatable: true,
+          fields: [field("text", { id: "fld_rel0000001", key: "relationship", label: "Relationship", scope: "record", targetRecordId: "t_1", mapsTo: "relationship" })],
+        },
+        {
+          id: "sec_sample0001",
+          key: "work_samples",
+          title: "Work samples",
+          builtinKey: "workSamples",
+          visibility: "public",
+          order: 1,
+          repeatable: true,
+          fields: [field("url", { id: "fld_reel000001", key: "reel", label: "Reel", scope: "record", targetRecordId: "sample_1", mapsTo: "url" })],
+        },
+      ],
+      bindings: [
+        { sectionId: "sec_quote00001", recordId: "t_1", values: { fld_rel0000001: "Client" } },
+        { sectionId: "sec_sample0001", recordId: "sample_1", values: { fld_reel000001: "https://example.com/reel" } },
+      ],
+      entries: [],
+    }, { identity: "freelancer", recordIds: { testimonials: ["t_1"], workSamples: ["sample_1"] }, now: NOW });
+    const quote = toPublicProfileDTO({
+      preferredName: "Ada",
+      testimonials: [{ id: "t_1", quote: "Excellent", authorName: "Mina", relationship: "" }],
+      media: [{ id: "sample_1", title: "Reel", mediaUrl: "", mediaType: "link", category: "work-sample" }],
+      customLayout: freelancer,
+    }, {
+      username: "ada",
+      identity: "freelancer",
+      templateId: "magicui-portfolio",
+      recordIds: { testimonials: ["t_1"], workSamples: ["sample_1"] },
+    });
+    assert.equal(quote.testimonials[0].relationship, "Client");
+    assert.equal(quote.media[0].mediaUrl, "https://example.com/reel");
+
+    const creator = normalizeCustomLayout({
+      schemaVersion: 1,
+      revision: 0,
+      sections: [{
+        id: "sec_collab0001",
+        key: "past_collaborations",
+        title: "Past collaborations",
+        builtinKey: "pastCollaborations",
+        visibility: "public",
+        order: 0,
+        repeatable: true,
+        fields: [field("url", { id: "fld_proof00001", key: "proof", label: "Proof", scope: "record", targetRecordId: "col_1", mapsTo: "url" })],
+      }],
+      bindings: [{ sectionId: "sec_collab0001", recordId: "col_1", values: { fld_proof00001: "https://example.com/proof" } }],
+      entries: [],
+    }, { identity: "creator", recordIds: { pastCollaborations: ["col_1"] }, now: NOW });
+    const collab = toPublicProfileDTO({
+      preferredName: "Ada",
+      achievements: [{ id: "col_1", title: "Launch", category: "other", proofUrl: "" }],
+      customLayout: creator,
+    }, { username: "ada", identity: "creator", templateId: "magicui-portfolio", recordIds: { pastCollaborations: ["col_1"] } });
+    assert.equal(collab.achievements[0].proofUrl, "https://example.com/proof");
+    assert.equal(collab.achievements[0].title, "Launch");
+
+    assert.throws(
+      () => normalizeCustomLayout({
+        schemaVersion: 1,
+        revision: 0,
+        sections: [{
+          id: "sec_job0000001",
+          key: "current_employment",
+          title: "Current employment",
+          builtinKey: "currentEmployment",
+          visibility: "public",
+          order: 0,
+          repeatable: false,
+          fields: [field("image", { id: "fld_image00001", label: "Office photo", mapsTo: "company" })],
+        }],
+        bindings: [],
+        entries: [],
+      }, { identity: "professional", recordIds: {}, now: NOW }),
+      (error) => error instanceof ProfileValidationError && /cannot map/.test(error.message)
+    );
   });
 });
 

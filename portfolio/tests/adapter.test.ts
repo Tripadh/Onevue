@@ -622,4 +622,414 @@ describe("OneVue Magic UI Profile Adapter", () => {
     assert.equal(adapted.customSections[0].title, "Press");
     assert.equal(adapted.visibleSections.custom, true);
   });
+
+  it("renders a linked certificate image inside the AWS credential and not as a second card", () => {
+    const dto = createValidDTO();
+    dto.credentials = [
+      {
+        id: "crd_aws",
+        title: "AWS Cloud Practitioner",
+        credentialType: "certification",
+        issuer: "Amazon Web Services",
+        issueDate: "2024-05-01",
+        credentialUrl: "https://aws.amazon.com/certification",
+      },
+    ];
+    dto.customSections = [
+      {
+        id: "sec_cred000001",
+        key: "credentials",
+        title: "Credentials",
+        builtinKey: "credentials",
+        order: 0,
+        repeatable: true,
+        records: [
+          {
+            id: "crd_aws",
+            fields: [
+              {
+                id: "fld_image00001",
+                key: "certificate_image",
+                label: "Certificate image",
+                type: "image",
+                order: 0,
+                presentation: "image",
+                value: { href: "https://cdn.example/aws.png", fileName: "aws.png" },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: "sec_custom0001",
+        key: "press",
+        title: "Press",
+        order: 1,
+        repeatable: true,
+        records: [{ id: "ent_1", fields: [{ id: "fld_note000001", key: "note", label: "Note", type: "text", order: 0, presentation: "inline", value: "Featured" }] }],
+      },
+    ];
+    const adapted = adaptOneVueProfile(dto, createValidWebsite());
+    assert.equal(adapted.credentials.length, 1);
+    assert.equal(adapted.credentials[0].id, "crd_aws");
+    assert.equal(adapted.credentials[0].title, "AWS Cloud Practitioner");
+    assert.equal(adapted.credentials[0].customFields?.length, 1);
+    assert.equal(adapted.credentials[0].customFields?.[0].href, "https://cdn.example/aws.png");
+    assert.equal(adapted.customSections.length, 1);
+    assert.equal(adapted.customSections[0].title, "Press");
+    dto.credentials[0].title = "AWS Certified Cloud Practitioner";
+    const renamed = adaptOneVueProfile(dto, createValidWebsite());
+    assert.equal(renamed.credentials[0].title, "AWS Certified Cloud Practitioner");
+    assert.equal(renamed.credentials[0].customFields?.[0].href, "https://cdn.example/aws.png");
+  });
+
+  it("places linked fields on the existing work, testimonial, team, link, media, and about records", () => {
+    const dto = createValidDTO();
+    dto.experience = [
+      { id: "currentEmployment", title: "Lead", organization: "Globex", isCurrent: true },
+      { id: "job_1", title: "Engineer", organization: "Initech" },
+    ];
+    dto.testimonials = [{ id: "t_1", quote: "Excellent", authorName: "Ada", relationship: "Client" }];
+    dto.team = [{ id: "team_1", name: "Mina", role: "CEO" }];
+    dto.media = [{ id: "sample_1", mediaUrl: "https://cdn.example/reel.mp4", mediaType: "video", title: "Reel", category: "work-sample" }];
+    dto.contact.socialLinks = [{ id: "lnk_1", platform: "LeetCode", url: "https://leetcode.com/ada", category: "coding" }];
+    dto.customSections = [
+      {
+        id: "sec_job",
+        key: "current",
+        title: "Current employment",
+        builtinKey: "currentEmployment",
+        order: 0,
+        repeatable: false,
+        records: [{ id: "", fields: [{ id: "fld_note", key: "note", label: "Team note", type: "text", order: 0, presentation: "inline", value: "Platform" }] }],
+      },
+      {
+        id: "sec_hist",
+        key: "history",
+        title: "Employment history",
+        builtinKey: "employmentHistory",
+        order: 1,
+        repeatable: true,
+        records: [{ id: "job_1", fields: [{ id: "fld_badge", key: "badge", label: "Badge", type: "text", order: 0, presentation: "inline", value: "Senior" }] }],
+      },
+      {
+        id: "sec_t",
+        key: "testimonials",
+        title: "Testimonials",
+        builtinKey: "testimonials",
+        order: 2,
+        repeatable: true,
+        records: [{ id: "t_1", fields: [{ id: "fld_src", key: "source", label: "Source", type: "text", order: 0, presentation: "inline", value: "Call" }] }],
+      },
+      {
+        id: "sec_team",
+        key: "team",
+        title: "Team",
+        builtinKey: "team",
+        order: 3,
+        repeatable: true,
+        records: [{ id: "team_1", fields: [{ id: "fld_focus", key: "focus", label: "Focus", type: "text", order: 0, presentation: "inline", value: "Product" }] }],
+      },
+      {
+        id: "sec_link",
+        key: "links",
+        title: "Links",
+        builtinKey: "links",
+        order: 4,
+        repeatable: true,
+        records: [{ id: "lnk_1", fields: [{ id: "fld_pin", key: "pin", label: "Pin", type: "text", order: 0, presentation: "inline", value: "Main" }] }],
+      },
+      {
+        id: "sec_sample",
+        key: "samples",
+        title: "Work samples",
+        builtinKey: "workSamples",
+        order: 5,
+        repeatable: true,
+        records: [{ id: "sample_1", fields: [{ id: "fld_cap", key: "caption", label: "Caption", type: "text", order: 0, presentation: "inline", value: "Showreel" }] }],
+      },
+      {
+        id: "sec_about",
+        key: "about",
+        title: "About",
+        builtinKey: "about",
+        order: 6,
+        repeatable: false,
+        records: [{ id: "", fields: [{ id: "fld_pronouns", key: "pronouns", label: "Pronouns", type: "text", order: 0, presentation: "inline", value: "they/them" }] }],
+      },
+      {
+        id: "sec_press",
+        key: "press",
+        title: "Press",
+        order: 7,
+        repeatable: true,
+        records: [{ id: "ent_1", fields: [{ id: "fld_mention", key: "mention", label: "Mention", type: "text", order: 0, presentation: "inline", value: "Featured" }] }],
+      },
+    ];
+    const adapted = adaptOneVueProfile(dto, createValidWebsite());
+    assert.equal(adapted.work[0].customFields?.[0].text, "Platform");
+    assert.equal(adapted.work[1].customFields?.[0].text, "Senior");
+    assert.equal(adapted.work[1].company, "Initech");
+    dto.experience[1].title = "Staff Engineer";
+    const renamed = adaptOneVueProfile(dto, createValidWebsite());
+    assert.equal(renamed.work[1].title, "Staff Engineer");
+    assert.equal(renamed.work[1].customFields?.[0].text, "Senior");
+    assert.equal(adapted.testimonials[0].customFields?.[0].text, "Call");
+    assert.equal(adapted.team[0].customFields?.[0].text, "Product");
+    assert.equal(adapted.contact.social.LeetCode.customFields?.[0].text, "Main");
+    assert.equal(adapted.media[0].customFields?.[0].text, "Showreel");
+    assert.equal(adapted.aboutFields?.[0].text, "they/them");
+    assert.equal(adapted.customSections.length, 1);
+    assert.equal(adapted.customSections[0].title, "Press");
+  });
+
+  it("keeps internship custom fields on the source project id across rename, reorder, and rollback", () => {
+    const dto = createValidDTO();
+    dto.experience = [];
+    dto.projects = [
+      {
+        id: "proj_intern",
+        title: "Acme Internship",
+        projectType: "internship",
+        role: "Intern",
+        technologies: [],
+        shortDescription: "Billing",
+      },
+      {
+        id: "proj_job",
+        title: "Campus Job",
+        projectType: "employment",
+        role: "Assistant",
+        technologies: [],
+        shortDescription: "Desk",
+      },
+      {
+        id: "",
+        title: "Untitled internship",
+        projectType: "internship",
+        role: "Intern",
+        technologies: [],
+      },
+    ];
+    dto.customSections = [
+      {
+        id: "sec_projects",
+        key: "projects",
+        title: "Projects",
+        builtinKey: "projects",
+        order: 0,
+        repeatable: true,
+        records: [
+          {
+            id: "proj_intern",
+            fields: [{ id: "fld_team", key: "team", label: "Team", type: "text", order: 0, presentation: "inline", value: "Payments" }],
+          },
+          {
+            id: "proj_job",
+            fields: [{ id: "fld_desk", key: "desk", label: "Desk", type: "text", order: 0, presentation: "inline", value: "Front" }],
+          },
+        ],
+      },
+    ];
+    const published = JSON.parse(JSON.stringify(dto));
+    const adapted = adaptOneVueProfile(published, createValidWebsite());
+    const intern = adapted.work.find((item) => item.sourceRecordId === "proj_intern");
+    const job = adapted.work.find((item) => item.sourceRecordId === "proj_job");
+    const missing = adapted.work.find((item) => item.company === "Untitled internship");
+    assert.equal(intern?.customFields?.[0].id, "fld_team");
+    assert.equal(intern?.customFields?.[0].text, "Payments");
+    assert.equal(job?.customFields?.[0].text, "Front");
+    assert.equal(job?.customFields?.[0].id, "fld_desk");
+    assert.equal(missing?.customFields?.length || 0, 0);
+    assert.equal(adapted.projects.filter((item) => item.title === "Acme Internship").length, 1);
+    assert.equal(JSON.stringify(published.customSections), JSON.stringify(dto.customSections));
+
+    published.projects = [published.projects[2], published.projects[1], { ...published.projects[0], title: "Acme Internship Renamed" }];
+    const renamed = adaptOneVueProfile(published, createValidWebsite());
+    assert.equal(renamed.work.find((item) => item.sourceRecordId === "proj_intern")?.company, "Acme Internship Renamed");
+    assert.equal(renamed.work.find((item) => item.sourceRecordId === "proj_intern")?.customFields?.[0].text, "Payments");
+    assert.equal(renamed.work.find((item) => item.sourceRecordId === "proj_job")?.customFields?.[0].text, "Front");
+
+    const prior = JSON.parse(JSON.stringify(dto));
+    prior.customSections = [];
+    const rolled = adaptOneVueProfile(prior, createValidWebsite());
+    assert.equal(rolled.work.find((item) => item.sourceRecordId === "proj_intern")?.customFields?.length || 0, 0);
+    assert.deepEqual(prior.customSections, []);
+    assert.equal(adapted.work.find((item) => item.sourceRecordId === "proj_intern")?.customFields?.[0].text, "Payments");
+  });
+
+  it("renders legacy achievement snapshots once and leaves unknown section keys unused", () => {
+    const dto = createValidDTO();
+    delete (dto as { experience?: unknown }).experience;
+    delete (dto as { testimonials?: unknown }).testimonials;
+    delete (dto as { team?: unknown }).team;
+    dto.projects = dto.projects.filter((item) => item.projectType !== "internship" && item.projectType !== "employment");
+    dto.achievements.push(
+      {
+        id: "exp_old",
+        title: "Engineer at Initech",
+        category: "experience",
+        organization: "Initech",
+        role: "Engineer",
+        description: "Shipped billing",
+      },
+      {
+        id: "quote_old",
+        title: "“Great work”",
+        category: "testimonial",
+        organization: "Ada",
+        role: "Client",
+        description: "Self-reported",
+      },
+      {
+        id: "team_old",
+        title: "Shown",
+        category: "team",
+        role: "CEO",
+      }
+    );
+    dto.customSections = [
+      {
+        id: "sec_highlights",
+        key: "highlights",
+        title: "Highlights",
+        builtinKey: "highlights",
+        order: 0,
+        repeatable: true,
+        records: [
+          {
+            id: "exp_old",
+            fields: [{ id: "fld_old_note", key: "note", label: "Note", type: "text", order: 0, presentation: "inline", value: "Legacy role" }],
+          },
+          {
+            id: "quote_old",
+            fields: [{ id: "fld_old_quote", key: "source", label: "Source", type: "text", order: 0, presentation: "inline", value: "Email" }],
+          },
+          {
+            id: "team_old",
+            fields: [{ id: "fld_old_team", key: "focus", label: "Focus", type: "text", order: 0, presentation: "inline", value: "Product" }],
+          },
+        ],
+      },
+      {
+        id: "sec_mystery",
+        key: "mystery",
+        title: "Mystery",
+        builtinKey: "mystery",
+        order: 1,
+        repeatable: true,
+        records: [
+          {
+            id: "exp_old",
+            fields: [{ id: "fld_mystery", key: "mystery", label: "Mystery", type: "text", order: 0, presentation: "inline", value: "Do not attach" }],
+          },
+        ],
+      },
+    ];
+    const snapshot = JSON.parse(JSON.stringify(dto));
+    const adapted = adaptOneVueProfile(snapshot, createValidWebsite());
+    const legacyJob = adapted.work.filter((item) => item.sourceRecordId === "exp_old");
+    assert.equal(legacyJob.length, 1);
+    assert.equal(legacyJob[0].customFields?.length, 1);
+    assert.equal(legacyJob[0].customFields?.[0].text, "Legacy role");
+    assert.equal(adapted.work.some((item) => item.customFields?.some((field) => field.text === "Do not attach")), false);
+    assert.equal(adapted.testimonials.filter((item) => item.author === "Ada").length, 1);
+    assert.equal(adapted.testimonials.length, 1);
+    assert.equal(adapted.testimonials[0].customFields?.length, 1);
+    assert.equal(adapted.testimonials[0].customFields?.[0].text, "Email");
+    assert.equal(adapted.team.filter((item) => item.name === "Shown").length, 1);
+    assert.equal(adapted.team[0].customFields?.length, 1);
+    assert.equal(adapted.team[0].customFields?.[0].text, "Product");
+    assert.equal(adapted.highlights.some((item) => item.title === "Engineer at Initech"), false);
+    assert.equal(adapted.customSections.some((section) => section.title === "Mystery"), false);
+    assert.equal(JSON.stringify(snapshot.achievements), JSON.stringify(dto.achievements));
+
+    const ambiguous = JSON.parse(JSON.stringify(dto));
+    ambiguous.customSections.push({
+      id: "sec_highlights_2",
+      key: "highlights",
+      title: "Highlights copy",
+      order: 3,
+      repeatable: true,
+      records: [
+        {
+          id: "exp_old",
+          fields: [{ id: "fld_other", key: "other", label: "Other", type: "text", order: 0, presentation: "inline", value: "Ambiguous" }],
+        },
+      ],
+    });
+    const unclear = adaptOneVueProfile(ambiguous, createValidWebsite());
+    assert.equal(unclear.work.find((item) => item.sourceRecordId === "exp_old")?.customFields?.length || 0, 0);
+
+    const current = JSON.parse(JSON.stringify(dto));
+    current.experience = [{ id: "job_real", title: "Lead", organization: "Globex" }];
+    const explicit = adaptOneVueProfile(current, createValidWebsite());
+    assert.equal(explicit.work.some((item) => item.sourceRecordId === "exp_old"), false);
+    assert.equal(explicit.work.some((item) => item.customFields?.some((field) => field.text === "Legacy role")), false);
+    assert.equal(explicit.work[0].company, "Globex");
+  });
+
+  it("renders social custom fields on the matching link and keeps navbar icons", () => {
+    const dto = createValidDTO();
+    dto.contact.github = "https://github.com/alexrivera";
+    dto.contact.socialLinks = [
+      { id: "lnk_main", platform: "GitHub", url: "https://github.com/alexrivera", category: "social", isPrimary: true },
+      { id: "lnk_other", platform: "GitHub", url: "https://github.com/other", category: "social" },
+      { id: "lnk_site", platform: "LeetCode", url: "https://leetcode.com/ada", category: "coding" },
+    ];
+    dto.customSections = [
+      {
+        id: "sec_links",
+        key: "links",
+        title: "Links",
+        builtinKey: "links",
+        order: 0,
+        repeatable: true,
+        records: [
+          {
+            id: "lnk_main",
+            fields: [
+              { id: "fld_primary", key: "pin", label: "Pin", type: "text", order: 0, presentation: "inline", value: "Primary" },
+              { id: "fld_secret", key: "secret", label: "Secret", type: "text", order: 1, presentation: "inline", visibility: "private", value: "hidden" },
+              { id: "fld_blank", key: "blank", label: "Blank", type: "text", order: 2, presentation: "inline", value: "" },
+            ],
+          },
+          {
+            id: "lnk_other",
+            fields: [{ id: "fld_other", key: "pin", label: "Pin", type: "text", order: 0, presentation: "inline", value: "Other account" }],
+          },
+        ],
+      },
+      {
+        id: "sec_social",
+        key: "social",
+        title: "Social",
+        builtinKey: "social",
+        order: 1,
+        repeatable: true,
+        records: [
+          {
+            id: "lnk_site",
+            fields: [{ id: "fld_site", key: "rank", label: "Rank", type: "text", order: 0, presentation: "inline", value: "Guardian" }],
+          },
+        ],
+      },
+    ];
+    const adapted = adaptOneVueProfile(dto, createValidWebsite());
+    assert.equal(adapted.contact.social.GitHub.navbar, true);
+    assert.equal(adapted.contact.social.GitHub.url, "https://github.com/alexrivera");
+    assert.equal(adapted.contact.social.GitHub.customFields?.map((field) => field.text).join(","), "Primary");
+    assert.equal(adapted.contact.social["link:lnk_other"].navbar, false);
+    assert.equal(adapted.contact.social["link:lnk_other"].customFields?.[0].text, "Other account");
+    assert.equal(adapted.contact.social.LeetCode.customFields?.[0].text, "Guardian");
+    assert.equal(JSON.stringify(adapted).includes("hidden"), false);
+    assert.equal(JSON.stringify(adapted).includes("/api/assets/private/"), false);
+
+    dto.contact.socialLinks[2].platform = "LeetCode profile";
+    const renamed = adaptOneVueProfile(dto, createValidWebsite());
+    const renamedLink = Object.values(renamed.contact.social).find((item) => item.sourceId === "lnk_site");
+    assert.equal(renamedLink?.customFields?.[0].text, "Guardian");
+    assert.equal(renamed.contact.social.GitHub.navbar, true);
+    assert.equal(Object.values(renamed.contact.social).filter((item) => item.navbar && item.iconName === "github").length, 1);
+  });
 });

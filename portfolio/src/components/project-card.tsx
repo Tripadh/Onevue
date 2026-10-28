@@ -7,6 +7,8 @@ import { ArrowUpRight, Globe, Github, Video, FileText } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { StoredText } from "@/components/section/stored-text";
+import { CustomFieldList } from "@/components/section/custom-fields";
+import type { AdaptedCustomField } from "@/lib/onevue-profile-adapter";
 
 function renderLinkIcon(link: { icon?: React.ReactNode; iconName?: string }) {
   if (link.icon) return link.icon;
@@ -48,6 +50,7 @@ interface Props {
     type: string;
     href: string;
   }[];
+  customFields?: AdaptedCustomField[];
   className?: string;
 }
 
@@ -61,6 +64,7 @@ export function ProjectCard({
   image,
   video,
   links,
+  customFields,
   className,
 }: Props) {
   const hasMedia = Boolean(video || (image && image.trim().length > 0));
@@ -145,6 +149,7 @@ export function ProjectCard({
         <div className="text-xs flex-1">
           <StoredText text={description} />
         </div>
+        <CustomFieldList fields={customFields} />
 
         {/* Technologies / Tags */}
         {tags && tags.length > 0 && (

@@ -12,6 +12,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AdaptedWorkItem } from "@/lib/onevue-profile-adapter";
 import { StoredText } from "@/components/section/stored-text";
+import { CustomFieldList } from "@/components/section/custom-fields";
 
 function LogoImage({ src, alt }: { src?: string; alt: string }) {
   const [imageError, setImageError] = useState(false);
@@ -92,6 +93,7 @@ export default function WorkSection({ work }: WorkSectionProps) {
           </AccordionTrigger>
           <AccordionContent className="p-0 ml-13">
             {item.description ? <StoredText text={item.description} /> : null}
+            <CustomFieldList fields={"customFields" in item ? item.customFields : undefined} />
           </AccordionContent>
         </AccordionItem>
       ))}

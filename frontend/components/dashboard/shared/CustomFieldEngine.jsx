@@ -6,6 +6,12 @@ function cfApi() {
   return window.OV && window.OV.customFields;
 }
 
+function recordTitle(records, recordId) {
+  const match = (records || []).find((record) => record && String(record.id) === String(recordId || ""));
+  if (match && match.title) return match.title;
+  return recordId ? "" : "";
+}
+
 function CustomFieldBoard({ identity, sectionId, layout, records, disabled, templateId, onChange, onSave }) {
   const api = cfApi();
   const spec = api ? api.builtinFor(identity, sectionId) : null;
@@ -35,6 +41,7 @@ function CustomFieldBoard({ identity, sectionId, layout, records, disabled, temp
     setDialog({
       mode: "add",
       sectionId: target.id,
+      sectionKey: spec.key,
       baseLayout: base,
       draft: {
         label: "",
@@ -45,6 +52,11 @@ function CustomFieldBoard({ identity, sectionId, layout, records, disabled, temp
         placeholder: "",
         config: api.defaultConfig("text"),
         optionsText: "",
+        scope: "section",
+        targetRecordId: "",
+        mapsTo: "",
+        identity,
+        records: rows,
       },
       error: "",
       dirty: false,
@@ -58,6 +70,7 @@ function CustomFieldBoard({ identity, sectionId, layout, records, disabled, temp
     setDialog({
       mode: "edit",
       sectionId: section.id,
+      sectionKey: spec.key,
       fieldId: field.id,
       draft: {
         label: field.label,
@@ -68,6 +81,11 @@ function CustomFieldBoard({ identity, sectionId, layout, records, disabled, temp
         placeholder: field.placeholder || "",
         config: field.config || api.defaultConfig(field.type),
         optionsText,
+        scope: field.scope === "record" ? "record" : "section",
+        targetRecordId: field.targetRecordId || "",
+        mapsTo: field.mapsTo || "",
+        identity,
+        records: rows,
       },
       error: "",
       dirty: false,
@@ -83,7 +101,10 @@ function CustomFieldBoard({ identity, sectionId, layout, records, disabled, temp
     setDialog((currentDialog) => {
       if (!currentDialog) return currentDialog;
       const draft = Object.assign({}, currentDialog.draft, patch);
-      if (patch.type) draft.config = api.defaultConfig(patch.type);
+      if (patch.type) {
+        draft.config = api.defaultConfig(patch.type);
+        draft.mapsTo = "";
+      }
       return Object.assign({}, currentDialog, { draft, dirty: true, error: "" });
     });
   }
@@ -141,6 +162,11 @@ function CustomFieldBoard({ identity, sectionId, layout, records, disabled, temp
         </div>
       </div>
       {error ? <p role="alert" style={{ margin: 0, color: "var(--danger, #b42318)" }}>{error}</p> : null}
+      {fields.filter((field) => field.scope === "record" && !rows.some((record) => String(record.id) === String(field.targetRecordId))).map((field) => (
+        <p key={field.id} role="alert" style={{ margin: 0, color: "var(--danger, #b42318)" }}>
+          {field.label} is linked to a record that is no longer on this profile. Choose another record or unlink it. The record and any uploaded file stay in your account.
+        </p>
+      ))}
       {fields.length === 0 ? (
         <p className="muted" style={{ margin: 0 }}>No custom fields yet. Add one when the built-in fields are not enough.</p>
       ) : (
@@ -151,13 +177,22 @@ function CustomFieldBoard({ identity, sectionId, layout, records, disabled, temp
               <div key={field.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <div>
                   <strong>{field.label}</strong>
-                  <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>{field.type}{field.required ? " · required" : ""}{field.visibility === "private" ? " · private" : ""}</span>
+                  <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
+                    {field.type}
+                    {field.required ? " · required" : ""}
+                    {field.visibility === "private" ? " · private" : ""}
+                    {field.scope === "record" ? " · " + (recordTitle(rows, field.targetRecordId) || "missing record") : " · whole section"}
+                    {field.mapsTo ? " · maps to " + field.mapsTo : ""}
+                  </span>
                   {note.message ? <p className="muted" style={{ margin: "4px 0 0", fontSize: 12 }}>{note.message}</p> : null}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   <Button type="button" size="sm" variant="ghost" disabled={disabled || index === 0} onClick={() => commit(api.reorderField(current, section.id, field.id, -1))}>Up</Button>
                   <Button type="button" size="sm" variant="ghost" disabled={disabled || index === fields.length - 1} onClick={() => commit(api.reorderField(current, section.id, field.id, 1))}>Down</Button>
                   <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => openEdit(field)}>Edit</Button>
+                  {field.scope === "record" ? (
+                    <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => commit(api.unlinkField(current, section.id, field.id))}>Unlink</Button>
+                  ) : null}
                   <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => commit(api.updateField(current, section.id, field.id, Object.assign({}, field, { visibility: field.visibility === "private" ? "public" : "private" })).layout)}>
                     {field.visibility === "private" ? "Show publicly" : "Hide"}
                   </Button>
@@ -179,10 +214,13 @@ function CustomFieldBoard({ identity, sectionId, layout, records, disabled, temp
         <p className="muted" style={{ margin: 0 }}>Add an {spec.label} record before entering custom values.</p>
       ) : fields.length > 0 ? (
         <div style={{ display: "grid", gap: 16 }}>
-          {rows.map((record) => (
+          {rows.map((record) => {
+            const recordFields = api.fieldsForRecord(section, record.id);
+            if (!recordFields.length) return null;
+            return (
             <fieldset key={record.id || spec.key} style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 14, display: "grid", gap: 12 }}>
               <legend style={{ padding: "0 6px", fontSize: 13 }}>{record.title || spec.label}</legend>
-              {fields.map((field) => (
+              {recordFields.map((field) => (
                 <CustomFieldControl
                   key={field.id}
                   field={field}
@@ -192,7 +230,8 @@ function CustomFieldBoard({ identity, sectionId, layout, records, disabled, temp
                 />
               ))}
             </fieldset>
-          ))}
+            );
+          })}
         </div>
       ) : null}
       {retired.length > 0 ? (
@@ -205,7 +244,7 @@ function CustomFieldBoard({ identity, sectionId, layout, records, disabled, temp
           ))}
         </div>
       ) : null}
-      <CustomFieldDialog dialog={dialog} onChange={changeDraft} onClose={closeDialog} onSubmit={saveDialog} />
+      <CustomFieldDialog dialog={dialog} records={rows} onChange={changeDraft} onClose={closeDialog} onSubmit={saveDialog} />
     </section>
   );
 }
@@ -352,7 +391,7 @@ function CustomTagEditor({ label, hint, value, disabled, onChange }) {
   );
 }
 
-function CustomFieldDialog({ dialog, onChange, onClose, onSubmit }) {
+function CustomFieldDialog({ dialog, records, onChange, onClose, onSubmit }) {
   if (!dialog) return null;
   const api = cfApi();
   const draft = dialog.draft;
@@ -400,6 +439,38 @@ function CustomFieldDialog({ dialog, onChange, onClose, onSubmit }) {
           onChange={(event) => onChange({ visibility: event.target.value })}
           options={[{ value: "public", label: "Public on the published portfolio" }, { value: "private", label: "Private to your account" }]}
         />
+        {dialog.standalone ? (
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>This field stays in this custom section. It is not linked to an identity record.</p>
+        ) : (
+          <>
+            <Select
+              label="Attachment"
+              value={draft.scope || "section"}
+              onChange={(event) => onChange({ scope: event.target.value, targetRecordId: event.target.value === "record" ? draft.targetRecordId : "" })}
+              options={[
+                { value: "section", label: "Whole section" },
+                { value: "record", label: "One existing record" },
+              ]}
+            />
+            {draft.scope === "record" ? (
+              <Select
+                label="Existing record"
+                value={draft.targetRecordId || ""}
+                onChange={(event) => onChange({ targetRecordId: event.target.value })}
+                options={[{ value: "", label: "Select a record" }].concat((records || []).filter((record) => record && record.id).map((record) => ({ value: record.id, label: record.title || record.id })))}
+              />
+            ) : (
+              <p className="muted" style={{ margin: 0, fontSize: 13 }}>This value applies to the section. It is not tied to one record.</p>
+            )}
+            <Select
+              label="Built-in field"
+              hint="Leave this empty to keep the value as an extra field on the record. An image stays on the record when the section has no image field."
+              value={draft.mapsTo || ""}
+              onChange={(event) => onChange({ mapsTo: event.target.value })}
+              options={[{ value: "", label: "Keep as an extra field" }].concat((api ? api.mappableFields(draft.identity, dialog.sectionKey, draft.type) : []).map((field) => ({ value: field.key, label: field.label })))}
+            />
+          </>
+        )}
         <div style={{ display: "flex", gap: 8 }}>
           <Button type="submit" variant="primary">{editing ? "Save field" : "Add field"}</Button>
           <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
@@ -496,8 +567,9 @@ function CustomUserSection({ layout, section, disabled, templateId, confirmId, o
   function openAdd() {
     setDialog({
       mode: "add",
+      standalone: true,
       sectionId: section.id,
-      draft: { label: "", type: "text", required: false, visibility: "public", helpText: "", placeholder: "", config: api.defaultConfig("text"), optionsText: "" },
+      draft: { label: "", type: "text", required: false, visibility: "public", helpText: "", placeholder: "", config: api.defaultConfig("text"), optionsText: "", scope: "section", targetRecordId: "", mapsTo: "" },
       error: "",
       dirty: false,
     });
@@ -507,7 +579,10 @@ function CustomUserSection({ layout, section, disabled, templateId, confirmId, o
     setDialog((currentDialog) => {
       if (!currentDialog) return currentDialog;
       const draft = Object.assign({}, currentDialog.draft, patch);
-      if (patch.type) draft.config = api.defaultConfig(patch.type);
+      if (patch.type) {
+        draft.config = api.defaultConfig(patch.type);
+        draft.mapsTo = "";
+      }
       return Object.assign({}, currentDialog, { draft, dirty: true, error: "" });
     });
   }
@@ -594,5 +669,53 @@ function CustomUserSection({ layout, section, disabled, templateId, confirmId, o
   );
 }
 
+function RecordLinkedFields({ identity, sectionId, recordId, layout, records, disabled, onChange }) {
+  const api = cfApi();
+  if (!api || !recordId) return null;
+  const spec = api.builtinFor(identity, sectionId);
+  if (!spec) return null;
+  const current = api.layoutOf(layout);
+  const section = api.sectionByBuiltin(current, spec.key);
+  if (!section) return null;
+  const linked = api.activeFields(section).filter((field) => field.scope === "record" && field.targetRecordId === String(recordId));
+  if (!linked.length) return null;
+  const values = api.valuesFor(current, section, recordId);
+  const choices = (records || []).filter((record) => record && record.id);
+  return (
+    <div style={{ display: "grid", gap: 10, marginTop: 4 }}>
+      <p className="muted" style={{ margin: 0, fontSize: 12 }}>Linked to this record</p>
+      {linked.map((field) => (
+        <div key={field.id} style={{ display: "grid", gap: 8 }}>
+          <CustomFieldControl
+            field={field}
+            value={values[field.id]}
+            disabled={disabled}
+            onChange={(value) => onChange && onChange(api.setValue(current, section, recordId, field.id, value))}
+          />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+            <div style={{ minWidth: 180 }}>
+              <Select
+                label="Record link"
+                value={String(recordId)}
+                disabled={disabled}
+                onChange={(event) => {
+                  const result = api.setFieldTarget(current, section.id, field.id, event.target.value, choices);
+                  if (!result || result.error || !onChange) return;
+                  onChange(result.layout);
+                }}
+                options={choices.map((record) => ({ value: String(record.id), label: record.title || String(record.id) }))}
+              />
+            </div>
+            <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => onChange && onChange(api.unlinkField(current, section.id, field.id))}>
+              Unlink
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 window.CustomFieldBoard = CustomFieldBoard;
 window.CustomSectionManager = CustomSectionManager;
+window.RecordLinkedFields = RecordLinkedFields;

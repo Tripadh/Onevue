@@ -14,6 +14,7 @@ export const MAGICUI_TEMPLATE_ID = "magicui-portfolio";
 const TEXT_PRESENTATION: Record<CustomFieldType, CustomPresentation> = {
   text: "inline",
   textarea: "detail",
+  heading: "heading",
   number: "number",
   url: "link",
   date: "inline",

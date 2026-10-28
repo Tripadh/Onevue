@@ -2,9 +2,9 @@ import * as crypto from "crypto";
 import { isLegacyProfilePhotoKey, isPrefixedProfilePhotoKey } from "./storage/keys";
 import { previewAssetPath, publicAssetPath } from "./storage/asset-refs";
 import { isCustomIdentity } from "./custom-fields/builtins";
-import { projectCustomLayout, sanitizePublicCustomSections } from "./custom-fields/publish";
+import { applyRecordMappings, projectCustomLayout, projectRecordFields, retainOwnedCustomRecords, sanitizePublicCustomSections } from "./custom-fields/publish";
 import { normalizeCustomLayout } from "./custom-fields/validate";
-import type { CustomIdentity, PublicCustomSection } from "./custom-fields/types";
+import type { CustomIdentity, PublicCustomField, PublicCustomSection } from "./custom-fields/types";
 
 /* =========================================================================
    OneVue Public Profile Contract — Schema Version 1.0.0
@@ -44,6 +44,7 @@ export interface IPublicEducation {
   website?: string;
   coursework?: string;
   honors?: string;
+  customFields?: PublicCustomField[];
 }
 
 export interface IPublicProject {
@@ -72,6 +73,7 @@ export interface IPublicProject {
   impact?: string;
   /** Safe http(s) URL or an authorized asset delivery path. Storage keys are never accepted. */
   imageUrl?: string;
+  customFields?: PublicCustomField[];
 }
 
 export interface IPublicSkill {
@@ -81,6 +83,7 @@ export interface IPublicSkill {
   proficiency: string;
   yearsExperience?: number;
   level?: string;
+  customFields?: PublicCustomField[];
 }
 
 export interface IPublicCredential {
@@ -96,6 +99,7 @@ export interface IPublicCredential {
   verificationStatus?: string;
   description?: string;
   relatedSkills?: string[];
+  customFields?: PublicCustomField[];
 }
 
 export interface IPublicAchievement {
@@ -113,6 +117,7 @@ export interface IPublicAchievement {
   location?: string;
   proofUrl?: string;
   certificateUrl?: string;
+  customFields?: PublicCustomField[];
 }
 
 /** Employment or other work history. Optional so schema 1.0.0 snapshots published before this field still validate. */
@@ -126,6 +131,7 @@ export interface IPublicExperience {
   endDate?: string;
   isCurrent?: boolean;
   description?: string;
+  customFields?: PublicCustomField[];
 }
 
 /** A quoted recommendation. Optional on older 1.0.0 snapshots. */
@@ -136,6 +142,7 @@ export interface IPublicTestimonial {
   relationship?: string;
   /** "verified" or "self-reported". Never treated as an independent check by itself. */
   attribution?: string;
+  customFields?: PublicCustomField[];
 }
 
 /** A public team member. Private members are removed before this list is built. */
@@ -410,6 +417,16 @@ export function toPublicProfileDTO(
     meta.templateVersion = options.templateVersion.trim();
   }
 
+  const projectRecFields = (fields: unknown): PublicCustomField[] | undefined => {
+    if (!Array.isArray(fields) || fields.length === 0) return undefined;
+    const res = projectRecordFields(fields, {
+      templateId: options.templateId || "magicui-portfolio",
+      strict: options.strictPublish === true,
+      assetHref: (assetId) => options.preview ? previewAssetPath(assetId) : publicAssetPath(assetId),
+    });
+    return res.length > 0 ? res : undefined;
+  };
+
   // 2. Personal Profile Construction
   const preferredName = sanitizeString(raw.preferredName, 100);
   const userName = options.user ? sanitizeString(options.user.name, 100) : undefined;
@@ -477,6 +494,7 @@ export function toPublicProfileDTO(
           website: sanitizeUrl(e.website),
           coursework: sanitizeString(e.coursework, 1000),
           honors: sanitizeString(e.honors, 500),
+          customFields: projectRecFields(e.customFields),
         }))
     : [];
 
@@ -518,6 +536,7 @@ export function toPublicProfileDTO(
             impact: sanitizeString(p.impact, 2000),
           };
           if (imageUrl) project.imageUrl = imageUrl;
+          project.customFields = projectRecFields(p.customFields);
           return project;
         })
     : [];
@@ -536,6 +555,7 @@ export function toPublicProfileDTO(
               ? s.yearsExperience
               : undefined,
           level: sanitizeString(s.level, 50),
+          customFields: projectRecFields(s.customFields),
         }))
     : [];
 
@@ -587,6 +607,7 @@ export function toPublicProfileDTO(
           location: sanitizeString(a.location, 150),
           proofUrl: sanitizeUrl(a.proofUrl),
           certificateUrl: sanitizeUrl(a.certificateUrl),
+          customFields: projectRecFields(a.customFields),
         }))
     : [];
 
@@ -609,13 +630,12 @@ export function toPublicProfileDTO(
   // 9. Media Construction (private media strictly filtered out)
   const media: IPublicMediaItem[] = Array.isArray(raw.media)
     ? raw.media
-        .filter((m: any) => m && m.mediaUrl && m.visibility !== "private")
+        .filter((m: any) => m && m.visibility !== "private" && (m.mediaUrl || m.title || m.id))
         .map((m: any, idx: number) => {
           const safeUrl = sanitizeDeliveryUrl(m.mediaUrl);
-          if (!safeUrl) return null;
           return {
             id: String(m.id || m._id || `media_${idx}`),
-            mediaUrl: safeUrl,
+            mediaUrl: safeUrl || "",
             mediaType: sanitizeString(m.mediaType, 50) || "image",
             title: sanitizeString(m.title, 150) || "Portfolio Media",
             description: sanitizeString(m.description, 1000),
@@ -671,7 +691,23 @@ export function toPublicProfileDTO(
     socialLinks,
   };
 
-  const customSections = publicCustomSections(raw.customLayout, options);
+  const customSections = retainOwnedCustomRecords(publicCustomSections(raw.customLayout, options), options.recordIds);
+  applyRecordMappings(customSections, {
+    education: education as unknown as Record<string, unknown>[],
+    projects: projects as unknown as Record<string, unknown>[],
+    skills: skills as unknown as Record<string, unknown>[],
+    credentials: credentials as unknown as Record<string, unknown>[],
+    achievements: achievements as unknown as Record<string, unknown>[],
+    media: media as unknown as Record<string, unknown>[],
+    contact: [contact as unknown as Record<string, unknown>],
+    experience: experience as unknown as Record<string, unknown>[],
+    testimonials: testimonials as unknown as Record<string, unknown>[],
+    team: team as unknown as Record<string, unknown>[],
+    socialLinks: socialLinks as unknown as Record<string, unknown>[],
+  }, typeof options.identity === "string" ? options.identity : "");
+  for (let index = media.length - 1; index >= 0; index -= 1) {
+    if (!media[index].mediaUrl) media.splice(index, 1);
+  }
 
   return {
     meta,

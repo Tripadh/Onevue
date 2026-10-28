@@ -66,6 +66,7 @@ export default function ProjectsSection({ projects, subtitle, label, heading }: 
                 image={project.image}
                 video={project.video}
                 links={project.links}
+                customFields={"customFields" in project ? project.customFields : undefined}
               />
             </BlurFade>
           ))}

@@ -7,7 +7,7 @@ import { ensureStudentProfile } from "../../../../lib/ensure-student-profile";
 import { ProfileValidationError } from "../../../../lib/domain-profile/validate";
 import { sanitizeIncomingStrings } from "../../../../lib/templates/registry";
 import { assertProfileAssetRefs, type AssetBinding } from "../../../../lib/storage/asset-service";
-import { collectCustomAssetBindings, syncCustomLayout } from "../../../../lib/custom-fields";
+import { collectCustomAssetBindings, collectRecordCustomFieldAssets, syncCustomLayout, validateRecordCustomFields } from "../../../../lib/custom-fields";
 import type { AssetPurpose } from "../../../../lib/storage/purposes";
 import User from "../../../../models/User";
 import {
@@ -538,8 +538,9 @@ export async function PUT(req: Request) {
 
         // Find existing record to preserve server-managed verificationStatus
         let existingVerification = "self-reported";
+        let match: any = undefined;
         if (item._id || item.id) {
-          const match = profile.education.find(
+          match = profile.education.find(
             (e: any) =>
               (e._id && String(e._id) === String(item._id || item.id)) ||
               (e.id && e.id === String(item.id || item._id))
@@ -547,6 +548,13 @@ export async function PUT(req: Request) {
           if (match && match.verificationStatus) {
             existingVerification = match.verificationStatus;
           }
+        }
+
+        const eduCustomFields = item.customFields !== undefined
+          ? validateRecordCustomFields(item.customFields, `education[${i}].customFields`)
+          : ((match as any)?.customFields || []);
+        if (item.customFields !== undefined) {
+          attachedAssets.push(...collectRecordCustomFieldAssets(eduCustomFields));
         }
 
         validatedEdu.push({
@@ -576,6 +584,7 @@ export async function PUT(req: Request) {
           startYear: String(item.startYear || item.startDate || "").trim(),
           gradYear: String(item.gradYear || item.endDate || "").trim(),
           verificationStatus: existingVerification as any,
+          customFields: eduCustomFields,
         });
       }
 
@@ -692,6 +701,13 @@ export async function PUT(req: Request) {
           summary: String(item.summary || item.shortDescription || "").trim(),
           link: link || liveUrl || repoUrl,
           assetId: takeAsset(item.assetId, `projects[${i}].assetId`, "portfolio-image", attachedAssets),
+          customFields: (() => {
+            const pFields = item.customFields !== undefined
+              ? validateRecordCustomFields(item.customFields, `projects[${i}].customFields`)
+              : ((profile.projects.find((p: any) => (p._id && String(p._id) === String(item._id || item.id)) || (p.id && p.id === String(item.id || item._id))) as any)?.customFields || []);
+            if (item.customFields !== undefined) attachedAssets.push(...collectRecordCustomFieldAssets(pFields));
+            return pFields;
+          })(),
         });
       }
 
@@ -752,6 +768,13 @@ export async function PUT(req: Request) {
           relatedProjects: Array.isArray(item.relatedProjects) ? item.relatedProjects : [],
           relatedCredentials: Array.isArray(item.relatedCredentials) ? item.relatedCredentials : [],
           level: prof,
+          customFields: (() => {
+            const sFields = item.customFields !== undefined
+              ? validateRecordCustomFields(item.customFields, `skills[${i}].customFields`)
+              : ((profile.skills.find((s: any) => (s._id && String(s._id) === String(item._id || item.id)) || (s.id && s.id === String(item.id || item._id))) as any)?.customFields || []);
+            if (item.customFields !== undefined) attachedAssets.push(...collectRecordCustomFieldAssets(sFields));
+            return sFields;
+          })(),
         });
       }
 
@@ -815,9 +838,10 @@ export async function PUT(req: Request) {
         let existingVerification = "self-reported";
         let existingMethod = "self-reported";
         let existingCertificateId = "";
+        let match: any = undefined;
         const nextUrl = String(item.verificationUrl || "").trim();
         if (item._id || item.id) {
-          const match = profile.credentials.find(
+          match = profile.credentials.find(
             (c: any) =>
               (c._id && String(c._id) === String(item._id || item.id)) ||
               (c.id && c.id === String(item.id || item._id))
@@ -850,6 +874,13 @@ export async function PUT(req: Request) {
           verificationStatus: existingVerification as any,
           verificationMethod: existingMethod,
           certificateVerificationId: existingCertificateId,
+          customFields: (() => {
+            const cFields = item.customFields !== undefined
+              ? validateRecordCustomFields(item.customFields, `credentials[${i}].customFields`)
+              : ((match as any)?.customFields || []);
+            if (item.customFields !== undefined) attachedAssets.push(...collectRecordCustomFieldAssets(cFields));
+            return cFields;
+          })(),
         });
       }
 
@@ -902,8 +933,9 @@ export async function PUT(req: Request) {
 
         // Prevent client spoofing of verificationStatus
         let existingVerification = "self-reported";
+        let match: any = undefined;
         if (item._id || item.id) {
-          const match = profile.achievements.find(
+          match = profile.achievements.find(
             (a: any) =>
               (a._id && String(a._id) === String(item._id || item.id)) ||
               (a.id && a.id === String(item.id || item._id))
@@ -934,6 +966,13 @@ export async function PUT(req: Request) {
           relatedProject: String(item.relatedProject || "").trim(),
           skillsDemonstrated: Array.isArray(item.skillsDemonstrated) ? item.skillsDemonstrated : [],
           verificationStatus: existingVerification as any,
+          customFields: (() => {
+            const aFields = item.customFields !== undefined
+              ? validateRecordCustomFields(item.customFields, `achievements[${i}].customFields`)
+              : ((match as any)?.customFields || []);
+            if (item.customFields !== undefined) attachedAssets.push(...collectRecordCustomFieldAssets(aFields));
+            return aFields;
+          })(),
         });
       }
 
@@ -1093,6 +1132,13 @@ export async function PUT(req: Request) {
           mimeType: String(item.mimeType || "").trim(),
           fileSize: Number(item.fileSize) || 0,
           uploadedAt: item.uploadedAt ? new Date(item.uploadedAt) : new Date(),
+          customFields: (() => {
+            const mFields = item.customFields !== undefined
+              ? validateRecordCustomFields(item.customFields, `media[${i}].customFields`)
+              : [];
+            if (item.customFields !== undefined) attachedAssets.push(...collectRecordCustomFieldAssets(mFields));
+            return mFields;
+          })(),
         });
       }
 
@@ -1174,6 +1220,13 @@ export async function PUT(req: Request) {
           isPrimary: Boolean(item.isPrimary),
           visibility: (vis as any) || "public",
           verificationStatus: "unverified",
+          customFields: (() => {
+            const lFields = item.customFields !== undefined
+              ? validateRecordCustomFields(item.customFields, `links[${i}].customFields`)
+              : [];
+            if (item.customFields !== undefined) attachedAssets.push(...collectRecordCustomFieldAssets(lFields));
+            return lFields;
+          })(),
         });
       }
 
@@ -1231,6 +1284,17 @@ export async function PUT(req: Request) {
       if (c.linkedin !== undefined) profile.contacts.linkedin = String(c.linkedin || "").trim();
       if (c.twitter !== undefined) profile.contacts.twitter = String(c.twitter || "").trim();
       if (c.portfolio !== undefined) profile.contacts.portfolio = String(c.portfolio || "").trim();
+      if (c.customFields !== undefined) {
+        const ctFields = validateRecordCustomFields(c.customFields, "contacts.customFields");
+        attachedAssets.push(...collectRecordCustomFieldAssets(ctFields));
+        profile.contacts.customFields = ctFields;
+      }
+    }
+
+    if (body.aboutCustomFields !== undefined) {
+      const abFields = validateRecordCustomFields(body.aboutCustomFields, "aboutCustomFields");
+      attachedAssets.push(...collectRecordCustomFieldAssets(abFields));
+      profile.aboutCustomFields = abFields as any;
     }
 
     const recordPatch: Record<string, unknown> = {};
