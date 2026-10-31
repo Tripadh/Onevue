@@ -68,6 +68,7 @@ const EDUCATION_KEYS = [
 const EXPERIENCE_KEYS = [
   "company",
   "title",
+  "employmentType",
   "location",
   "startDate",
   "endDate",

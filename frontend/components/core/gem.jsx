@@ -38,7 +38,7 @@ function GemCanvas({ onPick, onFail }) {
       if (disposed || !host.current) return;
       const el = host.current;
       let renderer;
-      try { renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' }); }
+      try { renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, depth: true, stencil: false, powerPreference: 'high-performance' }); }
       catch (e) { onFail(); return; }
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.outputEncoding = THREE.sRGBEncoding;
@@ -53,6 +53,7 @@ function GemCanvas({ onPick, onFail }) {
       const ring = (r, y, off) => Array.from({ length: N }, (_, i) => { const a = (i + off) / N * Math.PI * 2; return new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r); });
       const G = ring(R, 0, 0), T = ring(TABLE_R, TABLE_Y, .5), M = ring(MID_R, MID_Y, .5);
       const TC = new THREE.Vector3(0, TABLE_Y, 0), C = new THREE.Vector3(0, CULET_Y, 0);
+      const GEM_CENTER = new THREE.Vector3(0, -.38, 0);
       const tris = [];
       for (let i = 0; i < N; i++) {
         const j = (i + 1) % N, k = (i - 1 + N) % N;
@@ -70,7 +71,8 @@ function GemCanvas({ onPick, onFail }) {
         const c = new THREE.Vector3().add(t[0]).add(t[1]).add(t[2]).divideScalar(3);
         // ensure outward winding
         const n = new THREE.Vector3().subVectors(t[1], t[0]).cross(new THREE.Vector3().subVectors(t[2], t[0]));
-        const out = c.clone(); if (Math.abs(out.x) + Math.abs(out.z) < .01) out.set(0, c.y > 0 ? 1 : -1, 0);
+        const out = c.clone().sub(GEM_CENTER);
+        if (out.lengthSq() < .0001) out.set(0, c.y > GEM_CENTER.y ? 1 : -1, 0);
         const tri = n.dot(out) < 0 ? [t[0], t[2], t[1]] : t;
         buckets[sectorOf(c.x, c.z)].push(tri);
       });
@@ -81,20 +83,43 @@ function GemCanvas({ onPick, onFail }) {
         const pos = new Float32Array(list.length * 9);
         list.forEach((t, i) => t.forEach((v, j) => { pos[i * 9 + j * 3] = v.x; pos[i * 9 + j * 3 + 1] = v.y; pos[i * 9 + j * 3 + 2] = v.z; }));
         const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.computeVertexNormals();
-        const m = new THREE.MeshPhysicalMaterial({ flatShading: true, metalness: .25, roughness: .12, clearcoat: 1, clearcoatRoughness: .08, reflectivity: .9, transparent: true, opacity: .94 });
+        const m = new THREE.MeshPhysicalMaterial({
+          flatShading: true,
+          metalness: .25,
+          roughness: .12,
+          clearcoat: 1,
+          clearcoatRoughness: .08,
+          reflectivity: .9,
+          side: THREE.DoubleSide,
+          depthTest: true,
+          depthWrite: true,
+          polygonOffset: true,
+          polygonOffsetFactor: 1,
+          polygonOffsetUnits: 1,
+        });
         const mesh = new THREE.Mesh(g, m); mesh.userData.sector = s; gem.add(mesh); mats.push(m); meshes.push(mesh);
-        const e = new THREE.LineSegments(new THREE.EdgesGeometry(g, 1), new THREE.LineBasicMaterial({ transparent: true, opacity: .55 }));
+        const e = new THREE.LineSegments(new THREE.EdgesGeometry(g, 1), new THREE.LineBasicMaterial({ transparent: true, opacity: .55, depthTest: true, depthWrite: false }));
+        e.renderOrder = 1;
         gem.add(e); edgeMats.push(e.material);
       });
       // girdle band in platinum
-      const girdle = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.002, R * 1.002, .045, N, 1, true), new THREE.MeshStandardMaterial({ metalness: 1, roughness: .25, side: THREE.DoubleSide }));
+      const girdle = new THREE.Mesh(
+        new THREE.CylinderGeometry(R * 1.002, R * 1.002, .045, N, 1, true),
+        new THREE.MeshStandardMaterial({
+          metalness: .35,
+          roughness: .3,
+          side: THREE.DoubleSide,
+          depthTest: true,
+          depthWrite: true,
+        }),
+      );
       girdle.rotation.y = 0; gem.add(girdle);
 
       // anchors for labels (crown midpoints of each wedge)
       const anchors = GEM_ONEVUES.map((_, s) => { const a = (s + .5) * (Math.PI * 2 / 5); return new THREE.Vector3(Math.cos(a) * 1.02, .22, Math.sin(a) * 1.02); });
 
       // lights
-      const amb = new THREE.AmbientLight(0xffffff, .35); scene.add(amb);
+      const amb = new THREE.AmbientLight(0xffffff, .65); scene.add(amb);
       const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(3, 5, 4); scene.add(key);
       const rim = new THREE.PointLight(0xffffff, 2.2, 20); rim.position.set(-4, 1.5, -2); scene.add(rim);
       const warm = new THREE.PointLight(0xffffff, 1.4, 20); warm.position.set(2.5, -2.5, 3); scene.add(warm);
@@ -109,10 +134,11 @@ function GemCanvas({ onPick, onFail }) {
         const base = col(t.primary);
         mats.forEach((m, i) => {
           m.color.copy(base);
-          m.emissive.copy(col(t.primary)).multiplyScalar(i === hoverRef.current ? .55 : .08);
+          m.emissive.copy(col(t.primary)).multiplyScalar(i === hoverRef.current ? .55 : .22);
         });
         edgeMats.forEach(m => { m.color.copy(col(t.metal)); m.opacity = isLight ? .75 : .5; });
         girdle.material.color.copy(col(t.metal));
+        girdle.material.emissive.copy(col(t.metal)).multiplyScalar(.12);
         rim.color.copy(col(t.soft)); warm.color.copy(col(t.accent)); top.color.copy(col(t.metal));
         amb.intensity = isLight ? .6 : .32;
       }
@@ -258,4 +284,3 @@ function HeroGem({ onPick }) {
 }
 
 Object.assign(window, { HeroGem, GEM_ONEVUES });
-

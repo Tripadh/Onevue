@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import connectToDatabase from "../db";
 import User, { IdentityType } from "../../models/User";
-import { isJwtConfigError, resolveJwtSecret, verifyJwtToken } from "../auth";
+import { isJwtConfigError, verifySessionToken } from "../auth";
 import type { DomainContract } from "./types";
 import { buildDomainUpdate, ProfileValidationError } from "./validate";
 import { assertProfileAssetRefs, collectAssetBindings } from "../storage/asset-service";
@@ -84,19 +84,9 @@ async function authenticateIdentity(req: Request, identity: IdentityType) {
   }
 
   const token = authHeader.split(" ")[1];
-  let secret: string;
-  try {
-    secret = resolveJwtSecret();
-  } catch (error) {
-    if (isJwtConfigError(error)) {
-      return { error: "Server authentication is not configured.", status: 500 as const };
-    }
-    return { error: "Server authentication is not configured.", status: 500 as const };
-  }
-
   let decoded: { id: string; email: string };
   try {
-    decoded = verifyJwtToken(token, secret);
+    decoded = await verifySessionToken(token);
   } catch {
     return { error: "Invalid or expired session token.", status: 401 as const };
   }

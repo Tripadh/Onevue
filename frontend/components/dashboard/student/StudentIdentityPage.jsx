@@ -43,6 +43,7 @@ const RESUME_FIELD_LABELS = {
   responsibilities: 'Responsibilities',
   description: 'Description',
   technologies: 'Technologies',
+  employmentType: 'Experience type',
   links: 'Link',
   platform: 'Platform',
   url: 'URL',
@@ -77,14 +78,39 @@ function resumeRowsByEntry(rows) {
 }
 
 function resumeRowSelectable(row, entryRows) {
-  if (!row || row.section === 'experience') return false;
+  if (!row) return false;
   if (row.section === 'skills') return row.field === 'name' && Boolean(row.value);
   if (!row.applicable) return false;
   const fields = new Set((entryRows || []).filter((item) => item.applicable).map((item) => item.field));
   if (row.section === 'education') return fields.has('institution') && fields.has('degree');
+  if (row.section === 'experience') return fields.has('company') && fields.has('title');
   if (row.section === 'projects') return fields.has('name');
   if (row.section === 'socialLinks') return fields.has('platform') && fields.has('url');
   return true;
+}
+
+function resumeEntryBlocker(section, entryRows) {
+  const fields = new Set((entryRows || []).filter((row) => row.applicable).map((row) => row.field));
+  const missing = (required) => required.filter((field) => !fields.has(field));
+  if (section === 'education') {
+    const absent = missing(['institution', 'degree']);
+    return absent.length
+      ? 'Institution and degree are required to save education. Add the missing field in the Education section before applying this entry.'
+      : '';
+  }
+  if (section === 'experience') {
+    const absent = missing(['company', 'title']);
+    return absent.length
+      ? 'Company and role title are required to save work experience. Add the missing field in Work Experience before applying this entry.'
+      : '';
+  }
+  if (section === 'projects' && !fields.has('name')) {
+    return 'A project name is required before its other details can be saved.';
+  }
+  if (section === 'socialLinks' && missing(['platform', 'url']).length) {
+    return 'Both a platform and a valid URL are required before this link can be saved.';
+  }
+  return '';
 }
 
 function resumeText(value) {
@@ -109,7 +135,7 @@ function studentOnboardingKey(session, name) {
 function studentProfileHasContent(profile) {
   if (!profile) return false;
   if (resumeText(profile.headline) || resumeText(profile.bio)) return true;
-  return ['education', 'projects', 'skills', 'credentials', 'achievements', 'links'].some(
+  return ['education', 'workExperience', 'projects', 'skills', 'credentials', 'achievements', 'links'].some(
     (key) => Array.isArray(profile[key]) && profile[key].length > 0
   );
 }
@@ -136,6 +162,18 @@ function resumeRowCurrentValue(profile, row, entryRows) {
     ));
     if (!match) return '';
     if (row.field === 'grade') return resumeText(match.gpa || match.percentage);
+    return resumeText(match[row.field]);
+  }
+  if (row.section === 'experience') {
+    const organization = resumeEntryValue(entryRows, 'company');
+    const title = resumeEntryValue(entryRows, 'title');
+    const match = (profile.workExperience || []).find((item) => (
+      resumeSame(item.organization, organization) && resumeSame(item.title, title)
+    ));
+    if (!match) return '';
+    if (row.field === 'company') return resumeText(match.organization);
+    if (row.field === 'responsibilities') return resumeText(match.description);
+    if (row.field === 'employmentType') return resumeText(match.experienceType);
     return resumeText(match[row.field]);
   }
   if (row.section === 'projects') {
@@ -222,8 +260,14 @@ function ResumeExtractionReview({
             const skillSelected = section.id === 'skills' && entry.rows.some((row) => selection[row.id]);
             const credentialSelected = section.id === 'credentials' && entry.rows.some((row) => selection[row.id]);
             const skillExtra = skillExtras[entry.entryIndex] || { category: 'Other Skills', proficiency: 'Intermediate' };
+            const blocker = resumeEntryBlocker(section.id, entry.rows);
             return (
               <div key={section.id + '-' + entry.entryIndex} style={{ display: 'grid', gap: 8, padding: '4px 0 8px' }}>
+                {blocker && (
+                  <p role="note" className="muted" style={{ fontSize: 12, margin: 0, padding: '8px 10px', borderRadius: 8, background: 'color-mix(in oklab, var(--accent) 10%, transparent)' }}>
+                    <span aria-hidden="true">ⓘ </span>{blocker}
+                  </p>
+                )}
                 {entry.rows.map((row) => {
                   const selectable = resumeRowSelectable(row, entry.rows);
                   const current = resumeRowCurrentValue(profile, row, entry.rows);
@@ -242,7 +286,7 @@ function ResumeExtractionReview({
                           <strong style={{ fontSize: 13.5 }}>{RESUME_FIELD_LABELS[row.field] || row.field}</strong>
                           <span className="badge" style={{ fontSize: 10 }}>{RESUME_CHANGE_LABELS[kind]}</span>
                           {row.confidence && <span className="badge" style={{ fontSize: 10 }}>{row.confidence}</span>}
-                          {!selectable && <span className="badge" style={{ fontSize: 10 }}>Shown only</span>}
+                          {!selectable && <span className="badge" style={{ fontSize: 10 }}>{blocker ? 'Needs required info' : 'Shown only'}</span>}
                         </span>
                         {kind === 'modified' && (
                           <span className="faint" style={{ display: 'block', fontSize: 12.5, marginTop: 2, whiteSpace: 'pre-wrap' }}>Saved: {current}</span>
@@ -306,7 +350,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
   const [activeSection, setActiveSection] = sUseState(() => {
     try {
       const savedTab = localStorage.getItem('ov_student_identity_tab');
-      const validTabs = ['profile', 'education', 'projects', 'skills', 'credentials', 'achievements', 'resume', 'media', 'contacts'];
+      const validTabs = ['profile', 'education', 'experience', 'projects', 'skills', 'credentials', 'achievements', 'resume', 'contacts'];
       return (savedTab && validTabs.includes(savedTab)) ? savedTab : 'profile';
     } catch {
       return 'profile';
@@ -340,6 +384,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
 
   // Collections (Modules 2-9)
   const [educationList, setEducationList] = sUseState([]);
+  const [workExperienceList, setWorkExperienceList] = sUseState([]);
   const [customLayout, setCustomLayout] = sUseState({ schemaVersion: 1, revision: 0, sections: [], bindings: [], entries: [] });
   const [projectsList, setProjectsList] = sUseState([]);
   const [skillsList, setSkillsList] = sUseState([]);
@@ -461,17 +506,17 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
     proofUrl: '',
   });
 
-  const [mediaModalOpen, setMediaModalOpen] = sUseState(false);
-  const [editingMediaIdx, setEditingMediaIdx] = sUseState(null);
-  const [mediaForm, setMediaForm] = sUseState({
+  const [experienceModalOpen, setExperienceModalOpen] = sUseState(false);
+  const [editingExperienceIdx, setEditingExperienceIdx] = sUseState(null);
+  const [experienceForm, setExperienceForm] = sUseState({
+    organization: '',
     title: '',
-    mediaUrl: '',
-    assetId: '',
-    mediaType: 'image',
-    category: 'project',
+    experienceType: 'employment',
+    location: '',
+    startDate: '',
+    endDate: '',
+    isCurrent: false,
     description: '',
-    altText: '',
-    isFeatured: false,
   });
 
   const [linkModalOpen, setLinkModalOpen] = sUseState(false);
@@ -521,6 +566,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
     setAreasOfInterest(Array.isArray(source.areasOfInterest) ? source.areasOfInterest : []);
     setLanguages(Array.isArray(source.languages) ? source.languages : []);
     if (Array.isArray(source.education)) setEducationList(source.education);
+    if (Array.isArray(source.workExperience)) setWorkExperienceList(source.workExperience);
     setCustomLayout(source.customLayout && Array.isArray(source.customLayout.sections) ? source.customLayout : { schemaVersion: 1, revision: 0, sections: [], bindings: [], entries: [] });
     if (Array.isArray(source.projects)) setProjectsList(source.projects);
     if (Array.isArray(source.skills)) setSkillsList(source.skills);
@@ -605,6 +651,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
         areasOfInterest,
         languages,
         education: educationList,
+        workExperience: workExperienceList,
         projects: projectsList,
         skills: skillsList,
         credentials: credentialsList,
@@ -617,7 +664,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       }, studentDraftBase.current);
     }, 250);
     return () => clearTimeout(timer);
-  }, [preferredName, profilePhoto, headline, bio, nationality, country, stateRegion, city, currentStatus, careerInterests, areasOfInterest, languages, educationList, projectsList, skillsList, credentialsList, achievementsList, mediaList, linksList, contactsState, resumeData, customLayout]);
+  }, [preferredName, profilePhoto, headline, bio, nationality, country, stateRegion, city, currentStatus, careerInterests, areasOfInterest, languages, educationList, workExperienceList, projectsList, skillsList, credentialsList, achievementsList, mediaList, linksList, contactsState, resumeData, customLayout]);
 
   sUseEffect(() => {
     if (loadingProfile || onboardingReady) return;
@@ -674,6 +721,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       areasOfInterest,
       languages,
       education: educationList,
+      workExperience: workExperienceList,
       projects: projectsList,
       skills: skillsList,
       credentials: credentialsList,
@@ -702,6 +750,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       bio,
       contacts: { email: contactsState.email, phone: contactsState.phone },
       education: educationList,
+      workExperience: workExperienceList,
       projects: projectsList,
       skills: skillsList,
       credentials: credentialsList,
@@ -712,6 +761,7 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
     setBio(draft.bio || '');
     setContactsState((current) => ({ ...current, email: draft.contacts.email || '', phone: draft.contacts.phone || '' }));
     setEducationList(draft.education);
+    setWorkExperienceList(draft.workExperience);
     setProjectsList(draft.projects);
     setSkillsList(draft.skills);
     setCredentialsList(draft.credentials);
@@ -722,12 +772,12 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
   const sectionsList = [
     { id: 'profile', label: '1. Personal Profile' },
     { id: 'education', label: '2. Education' },
-    { id: 'projects', label: '3. Projects' },
-    { id: 'skills', label: '4. Skills' },
-    { id: 'credentials', label: '5. Credentials' },
-    { id: 'achievements', label: '6. Achievements' },
-    { id: 'resume', label: '7. Resume (Single Slot)' },
-    { id: 'media', label: '8. Media' },
+    { id: 'experience', label: '3. Work Experience & Internships' },
+    { id: 'projects', label: '4. Projects' },
+    { id: 'skills', label: '5. Skills' },
+    { id: 'credentials', label: '6. Credentials' },
+    { id: 'achievements', label: '7. Achievements' },
+    { id: 'resume', label: '8. Resume (Single Slot)' },
     { id: 'contacts', label: '9. Links & Contacts' },
   ];
 
@@ -864,6 +914,70 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
     if (success) {
       setEducationList(updatedList);
       toast.push({ title: 'Education Removed', tone: 'info' });
+    }
+  };
+
+  const handleOpenAddExperience = () => {
+    setEditingExperienceIdx(null);
+    setExperienceForm({
+      organization: '',
+      title: '',
+      experienceType: 'employment',
+      location: '',
+      startDate: '',
+      endDate: '',
+      isCurrent: false,
+      description: '',
+    });
+    setExperienceModalOpen(true);
+  };
+
+  const handleOpenEditExperience = (idx) => {
+    const item = workExperienceList[idx];
+    setEditingExperienceIdx(idx);
+    setExperienceForm({
+      organization: item.organization || item.company || '',
+      title: item.title || item.jobTitle || '',
+      experienceType: item.experienceType === 'internship' ? 'internship' : 'employment',
+      location: item.location || '',
+      startDate: item.startDate || '',
+      endDate: item.endDate || '',
+      isCurrent: Boolean(item.isCurrent),
+      description: item.description || '',
+    });
+    setExperienceModalOpen(true);
+  };
+
+  const handleSaveExperience = async () => {
+    if (!experienceForm.organization.trim() || !experienceForm.title.trim()) {
+      toast.push({ title: 'Validation Error', body: 'Organization and role title are required.', tone: 'error' });
+      return;
+    }
+    setIsSubmitting(true);
+    const entry = {
+      ...experienceForm,
+      organization: experienceForm.organization.trim(),
+      title: experienceForm.title.trim(),
+      endDate: experienceForm.isCurrent ? '' : experienceForm.endDate.trim(),
+      description: experienceForm.description.trim(),
+    };
+    const updatedList = editingExperienceIdx !== null
+      ? workExperienceList.map((item, idx) => idx === editingExperienceIdx ? { ...item, ...entry } : item)
+      : [...workExperienceList, { id: 'exp_' + Date.now(), ...entry }];
+    const success = await onSaveToDb({ workExperience: updatedList });
+    setIsSubmitting(false);
+    if (success) {
+      setWorkExperienceList(updatedList);
+      setExperienceModalOpen(false);
+    }
+  };
+
+  const handleDeleteExperience = async (idx) => {
+    const updatedList = workExperienceList.filter((_, index) => index !== idx);
+    const success = await onSaveToDb({ workExperience: updatedList });
+    if (success) {
+      setWorkExperienceList(updatedList);
+      toast.push({ title: 'Experience Removed', tone: 'info' });
     }
   };
 
@@ -1465,6 +1579,8 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       const entryRows = (resumeReview.rows || []).filter((item) => item.section === group.section && item.entryIndex === group.index);
       const required = group.section === 'education'
         ? ['institution', 'degree']
+        : group.section === 'experience'
+          ? ['company', 'title']
         : group.section === 'socialLinks'
           ? ['platform', 'url']
           : group.section === 'projects'
@@ -1566,74 +1682,6 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
     if (success) {
       setResumeData(null);
       toast.push({ title: 'Resume Removed', body: 'Single resume slot is now empty.', tone: 'info' });
-    }
-  };
-
-  /* ---------------- Module 8 Handlers (Media) ---------------- */
-  const handleOpenAddMedia = () => {
-    setEditingMediaIdx(null);
-    setMediaForm({
-      title: '',
-      mediaUrl: '',
-      assetId: '',
-      mediaType: 'image',
-      category: 'project',
-      description: '',
-      altText: '',
-      isFeatured: false,
-      customFields: [],
-    });
-    setMediaModalOpen(true);
-  };
-
-  const handleOpenEditMedia = (idx) => {
-    setEditingMediaIdx(idx);
-    const item = mediaList[idx];
-    setMediaForm({
-      title: item.title || '',
-      mediaUrl: item.mediaUrl || item.url || '',
-      assetId: item.assetId || '',
-      mediaType: item.mediaType || 'image',
-      category: item.category || 'project',
-      description: item.description || '',
-      altText: item.altText || '',
-      isFeatured: Boolean(item.isFeatured),
-    });
-    setMediaModalOpen(true);
-  };
-
-  const handleSaveMediaModal = async () => {
-    if (!mediaForm.title.trim() || (!mediaForm.mediaUrl.trim() && !mediaForm.assetId)) {
-      toast.push({ title: 'Validation Error', body: 'Add a title and either an https link or an uploaded file.', tone: 'error' });
-      return;
-    }
-    if (mediaForm.mediaUrl.trim() && !/^https?:\/\//i.test(mediaForm.mediaUrl.trim())) {
-      toast.push({ title: 'Invalid media link', body: 'Media links must start with http:// or https://.', tone: 'error' });
-      return;
-    }
-    setIsSubmitting(true);
-    let updatedList;
-    if (editingMediaIdx !== null) {
-      updatedList = mediaList.map((item, idx) =>
-        idx === editingMediaIdx ? { ...item, ...mediaForm } : item
-      );
-    } else {
-      updatedList = [...mediaList, { id: 'med_' + Date.now(), ...mediaForm, displayOrder: mediaList.length }];
-    }
-    const success = await onSaveToDb({ media: updatedList });
-    setIsSubmitting(false);
-    if (success) {
-      setMediaList(updatedList);
-      setMediaModalOpen(false);
-    }
-  };
-
-  const handleDeleteMedia = async (idx) => {
-    const updatedList = mediaList.filter((_, i) => i !== idx);
-    const success = await onSaveToDb({ media: updatedList });
-    if (success) {
-      setMediaList(updatedList);
-      toast.push({ title: 'Media Item Removed', tone: 'info' });
     }
   };
 
@@ -1838,12 +1886,13 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       <div
         className="glass"
         style={{
-          padding: '6px',
+          padding: '6px 6px 6px 10px',
           borderRadius: 16,
           display: 'flex',
           gap: 6,
           overflowX: 'auto',
           scrollbarWidth: 'none',
+          flexWrap: 'wrap',
         }}
       >
         {sectionsList.filter((sec) => onboardingStep !== 'profile' || sec.id !== 'resume').map((sec) => {
@@ -1855,8 +1904,8 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
               className="tab"
               style={{
                 borderRadius: 12,
-                padding: '8px 14px',
-                fontSize: 13,
+                padding: '7px 10px',
+                fontSize: 12,
                 fontWeight: isCurrent ? 600 : 500,
                 color: isCurrent ? 'var(--text-1)' : 'var(--text-2)',
                 background: isCurrent ? 'color-mix(in oklab, var(--primary) 22%, var(--glass))' : 'transparent',
@@ -2180,7 +2229,68 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       )}
 
       {/* -------------------------------------------------------------
-          MODULE 3: Projects
+          MODULE 3: Work Experience & Internships
+          ------------------------------------------------------------- */}
+      {showModule('experience') && (
+        <section className="glass" style={{ padding: 28, borderRadius: 20, display: 'grid', gap: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <h2 className="h-sub" style={{ fontSize: 20, margin: 0 }}>Work Experience & Internships</h2>
+              <p className="muted" style={{ fontSize: 13.5, margin: '2px 0 0' }}>
+                Add roles and internships to your identity. Published experience can be used by portfolio templates that support it.
+              </p>
+            </div>
+            <Button size="sm" variant="primary" icon={<Icon.plus />} onClick={handleOpenAddExperience}>
+              + Add Experience
+            </Button>
+          </div>
+
+          {workExperienceList.length === 0 ? (
+            <EmptyState
+              title="No Work Experience Added Yet"
+              body="Add an employment role or internship. Your existing portfolio templates remain unchanged."
+              action={<Button size="sm" variant="primary" icon={<Icon.plus />} onClick={handleOpenAddExperience}>Add Experience</Button>}
+            />
+          ) : (
+            <div style={{ display: 'grid', gap: 14 }}>
+              {workExperienceList.map((item, idx) => (
+                <div key={item.id || item._id || idx} className="glass" style={{ padding: 20, borderRadius: 16, border: '1px solid var(--line)', display: 'grid', gap: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <h4 style={{ fontSize: 18, margin: 0 }}>{item.title || item.jobTitle}</h4>
+                        <span className="badge" style={{ textTransform: 'capitalize', fontSize: 11 }}>
+                          {(item.experienceType || 'employment').replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                      <p className="muted" style={{ fontSize: 14, margin: '4px 0 0' }}>
+                        {item.organization || item.company}{item.location ? ` · ${item.location}` : ''}
+                      </p>
+                      <p className="faint" style={{ fontSize: 12.5, margin: '4px 0 0' }}>
+                        {item.startDate || 'Start date not set'} — {item.isCurrent ? 'Present' : item.endDate || 'End date not set'}
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <Button size="sm" variant="ghost" onClick={() => handleOpenEditExperience(idx)}>
+                        <StudentIcons.edit /> Edit
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => handleDeleteExperience(idx)} style={{ color: '#ef4444' }}>
+                        <StudentIcons.trash /> Delete
+                      </Button>
+                    </div>
+                  </div>
+                  {item.description && (
+                    <p style={{ fontSize: 13, margin: 0, whiteSpace: 'pre-wrap', color: 'var(--text-2)' }}>{item.description}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* -------------------------------------------------------------
+          MODULE 4: Projects
           ------------------------------------------------------------- */}
       {showModule('projects') && (
         <section className="glass" style={{ padding: 28, borderRadius: 20, display: 'grid', gap: 20 }}>
@@ -2683,67 +2793,6 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
       )}
 
       {/* -------------------------------------------------------------
-          MODULE 8: Media Gallery
-          ------------------------------------------------------------- */}
-      {showModule('media') && (
-        <section className="glass" style={{ padding: 28, borderRadius: 20, display: 'grid', gap: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-            <div>
-              <h2 className="h-sub" style={{ fontSize: 20, margin: 0 }}>Visual Media & Presentations</h2>
-              <p className="muted" style={{ fontSize: 13.5, margin: '2px 0 0' }}>
-                Conference slides, paper preprints, lab images, and demo recordings.
-              </p>
-            </div>
-            <Button size="sm" variant="primary" icon={<Icon.plus />} onClick={handleOpenAddMedia}>
-              + Add Media Item
-            </Button>
-          </div>
-
-          {mediaList.length === 0 ? (
-            <EmptyState
-              title="No Media Items Added Yet"
-              body="Add diagrams, research poster links, slides, and recorded project demos."
-              action={<Button size="sm" variant="primary" icon={<Icon.plus />} onClick={handleOpenAddMedia}>Add Media</Button>}
-            />
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-              {mediaList.map((m, idx) => (
-                <div key={m.id || m._id || idx} className="glass" style={{ padding: 18, borderRadius: 16, border: '1px solid var(--line)', display: 'grid', gap: 10 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <h4 style={{ fontSize: 16, margin: 0 }}>{m.title}</h4>
-                      <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                        <span className="badge" style={{ fontSize: 11, textTransform: 'capitalize' }}>{m.mediaType || 'Image'}</span>
-                        <span className="badge" style={{ fontSize: 11, textTransform: 'capitalize' }}>{m.category || 'Project'}</span>
-                        {m.isFeatured && <span className="badge badge-verified" style={{ fontSize: 10 }}>Featured</span>}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <button onClick={() => handleOpenEditMedia(idx)} className="icon-btn" style={{ width: 26, height: 26 }}>
-                        <StudentIcons.edit width="12" height="12" />
-                      </button>
-                      <button onClick={() => handleDeleteMedia(idx)} className="icon-btn" style={{ width: 26, height: 26, color: '#ef4444' }}>
-                        <StudentIcons.trash width="12" height="12" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {m.description && <p className="muted" style={{ fontSize: 13, margin: 0 }}>{m.description}</p>}
-
-                  {m.mediaUrl && (
-                    <a href={m.mediaUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: 'var(--accent)', textDecoration: 'none' }}>
-                      Open Asset ↗
-                    </a>
-                  )}
-                  {renderRecordFields('media', m)}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* -------------------------------------------------------------
           MODULE 9: Links & Contacts
           ------------------------------------------------------------- */}
       {showModule('contacts') && (
@@ -2885,19 +2934,6 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
         </section>
       )}
 
-      {onboardingReady && onboardingStep !== "choice" && onboardingStep !== "extract" ? (
-        <>
-
-          <CustomSectionManager
-            layout={customLayout}
-            disabled={isSubmitting}
-            templateId="magicui-portfolio"
-            onChange={setCustomLayout}
-            onSave={(next) => saveStudentCustomLayout(next, activeSection)}
-          />
-        </>
-      ) : null}
-
       {/* =============================================================
           MODALS FOR EDITING INDIVIDUAL ITEMS
           ============================================================= */}
@@ -2962,6 +2998,85 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
           )}
           <Button block variant="primary" loading={isSubmitting} onClick={handleSaveEduModal}>
             Save Education Record
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Work Experience Modal */}
+      <Modal
+        open={experienceModalOpen}
+        onClose={() => setExperienceModalOpen(false)}
+        title={editingExperienceIdx !== null ? "Edit Work Experience" : "Add Work Experience"}
+      >
+        <div style={{ display: 'grid', gap: 14 }}>
+          <h3 className="h-card" style={{ fontSize: 22, margin: 0 }}>
+            {editingExperienceIdx !== null ? "Edit Role" : "Add Role or Internship"}
+          </h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Input
+              label="Role title *"
+              value={experienceForm.title}
+              onChange={(event) => setExperienceForm({ ...experienceForm, title: event.target.value })}
+              placeholder="e.g. Software Engineering Intern"
+            />
+            <Select
+              label="Experience type"
+              value={experienceForm.experienceType}
+              onChange={(event) => setExperienceForm({ ...experienceForm, experienceType: event.target.value })}
+              options={[
+                { value: 'employment', label: 'Employment' },
+                { value: 'internship', label: 'Internship' },
+              ]}
+            />
+          </div>
+          <Input
+            label="Organization / company *"
+            value={experienceForm.organization}
+            onChange={(event) => setExperienceForm({ ...experienceForm, organization: event.target.value })}
+            placeholder="e.g. Example Company"
+          />
+          <Input
+            label="Location"
+            value={experienceForm.location}
+            onChange={(event) => setExperienceForm({ ...experienceForm, location: event.target.value })}
+            placeholder="City, Country or Remote"
+          />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Input
+              label="Start date"
+              value={experienceForm.startDate}
+              onChange={(event) => setExperienceForm({ ...experienceForm, startDate: event.target.value })}
+              placeholder="e.g. Jan 2024"
+            />
+            <Input
+              label="End date"
+              value={experienceForm.endDate}
+              disabled={experienceForm.isCurrent}
+              onChange={(event) => setExperienceForm({ ...experienceForm, endDate: event.target.value })}
+              placeholder="e.g. Aug 2024"
+            />
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={experienceForm.isCurrent}
+              onChange={(event) => setExperienceForm({ ...experienceForm, isCurrent: event.target.checked })}
+            />
+            I currently work in this role
+          </label>
+          <label style={{ display: 'grid', gap: 6, fontSize: 13 }}>
+            Responsibilities and highlights
+            <textarea
+              className="input"
+              rows={5}
+              maxLength={4000}
+              value={experienceForm.description}
+              onChange={(event) => setExperienceForm({ ...experienceForm, description: event.target.value })}
+              placeholder="Describe your responsibilities, contributions, and outcomes."
+            />
+          </label>
+          <Button block variant="primary" loading={isSubmitting} onClick={handleSaveExperience}>
+            Save Experience
           </Button>
         </div>
       </Modal>
@@ -3170,62 +3285,6 @@ function StudentIdentityPage({ session, studentProfile, onSaveToDb, onProfileRep
           )}
           <Button block variant="primary" loading={isSubmitting} onClick={handleSaveAchModal}>
             Save Achievement Record
-          </Button>
-        </div>
-      </Modal>
-
-      {/* Media Modal */}
-      <Modal open={mediaModalOpen} onClose={() => setMediaModalOpen(false)} title={editingMediaIdx !== null ? "Edit Media" : "Add Media"}>
-        <div style={{ display: 'grid', gap: 14 }}>
-          <h3 className="h-card" style={{ fontSize: 22, margin: 0 }}>
-            {editingMediaIdx !== null ? "Edit Media Asset" : "Add Media Asset"}
-          </h3>
-          <Input label="Asset Title *" value={mediaForm.title} onChange={(e) => setMediaForm({ ...mediaForm, title: e.target.value })} placeholder="e.g. Research Poster / Architecture Diagram" />
-          <Input label="Media URL" value={mediaForm.mediaUrl} onChange={(e) => setMediaForm({ ...mediaForm, mediaUrl: e.target.value })} placeholder="https://..." hint="Optional when you upload a file. Use http or https." />
-          {window.EditorAssetField ? (
-            <EditorAssetField
-              label="Uploaded file"
-              purpose="portfolio-media"
-              value={mediaForm.assetId || ''}
-              disabled={isSubmitting}
-              onChange={(assetId) => setMediaForm({ ...mediaForm, assetId })}
-              hint="Images and PDFs are accepted. Galleries and video files are not shown by this template."
-            />
-          ) : null}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Select
-              label="Media Type"
-              value={mediaForm.mediaType}
-              onChange={(e) => setMediaForm({ ...mediaForm, mediaType: e.target.value })}
-              options={[
-                { value: 'image', label: 'Image / Diagram' },
-                { value: 'video', label: 'Video Demo' },
-                { value: 'presentation', label: 'Slide Deck' },
-                { value: 'pdf', label: 'PDF Document' },
-              ]}
-            />
-            <Select
-              label="Category"
-              value={mediaForm.category}
-              onChange={(e) => setMediaForm({ ...mediaForm, category: e.target.value })}
-              options={[
-                { value: 'project', label: 'Project Artifact' },
-                { value: 'research', label: 'Research Paper / Poster' },
-                { value: 'achievement', label: 'Award Photo' },
-                { value: 'profile', label: 'Profile Media' },
-              ]}
-            />
-          </div>
-          <Input label="Description / Caption" value={mediaForm.description} onChange={(e) => setMediaForm({ ...mediaForm, description: e.target.value })} placeholder="Brief caption..." />
-          {window.RecordCustomFieldsEditor && (
-            <RecordCustomFieldsEditor
-              fields={mediaForm.customFields || []}
-              disabled={isSubmitting}
-              onChange={(next) => setMediaForm({ ...mediaForm, customFields: next })}
-            />
-          )}
-          <Button block variant="primary" loading={isSubmitting} onClick={handleSaveMediaModal}>
-            Save Media Asset
           </Button>
         </div>
       </Modal>

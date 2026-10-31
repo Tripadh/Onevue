@@ -47,6 +47,25 @@ function hidePrivateContact(contact: unknown) {
   if (visibility.partnershipEmail !== "public") delete block.partnershipEmail;
 }
 
+/**
+ * A resume is public only when the owner marked it public and it has an
+ * already-resolved http(s) URL. Storage keys and asset ids are never copied.
+ * No current schema exposes those fields, so an uploaded resume stays private.
+ */
+function safePublicResume(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (row.visibility !== "public") return null;
+  const url = typeof row.url === "string" ? row.url.trim() : "";
+  if (!/^https?:\/\//i.test(url)) return null;
+  return {
+    url,
+    ...(typeof row.fileName === "string" && row.fileName ? { fileName: row.fileName } : {}),
+    ...(typeof row.targetRole === "string" && row.targetRole ? { targetRole: row.targetRole } : {}),
+    ...(row.uploadedAt ? { uploadedAt: row.uploadedAt } : {}),
+  };
+}
+
 export function projectPublicDomainProfile(profile: unknown): Record<string, unknown> {
   if (!profile || typeof profile !== "object") {
     throw new Error("Profile is required.");
@@ -55,7 +74,9 @@ export function projectPublicDomainProfile(profile: unknown): Record<string, unk
   stripSensitive(copy);
   stripPrivateAssetIds(copy);
   delete copy.userId;
+  const resume = safePublicResume(copy.resume);
   delete copy.resume;
+  if (resume) copy.resume = resume;
   hidePrivateContact(copy.contact);
   hidePrivateContact(copy.publicContact);
 

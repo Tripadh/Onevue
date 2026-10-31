@@ -4,7 +4,7 @@
  * GET /api/public/profile/:username
  */
 
-import { MAGICUI_TEMPLATE_ID, retainedPublicFields } from "./template-registry.ts";
+import { MAGICUI_TEMPLATE_ID, isRegisteredTemplate, retainedPublicFields } from "./template-registry.ts";
 
 export const SUPPORTED_DTO_SCHEMA_VERSION = "1.0.0" as const;
 
@@ -491,20 +491,59 @@ export function sanitizeSafeUrl(val: unknown): string | undefined {
  * Pure, non-mutating adapter that converts a validated OneVue PublicProfileDTO_v1
  * into the exact data shape required by Magic UI components.
  */
-const DEFAULT_SECTION_ORDER = ["about", "work", "education", "skills", "projects", "achievements", "contact"];
+const DEFAULT_SECTION_ORDER = [
+  "about",
+  "experience",
+  "education",
+  "skills",
+  "projects",
+  "services",
+  "products",
+  "caseStudies",
+  "featured",
+  "credentials",
+  "highlights",
+  "hackathons",
+  "testimonials",
+  "team",
+  "media",
+  "contact",
+];
 const HEX_COLOR = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+/**
+ * Canonical identity-contract ids mapped onto the renderer's grouped ids.
+ * Stored configurations may contain either form.
+ */
+const WORK_SECTION_IDS = ["work", "experience", "jobs", "employmentHistory"];
+const PROJECT_BUCKET_SECTIONS = ["services", "products", "caseStudies", "featured"];
+const ACHIEVEMENT_SECTIONS = ["highlights", "hackathons", "credentials"];
+const RENDERER_SECTION_BY_LOWER = new Map(
+  DEFAULT_SECTION_ORDER.map((id) => [id.toLowerCase(), id]),
+);
+
+function rendererSectionId(id: string): string | undefined {
+  if (WORK_SECTION_IDS.includes(id)) return "experience";
+  return RENDERER_SECTION_BY_LOWER.get(id);
+}
 
 /** Keeps a stored section order and appends any group this adapter can place. */
 export function normalizeSectionOrder(value: unknown): string[] {
   const next: string[] = [];
+  const push = (id: string) => {
+    if (!next.includes(id)) next.push(id);
+  };
   const incoming = Array.isArray(value) ? value : [];
   for (const item of incoming) {
-    const id = String(item);
-    if (DEFAULT_SECTION_ORDER.includes(id) && !next.includes(id)) next.push(id);
+    const id = String(item).toLowerCase().trim();
+    if (id === "achievements") {
+      ACHIEVEMENT_SECTIONS.forEach(push);
+      continue;
+    }
+    const canonical = rendererSectionId(id);
+    if (canonical) push(canonical);
   }
-  for (const id of DEFAULT_SECTION_ORDER) {
-    if (!next.includes(id)) next.push(id);
-  }
+  for (const id of DEFAULT_SECTION_ORDER) push(id);
   return next;
 }
 
@@ -726,6 +765,14 @@ export function adaptOneVueProfile(
     );
   }
 
+  // A renderer may only draw templates it implements. The backend registry is
+  // authoritative; this guard prevents a stale or unknown id from silently
+  // rendering the wrong layout.
+  const templateId = website?.templateId || dto.meta.templateId || MAGICUI_TEMPLATE_ID;
+  if (!isRegisteredTemplate(templateId)) {
+    throw new Error(`Template '${templateId}' is not registered with this renderer.`);
+  }
+
   const { profile, education, projects, skills, achievements, contact } = dto;
 
   // 1. Visible sections evaluation
@@ -733,7 +780,11 @@ export function adaptOneVueProfile(
     ? website!.customization.visibleSections.map((s) => s.toLowerCase().trim())
     : ["about", "education", "projects", "skills", "achievements", "contact"];
 
-  const isVisible = (sectionName: string) => configuredVisible.includes(sectionName.toLowerCase());
+  const isVisible = (sectionName: string) => {
+    const key = sectionName.toLowerCase();
+    if (key === "work") return WORK_SECTION_IDS.some((id) => configuredVisible.includes(id));
+    return configuredVisible.includes(key);
+  };
 
   // 2. Profile / Hero data
   const name = (profile.displayName || dto.meta.username || "Student").trim();
@@ -1238,8 +1289,15 @@ export function adaptOneVueProfile(
     ...recordCustomFields(dto, ["mediaKit"], "", options?.assetOrigin),
   ];
 
-  const projectSectionVisible = isVisible("projects");
-  const achievementSectionVisible = isVisible("achievements") || isVisible("credentials");
+  const configuredBuckets = PROJECT_BUCKET_SECTIONS.filter((id) => configuredVisible.includes(id.toLowerCase()));
+  const projectsUmbrella = isVisible("projects");
+  // Concrete bucket ids are authoritative. A legacy config that lists
+  // `projects` without any bucket keeps the old umbrella meaning, matching the
+  // backend's normalizeVisibleSections.
+  const bucketVisible = (id: string) =>
+    configuredVisible.includes(id.toLowerCase()) || (configuredBuckets.length === 0 && projectsUmbrella);
+  const achievementsUmbrella = configuredVisible.includes("achievements");
+  const achievementVisible = (id: string) => achievementsUmbrella || configuredVisible.includes(id);
   const workVisible =
     adaptedWork.length > 0 && (isVisible("work") || isHistoricalSectionDefault(configuredVisible));
   const customSections = adaptCustomSections(dto, options?.assetOrigin);
@@ -1276,7 +1334,7 @@ export function adaptOneVueProfile(
       customFields: contactFields,
     },
     resumeUrl: sanitizeSafeUrl(dto.resume?.url),
-    templateId: website?.templateId || dto.meta.templateId || MAGICUI_TEMPLATE_ID,
+    templateId,
     retainedFields: retainedPublicFields(dto),
     accentColor: HEX_COLOR.test(String(website?.customization?.accentColor || ""))
       ? website?.customization?.accentColor
@@ -1294,17 +1352,17 @@ export function adaptOneVueProfile(
       work: workVisible,
       education: isVisible("education") && adaptedEducation.length > 0,
       skills: isVisible("skills") && adaptedSkills.length > 0,
-      projects: projectSectionVisible && adaptedProjects.length > 0,
-      services: projectSectionVisible && projectBuckets.services.length > 0,
-      products: projectSectionVisible && projectBuckets.products.length > 0,
-      caseStudies: projectSectionVisible && projectBuckets.caseStudies.length > 0,
-      featured: projectSectionVisible && projectBuckets.featured.length > 0,
-      hackathons: achievementSectionVisible && adaptedHackathons.length > 0,
-      highlights: achievementSectionVisible && highlights.length > 0,
-      credentials: achievementSectionVisible && credentials.length > 0,
-      testimonials: testimonials.length > 0,
-      team: team.length > 0,
-      media: media.length > 0,
+      projects: isVisible("projects") && adaptedProjects.length > 0,
+      services: bucketVisible("services") && projectBuckets.services.length > 0,
+      products: bucketVisible("products") && projectBuckets.products.length > 0,
+      caseStudies: bucketVisible("caseStudies") && projectBuckets.caseStudies.length > 0,
+      featured: bucketVisible("featured") && projectBuckets.featured.length > 0,
+      hackathons: achievementVisible("hackathons") && adaptedHackathons.length > 0,
+      highlights: achievementVisible("highlights") && highlights.length > 0,
+      credentials: achievementVisible("credentials") && credentials.length > 0,
+      testimonials: isVisible("testimonials") && testimonials.length > 0,
+      team: isVisible("team") && team.length > 0,
+      media: isVisible("media") && media.length > 0,
       contact: isVisible("contact"),
       custom: customSections.length > 0,
     },

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import jwt from "jsonwebtoken";
 import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
 import connectToDatabase from "../../../../lib/db";
 import User, { DiscoverySourceType } from "../../../../models/User";
+import { verifySessionToken } from "../../../../lib/auth";
+import { createSession, issueSessionCookie } from "../../../../lib/session";
 
 const ALLOWED_DISCOVERY_SOURCES: DiscoverySourceType[] = [
   "google_search",
@@ -41,10 +42,7 @@ export async function POST(req: Request) {
     const token = authHeader.split(" ")[1];
     let decoded: { id: string; email: string };
     try {
-      decoded = jwt.verify(
-        token,
-        process.env.JWT_SECRET || "fallback_secret"
-      ) as { id: string; email: string };
+      decoded = await verifySessionToken(token);
     } catch {
       return json(req,
         { message: "Invalid or expired session token." },
@@ -100,6 +98,12 @@ export async function POST(req: Request) {
         { status: 404 }
       );
     }
+    if (!user.identity) {
+      return json(req,
+        { message: "Please select an identity before completing the survey." },
+        { status: 409 }
+      );
+    }
 
     const completedAt = new Date();
 
@@ -127,26 +131,16 @@ export async function POST(req: Request) {
       );
     }
 
-    const newToken = jwt.sign(
-      {
-        id: user._id,
-        email: user.email,
-        identity: user.identity,
-        surveyCompleted: true,
-      },
-      process.env.JWT_SECRET || "fallback_secret",
-      { expiresIn: "7d" }
-    );
-
-    return json(req,
+    const session = await createSession(updatedUser, req);
+    const response = json(req,
       {
         message: "Survey response saved successfully",
-        token: newToken,
+        token: session.accessToken,
         user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          identity: user.identity,
+          id: updatedUser._id,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          identity: updatedUser.identity,
           onboarding: {
             surveyCompleted: true,
             survey: {
@@ -159,6 +153,8 @@ export async function POST(req: Request) {
       },
       { status: 200 }
     );
+    issueSessionCookie(response, session.refreshToken, session.csrfToken);
+    return response;
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal server error";
     return json(req, { message }, { status: 500 });

@@ -289,8 +289,13 @@ describe("OneVue — Identity workspace for non-student identities", () => {
     );
     assert.equal(source.experience[0].isCurrent, true);
     assert.equal(source.experience[0].id, "currentEmployment");
-    assert.equal(source.experience[1].id, "exp_1");
+    assert.match(source.experience[1].id, /^exp_[0-9a-f]{16}$/);
+    assert.notEqual(source.experience[1].id, "exp_1");
     assert.equal(source.achievements.length, 0);
+    const sameHistoryAlone = websiteSource.domainProfileToPublicSource("professional", {
+      employmentHistory: [{ jobTitle: "Engineer", company: "Initech", startDate: "2018-01", endDate: "2020-12" }],
+    });
+    assert.equal(sameHistoryAlone.experience[0].id, source.experience[1].id);
     const historyOnly = websiteSource.domainProfileToPublicSource("professional", {
       employmentHistory: [{ id: "job_9", jobTitle: "Engineer", company: "Initech" }],
     });

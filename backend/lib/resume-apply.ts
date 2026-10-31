@@ -15,6 +15,7 @@ import {
 const SECTIONS = [
   "profile",
   "education",
+  "experience",
   "skills",
   "projects",
   "credentials",
@@ -257,6 +258,13 @@ function planApply(review: StoredResumeReview, selections: Selection[]): { secti
         throw new ResumeApplyError(400, "Education needs both the institution and the degree.");
       }
     }
+    if (selection.section === "experience") {
+      const names = new Set(rows.map((row) => row.field));
+      const entryRows = review.rows.filter((row) => row.section === "experience" && row.entryIndex === selection.index);
+      if (!names.has("company") || !names.has("title") || !entryRows.some((row) => row.field === "company") || !entryRows.some((row) => row.field === "title")) {
+        throw new ResumeApplyError(400, "Work experience needs both the company and the role title.");
+      }
+    }
     if (selection.section === "socialLinks") {
       const names = new Set(rows.map((row) => row.field));
       if (!names.has("platform") || !names.has("url")) {
@@ -293,6 +301,7 @@ function mergeProfile(
   const patch: Record<string, unknown> = {};
   const skipped: Array<{ section: string; index: number; reason: string }> = [];
   const education = cloneList(profile.education);
+  const experience = cloneList(profile.workExperience);
   const projects = cloneList(profile.projects);
   const skills = cloneList(profile.skills);
   const credentials = cloneList(profile.credentials);
@@ -301,6 +310,7 @@ function mergeProfile(
   const contacts = { ...asRecord(profile.contacts) };
   const before = {
     education: JSON.stringify(education),
+    experience: JSON.stringify(experience),
     projects: JSON.stringify(projects),
     skills: JSON.stringify(skills),
     credentials: JSON.stringify(credentials),
@@ -315,6 +325,8 @@ function mergeProfile(
       contactsChanged = applyProfile(profile, contacts, values, patch) || contactsChanged;
     } else if (group.section === "education") {
       applyEducation(education, group, values, skipped);
+    } else if (group.section === "experience") {
+      applyWorkExperience(experience, group, values, skipped);
     } else if (group.section === "projects") {
       applyProject(projects, group, values, skipped);
     } else if (group.section === "skills") {
@@ -329,6 +341,7 @@ function mergeProfile(
   }
 
   if (JSON.stringify(education) !== before.education) patch.education = education;
+  if (JSON.stringify(experience) !== before.experience) patch.workExperience = experience;
   if (JSON.stringify(projects) !== before.projects) patch.projects = projects;
   if (JSON.stringify(skills) !== before.skills) patch.skills = skills;
   if (JSON.stringify(credentials) !== before.credentials) patch.credentials = credentials;
@@ -413,6 +426,60 @@ function applyEducation(
   if (grade?.profileField === "education.gpa") created.gpa = grade.value;
   if (grade?.profileField === "education.percentage") created.percentage = grade.value;
   education.push(created);
+}
+
+function applyWorkExperience(
+  experience: Array<Record<string, unknown>>,
+  group: PlannedGroup,
+  values: Record<string, string>,
+  skipped: Array<{ section: string; index: number; reason: string }>,
+): void {
+  const organization = values.company;
+  const title = values.title;
+  if (organization === undefined || title === undefined) {
+    throw new ResumeApplyError(400, "Work experience needs both the company and the role title.");
+  }
+  const matches = experience.filter(
+    (item) => same(item.organization, organization) && same(item.title, title),
+  );
+  if (matches.length > 1) {
+    throw new ResumeApplyError(409, "More than one work experience record matches this resume entry.");
+  }
+
+  const isCurrent = values.isCurrent === "true";
+  const experienceType = normalizeExperienceType(values.employmentType, title);
+  if (matches.length === 1) {
+    const target = matches[0];
+    const before = JSON.stringify(target);
+    fillOrMatch(target, "location", values.location);
+    fillOrMatch(target, "startDate", values.startDate);
+    fillOrMatch(target, "endDate", isCurrent ? undefined : values.endDate);
+    fillOrMatch(target, "description", values.responsibilities);
+    if (!text(target.experienceType)) target.experienceType = experienceType;
+    if (values.isCurrent !== undefined && target.isCurrent !== true) target.isCurrent = isCurrent;
+    if (JSON.stringify(target) === before) {
+      skipped.push({ section: "experience", index: group.index, reason: "This work experience record is already on the profile." });
+    }
+    return;
+  }
+
+  experience.push({
+    organization,
+    title,
+    experienceType,
+    location: values.location ?? "",
+    startDate: values.startDate ?? "",
+    endDate: isCurrent ? "" : values.endDate ?? "",
+    isCurrent,
+    description: values.responsibilities ?? "",
+  });
+}
+
+function normalizeExperienceType(value: string | undefined, title: string): "employment" | "internship" {
+  const normalized = (value || "").trim().toLowerCase();
+  return normalized === "internship" || normalized === "intern" || /\bintern(ship)?\b/i.test(title)
+    ? "internship"
+    : "employment";
 }
 
 function applyProject(

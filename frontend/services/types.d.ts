@@ -42,6 +42,8 @@ export interface AuthService {
   getSession(): Promise<Session | null>;
   signUp(i: { name: string; email: string; password: string; username?: string }): Promise<Session>;
   signIn(i: { email: string; password: string }): Promise<Session>;
+  signInWithGoogle(): void;
+  linkGoogleAccount(): Promise<void>;
   signOut(): Promise<void>;
   onChange(fn: (s: Session | null) => void): () => void;
 }
@@ -73,4 +75,3 @@ export interface AnalyticsService {
   exportReport(resourceId: string, query?: Record<string, unknown>): Promise<Blob>;
 }
 export interface NotificationsService { subscribe(email: string): Promise<{ email: string; already: boolean }> }
-

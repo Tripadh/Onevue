@@ -11,11 +11,12 @@ interface TemplateContract {
   }>;
   listTemplates: () => Array<Record<string, unknown>>;
   getTemplate: (id: string) => Record<string, unknown> | null;
+  validateTemplateRegistry: () => boolean;
   contentForIdentity: (identity: string) => Array<Record<string, unknown>>;
   partitionPublication: (templateId: string, dto: object) => { displayed: string[]; retained: string[] };
   retainedProfileKeys: (templateId: string, identity: string, profile: object) => string[];
   sanitizeStoredText: (value: string) => string;
-  presentationForTemplate: (templateId: string, customization: object) => {
+  presentationForTemplate: (templateId: string, customization: object, identity?: string) => {
     accentColor: string;
     themeMode: string;
     visibleSections: string[];
@@ -24,7 +25,8 @@ interface TemplateContract {
   publishedCustomization: (
     revisionPresentation: object | null,
     configCustomization: object | null,
-    templateId?: string
+    templateId?: string,
+    identity?: string
   ) => {
     accentColor: string;
     themeMode: string;
@@ -33,13 +35,16 @@ interface TemplateContract {
   };
   rollbackPresentation: (
     revisionPresentation: object | null,
-    templateId?: string
+    templateId?: string,
+    identity?: string
   ) => {
     accentColor: string;
     themeMode: string;
     visibleSections: string[];
     sectionOrder: string[];
   };
+  listIdentityContracts: (templateId?: string) => Array<Record<string, unknown>>;
+  getIdentityContract: (identity: string, templateId?: string) => Record<string, unknown>;
   reorderEntries: <T>(list: T[], index: number, direction: number) => T[];
 }
 

@@ -31,7 +31,16 @@ test("manual entry starts from an empty draft", function () {
   assert.equal(draft.headline, "");
   assert.equal(draft.bio, "");
   assert.equal(draft.education.length, 0);
+  assert.equal(draft.workExperience.length, 0);
   assert.equal(draft.projects.length, 0);
+});
+
+test("work experience alone counts as profile content", function () {
+  assert.equal(onboarding.profileHasContent({
+    headline: "",
+    bio: "",
+    workExperience: [{ organization: "Example", title: "Intern" }],
+  }), true);
 });
 
 test("resume extraction fills the draft and does not erase a field the resume omitted", function () {
@@ -40,6 +49,7 @@ test("resume extraction fills the draft and does not erase a field the resume om
     bio: "",
     contacts: { email: "kept@example.com", phone: "" },
     education: [],
+    workExperience: [],
     projects: [{ title: "Manual Project", shortDescription: "Keep me" }],
     skills: [],
     credentials: [],
@@ -49,6 +59,10 @@ test("resume extraction fills the draft and does not erase a field the resume om
     { section: "profile", entryIndex: 0, field: "summary", value: "Builds tools." },
     { section: "education", entryIndex: 0, field: "institution", value: "Example University" },
     { section: "education", entryIndex: 0, field: "degree", value: "BSc" },
+    { section: "experience", entryIndex: 0, field: "company", value: "Example Labs" },
+    { section: "experience", entryIndex: 0, field: "title", value: "Product Intern" },
+    { section: "experience", entryIndex: 0, field: "isCurrent", value: "false" },
+    { section: "experience", entryIndex: 0, field: "responsibilities", value: "Built prototypes" },
     { section: "education", entryIndex: 0, field: "fieldOfStudy", value: "Mathematics" },
     { section: "skills", entryIndex: 0, field: "name", value: "Analysis" },
     { section: "socialLinks", entryIndex: 0, field: "platform", value: "github" },
@@ -60,6 +74,10 @@ test("resume extraction fills the draft and does not erase a field the resume om
   assert.equal(draft.projects[0].title, "Manual Project");
   assert.equal(draft.education[0].institution, "Example University");
   assert.equal(draft.education[0].degree, "BSc");
+  assert.equal(draft.workExperience[0].organization, "Example Labs");
+  assert.equal(draft.workExperience[0].title, "Product Intern");
+  assert.equal(draft.workExperience[0].experienceType, "internship");
+  assert.equal(draft.workExperience[0].description, "Built prototypes");
   assert.equal(draft.skills[0].name, "Analysis");
   assert.equal(draft.skills[0].category, "Other Skills");
   assert.equal(draft.links[0].url, "https://github.com/ada");

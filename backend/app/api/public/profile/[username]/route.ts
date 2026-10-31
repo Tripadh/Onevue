@@ -5,7 +5,7 @@ import User from "../../../../../models/User";
 import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
 import PublishedProfileRevision from "../../../../../models/PublishedProfileRevision";
 import { allowlistPublicSnapshot, resolvePublicProfilePhoto } from "../../../../../lib/public-profile-dto";
-import { publishedCustomization } from "../../../../../lib/templates/registry";
+import { publishedCustomization, getIdentityContract } from "../../../../../lib/templates/registry";
 
 export function OPTIONS(req: Request) {
   return preflightResponse(req.headers.get("origin"));
@@ -90,7 +90,15 @@ export async function GET(
         { status: 404 }
       );
     }
-    const owner = await User.findById(config.userId).select("profilePhotoKey").lean();
+    const owner = await User.findById(config.userId).select("profilePhotoKey identity").lean();
+    let identity = String((owner as { identity?: string } | null)?.identity || "student");
+    let identityContract;
+    try {
+      identityContract = getIdentityContract(identity as never);
+    } catch {
+      identity = "student";
+      identityContract = getIdentityContract("student");
+    }
     const profilePhoto = resolvePublicProfilePhoto(
       snapshot?.profile?.profilePhoto,
       owner?.profilePhotoKey,
@@ -106,10 +114,13 @@ export async function GET(
         dto: snapshot,
         website: {
           username: config.username,
+          identity,
           templateId: revision.templateId,
           templateVersion: revision.templateVersion,
           publishedAt: revision.publishedAt,
           revisionNumber: revision.revisionNumber,
+          contractVersion: 1,
+          defaultSections: identityContract.defaultSections,
           customization: (() => {
             try {
               const storedPresentation =
@@ -120,12 +131,13 @@ export async function GET(
                 config.customization && typeof (config.customization as { toObject?: () => object }).toObject === "function"
                   ? (config.customization as { toObject: () => object }).toObject()
                   : config.customization;
-              return publishedCustomization(storedPresentation, storedConfig, revision.templateId);
+              return publishedCustomization(storedPresentation, storedConfig, revision.templateId, identity as never);
             } catch {
               return config.customization || {
                 accentColor: "#3b82f6",
                 themeMode: "system",
-                visibleSections: ["about", "education", "projects", "skills", "achievements", "contact"],
+                visibleSections: identityContract.defaultSections.visible,
+                sectionOrder: identityContract.defaultSections.order,
               };
             }
           })(),

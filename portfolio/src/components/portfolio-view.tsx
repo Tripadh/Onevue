@@ -123,7 +123,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
 
       {/* 3. Work Section (Only rendered if genuine internship/experience exists) */}
       {visibleSections.work && data.work.length > 0 && (
-        <section id="work" data-section="work" style={place("work")}>
+        <section id="work" data-section="work" style={place("experience")}>
           <div className="flex min-h-0 flex-col gap-y-6">
             <BlurFade delay={BLUR_FADE_DELAY * 5}>
               <h2 className="text-xl font-bold">Experience</h2>
@@ -236,7 +236,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
       )}
 
       {visibleSections.services && data.services.length > 0 && (
-        <section id="services" data-section="services" style={place("projects", 1)}>
+        <section id="services" data-section="services" style={place("services")}>
           <BlurFade delay={BLUR_FADE_DELAY * 11}>
             <ProjectsSection projects={data.services} label="Services" heading="Services" subtitle="" />
           </BlurFade>
@@ -244,7 +244,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
       )}
 
       {visibleSections.products && data.products.length > 0 && (
-        <section id="products" data-section="products" style={place("projects", 2)}>
+        <section id="products" data-section="products" style={place("products")}>
           <BlurFade delay={BLUR_FADE_DELAY * 11}>
             <ProjectsSection projects={data.products} label="Products" heading="Products" subtitle="" />
           </BlurFade>
@@ -252,7 +252,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
       )}
 
       {visibleSections.caseStudies && data.caseStudies.length > 0 && (
-        <section id="case-studies" data-section="case-studies" style={place("projects", 3)}>
+        <section id="case-studies" data-section="case-studies" style={place("caseStudies")}>
           <BlurFade delay={BLUR_FADE_DELAY * 11}>
             <ProjectsSection
               projects={data.caseStudies}
@@ -265,7 +265,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
       )}
 
       {visibleSections.featured && data.featured.length > 0 && (
-        <section id="featured" data-section="featured" style={place("projects", 4)}>
+        <section id="featured" data-section="featured" style={place("featured")}>
           <BlurFade delay={BLUR_FADE_DELAY * 11}>
             <ProjectsSection projects={data.featured} label="Featured" heading="Featured" subtitle="" />
           </BlurFade>
@@ -273,7 +273,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
       )}
 
       {visibleSections.credentials && data.credentials.length > 0 && (
-        <div data-section="credentials" style={place("achievements")}>
+        <div data-section="credentials" style={place("credentials")}>
         <BlurFade delay={BLUR_FADE_DELAY * 12}>
           <CredentialsSection credentials={data.credentials} />
         </BlurFade>
@@ -281,7 +281,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
       )}
 
       {visibleSections.highlights && data.highlights.length > 0 && (
-        <div data-section="highlights" style={place("achievements", 1)}>
+        <div data-section="highlights" style={place("highlights")}>
         <BlurFade delay={BLUR_FADE_DELAY * 12}>
           <HighlightsSection highlights={data.highlights} />
         </BlurFade>
@@ -289,7 +289,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
       )}
 
       {visibleSections.hackathons && data.hackathons.length > 0 && (
-        <section id="hackathons" data-section="hackathons" style={place("achievements", 2)}>
+        <section id="hackathons" data-section="hackathons" style={place("hackathons")}>
           <BlurFade delay={BLUR_FADE_DELAY * 13}>
             <HackathonsSection hackathons={data.hackathons} />
           </BlurFade>
@@ -297,7 +297,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
       )}
 
       {visibleSections.testimonials && data.testimonials.length > 0 && (
-        <div data-section="testimonials" style={place("contact", -3)}>
+        <div data-section="testimonials" style={place("testimonials")}>
         <BlurFade delay={BLUR_FADE_DELAY * 14}>
           <TestimonialsSection testimonials={data.testimonials} />
         </BlurFade>
@@ -305,7 +305,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
       )}
 
       {visibleSections.team && data.team.length > 0 && (
-        <div data-section="team" style={place("contact", -2)}>
+        <div data-section="team" style={place("team")}>
         <BlurFade delay={BLUR_FADE_DELAY * 14}>
           <TeamSection team={data.team} />
         </BlurFade>
@@ -313,7 +313,7 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
       )}
 
       {visibleSections.media && data.media.length > 0 && (
-        <div data-section="media" style={place("contact", -1)}>
+        <div data-section="media" style={place("media")}>
         <BlurFade delay={BLUR_FADE_DELAY * 15}>
           <MediaSection media={data.media} />
         </BlurFade>

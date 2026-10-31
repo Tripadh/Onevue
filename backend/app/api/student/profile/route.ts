@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
-import * as jwtLib from "jsonwebtoken";
 import mongoose from "mongoose";
 import connectToDatabase from "../../../../lib/db";
+import { isJwtConfigError, verifySessionToken } from "../../../../lib/auth";
 import { ensureStudentProfile } from "../../../../lib/ensure-student-profile";
 import { ProfileValidationError } from "../../../../lib/domain-profile/validate";
 import { sanitizeIncomingStrings } from "../../../../lib/templates/registry";
@@ -14,6 +14,7 @@ import {
   SKILL_CATEGORIES,
   SKILL_PROFICIENCIES,
   IStudentEducation,
+  IStudentWorkExperience,
   IStudentProject,
   IStudentSkill,
   IStudentCredential,
@@ -36,6 +37,46 @@ function json(req: Request, body: unknown, init?: { status?: number }) {
   return applyCorsHeaders(NextResponse.json(body, init), req.headers.get("origin"));
 }
 
+function findStoredRecord(list: unknown, item: Record<string, any>): Record<string, any> | undefined {
+  const records = Array.isArray(list) ? list : [];
+  const objectId = item._id ? String(item._id) : "";
+  const id = item.id !== undefined && item.id !== null ? String(item.id).trim() : "";
+  if (!objectId && !id) return undefined;
+  return records.find((entry: any) => {
+    if (!entry || typeof entry !== "object") return false;
+    const storedObjectId = entry._id ? String(entry._id) : "";
+    const storedId = entry.id ? String(entry.id) : "";
+    return (
+      (objectId !== "" && storedObjectId === objectId) ||
+      (id !== "" && (storedId === id || storedObjectId === id))
+    );
+  });
+}
+
+/**
+ * Keeps record identity stable across saves: a matched record reuses its stored
+ * `_id`/`id`, and a new record receives a server id when the client omits one.
+ */
+function resolveRecordIdentity(
+  list: unknown,
+  item: Record<string, any>,
+  label: string,
+  used: Set<string>,
+): { _id: unknown; id: string } {
+  const incomingId = item.id !== undefined && item.id !== null ? String(item.id).trim() : "";
+  if (incomingId.length > 100 || /[\u0000-\u001f\u007f]/.test(incomingId)) {
+    throw new ProfileValidationError(`Record '${label}' has an invalid id.`);
+  }
+  const match = findStoredRecord(list, item);
+  const objectId = match && match._id ? match._id : new mongoose.Types.ObjectId();
+  const id = match ? String(match.id || match._id) : incomingId || String(objectId);
+  if (used.has(id)) {
+    throw new ProfileValidationError(`Record '${label}' duplicates another record id.`);
+  }
+  used.add(id);
+  return { _id: objectId, id };
+}
+
 export function OPTIONS(req: Request) {
   return preflightResponse(req.headers.get("origin"));
 }
@@ -43,19 +84,6 @@ export function OPTIONS(req: Request) {
 /* =========================================================================
    Authentication & Authorization Helper
    ========================================================================= */
-
-function verifyJwtToken(token: string, secret: string): { id: string; email: string } {
-  const pkg: any = jwtLib;
-  const verifier =
-    (pkg && typeof pkg.verify === "function" && pkg.verify) ||
-    (pkg && pkg.default && typeof pkg.default.verify === "function" && pkg.default.verify) ||
-    (typeof require === "function" && require("jsonwebtoken").verify);
-
-  if (!verifier) {
-    throw new Error("JWT verify function not found.");
-  }
-  return verifier(token, secret) as { id: string; email: string };
-}
 
 function getUserModel() {
   return (User as any).default || User;
@@ -73,9 +101,11 @@ async function verifyStudentAuth(req: Request) {
   const token = authHeader.split(" ")[1];
   let decoded: { id: string; email: string };
   try {
-    decoded = verifyJwtToken(token, process.env.JWT_SECRET || "fallback_secret");
-  } catch (err) {
-    console.error("verifyJwtToken failed with:", err);
+    decoded = await verifySessionToken(token);
+  } catch (error) {
+    if (isJwtConfigError(error)) {
+      return { error: "Server authentication is not configured.", status: 500 };
+    }
     return { error: "Invalid or expired session token.", status: 401 };
   }
 
@@ -488,6 +518,7 @@ export async function PUT(req: Request) {
       }
 
       const validatedEdu: IStudentEducation[] = [];
+      const usedEduIds = new Set<string>();
       for (let i = 0; i < body.education.length; i++) {
         const item = body.education[i];
         if (typeof item !== "object" || item === null || Array.isArray(item)) {
@@ -557,9 +588,11 @@ export async function PUT(req: Request) {
           attachedAssets.push(...collectRecordCustomFieldAssets(eduCustomFields));
         }
 
+        const identity = resolveRecordIdentity(profile.education, item, `education[${i}]`, usedEduIds);
+
         validatedEdu.push({
-          ...(item._id ? { _id: item._id } : {}),
-          id: item.id ? String(item.id) : undefined,
+          _id: identity._id as any,
+          id: identity.id,
           institution,
           institutionType: (instType as any) || "university",
           degree,
@@ -591,6 +624,86 @@ export async function PUT(req: Request) {
       profile.education = validatedEdu as any;
     }
 
+    // Work experience and internships
+    if (body.workExperience !== undefined) {
+      if (!Array.isArray(body.workExperience)) {
+        return json(req,
+          { message: "Field 'workExperience' must be an array." },
+          { status: 400 }
+        );
+      }
+      if (body.workExperience.length > 30) {
+        return json(req,
+          { message: "Work experience cannot exceed 30 items." },
+          { status: 400 }
+        );
+      }
+
+      const validatedExperience: IStudentWorkExperience[] = [];
+      const usedExperienceIds = new Set<string>();
+      for (let i = 0; i < body.workExperience.length; i++) {
+        const item = body.workExperience[i];
+        if (typeof item !== "object" || item === null || Array.isArray(item)) {
+          return json(req,
+            { message: `Work experience item at index ${i} must be an object.` },
+            { status: 400 }
+          );
+        }
+
+        const organization = String(item.organization || item.company || "").trim();
+        const title = String(item.title || item.jobTitle || "").trim();
+        if (!organization || !title) {
+          return json(req,
+            { message: `Work experience item at index ${i} requires an organization and title.` },
+            { status: 400 }
+          );
+        }
+        if (organization.length > 150 || title.length > 150) {
+          return json(req,
+            { message: `Work experience item at index ${i} has an organization or title that is too long.` },
+            { status: 400 }
+          );
+        }
+
+        const experienceType = String(item.experienceType || "employment").trim();
+        if (!["employment", "internship"].includes(experienceType)) {
+          return json(req,
+            { message: `Invalid experienceType: '${experienceType}'` },
+            { status: 400 }
+          );
+        }
+        if (item.isCurrent !== undefined && typeof item.isCurrent !== "boolean") {
+          return json(req,
+            { message: `Work experience item at index ${i} has an invalid isCurrent value.` },
+            { status: 400 }
+          );
+        }
+        const description = String(item.description || item.responsibilities || "").trim();
+        if (description.length > 4000) {
+          return json(req,
+            { message: `Work experience description at index ${i} cannot exceed 4000 characters.` },
+            { status: 400 }
+          );
+        }
+
+        const identity = resolveRecordIdentity(profile.workExperience, item, `workExperience[${i}]`, usedExperienceIds);
+
+        validatedExperience.push({
+          _id: identity._id as any,
+          id: identity.id,
+          organization,
+          title,
+          experienceType: experienceType as IStudentWorkExperience["experienceType"],
+          location: String(item.location || "").trim().slice(0, 150),
+          startDate: String(item.startDate || "").trim().slice(0, 50),
+          endDate: String(item.endDate || "").trim().slice(0, 50),
+          isCurrent: item.isCurrent === true,
+          description,
+        });
+      }
+      profile.workExperience = validatedExperience as any;
+    }
+
     // -----------------------------------------------------------------------
     // Module 3: Projects
     // -----------------------------------------------------------------------
@@ -603,6 +716,7 @@ export async function PUT(req: Request) {
       }
 
       const validatedProjects: IStudentProject[] = [];
+      const usedProjectIds = new Set<string>();
       for (let i = 0; i < body.projects.length; i++) {
         const item = body.projects[i];
         if (typeof item !== "object" || item === null || Array.isArray(item)) {
@@ -662,9 +776,11 @@ export async function PUT(req: Request) {
           }
         }
 
+        const identity = resolveRecordIdentity(profile.projects, item, `projects[${i}]`, usedProjectIds);
+
         validatedProjects.push({
-          ...(item._id ? { _id: item._id } : {}),
-          id: item.id ? String(item.id) : undefined,
+          _id: identity._id as any,
+          id: identity.id,
           title,
           shortDescription: String(item.shortDescription || item.summary || "").trim(),
           detailedDescription: String(item.detailedDescription || "").trim(),
@@ -702,9 +818,10 @@ export async function PUT(req: Request) {
           link: link || liveUrl || repoUrl,
           assetId: takeAsset(item.assetId, `projects[${i}].assetId`, "portfolio-image", attachedAssets),
           customFields: (() => {
+            const storedProject = findStoredRecord(profile.projects, item);
             const pFields = item.customFields !== undefined
               ? validateRecordCustomFields(item.customFields, `projects[${i}].customFields`)
-              : ((profile.projects.find((p: any) => (p._id && String(p._id) === String(item._id || item.id)) || (p.id && p.id === String(item.id || item._id))) as any)?.customFields || []);
+              : ((storedProject as any)?.customFields || []);
             if (item.customFields !== undefined) attachedAssets.push(...collectRecordCustomFieldAssets(pFields));
             return pFields;
           })(),
@@ -726,6 +843,7 @@ export async function PUT(req: Request) {
       }
 
       const validatedSkills: IStudentSkill[] = [];
+      const usedSkillIds = new Set<string>();
       for (let i = 0; i < body.skills.length; i++) {
         const item = body.skills[i];
         if (typeof item !== "object" || item === null || Array.isArray(item)) {
@@ -756,9 +874,11 @@ export async function PUT(req: Request) {
           prof = "Intermediate";
         }
 
+        const identity = resolveRecordIdentity(profile.skills, item, `skills[${i}]`, usedSkillIds);
+
         validatedSkills.push({
-          ...(item._id ? { _id: item._id } : {}),
-          id: item.id ? String(item.id) : undefined,
+          _id: identity._id as any,
+          id: identity.id,
           name,
           category: cat as any,
           proficiency: prof as any,
@@ -769,9 +889,10 @@ export async function PUT(req: Request) {
           relatedCredentials: Array.isArray(item.relatedCredentials) ? item.relatedCredentials : [],
           level: prof,
           customFields: (() => {
+            const storedSkill = findStoredRecord(profile.skills, item);
             const sFields = item.customFields !== undefined
               ? validateRecordCustomFields(item.customFields, `skills[${i}].customFields`)
-              : ((profile.skills.find((s: any) => (s._id && String(s._id) === String(item._id || item.id)) || (s.id && s.id === String(item.id || item._id))) as any)?.customFields || []);
+              : ((storedSkill as any)?.customFields || []);
             if (item.customFields !== undefined) attachedAssets.push(...collectRecordCustomFieldAssets(sFields));
             return sFields;
           })(),
@@ -793,6 +914,7 @@ export async function PUT(req: Request) {
       }
 
       const validatedCreds: IStudentCredential[] = [];
+      const usedCredentialIds = new Set<string>();
       for (let i = 0; i < body.credentials.length; i++) {
         const item = body.credentials[i];
         if (typeof item !== "object" || item === null || Array.isArray(item)) {
@@ -853,9 +975,11 @@ export async function PUT(req: Request) {
           }
         }
 
+        const identity = resolveRecordIdentity(profile.credentials, item, `credentials[${i}]`, usedCredentialIds);
+
         validatedCreds.push({
-          ...(item._id ? { _id: item._id } : {}),
-          id: item.id ? String(item.id) : undefined,
+          _id: identity._id as any,
+          id: identity.id,
           title,
           credentialType: (credType as any) || "course_certificate",
           issuer,
@@ -899,6 +1023,7 @@ export async function PUT(req: Request) {
       }
 
       const validatedAchievements: IStudentAchievement[] = [];
+      const usedAchievementIds = new Set<string>();
       for (let i = 0; i < body.achievements.length; i++) {
         const item = body.achievements[i];
         if (typeof item !== "object" || item === null || Array.isArray(item)) {
@@ -945,9 +1070,11 @@ export async function PUT(req: Request) {
           }
         }
 
+        const identity = resolveRecordIdentity(profile.achievements, item, `achievements[${i}]`, usedAchievementIds);
+
         validatedAchievements.push({
-          ...(item._id ? { _id: item._id } : {}),
-          id: item.id ? String(item.id) : undefined,
+          _id: identity._id as any,
+          id: identity.id,
           title,
           category: (cat as any) || "academic",
           organization: String(item.organization || "").trim(),
@@ -1072,6 +1199,7 @@ export async function PUT(req: Request) {
       }
 
       const validatedMedia: IStudentMediaItem[] = [];
+      const usedMediaIds = new Set<string>();
       for (let i = 0; i < body.media.length; i++) {
         const item = body.media[i];
         if (typeof item !== "object" || item === null || Array.isArray(item)) {
@@ -1113,11 +1241,16 @@ export async function PUT(req: Request) {
           );
         }
 
+        const storedMedia = findStoredRecord(profile.media, item);
+        const identity = resolveRecordIdentity(profile.media, item, `media[${i}]`, usedMediaIds);
+
         validatedMedia.push({
-          ...(item._id ? { _id: item._id } : {}),
-          id: item.id ? String(item.id) : undefined,
+          _id: identity._id as any,
+          id: identity.id,
           mediaUrl,
-          assetId: takeAsset(item.assetId, `media[${i}].assetId`, "portfolio-media", attachedAssets),
+          assetId: item.assetId !== undefined
+            ? takeAsset(item.assetId, `media[${i}].assetId`, "portfolio-media", attachedAssets)
+            : String((storedMedia as any)?.assetId || ""),
           mediaType: (mType as any) || "image",
           title,
           description: String(item.description || "").trim(),
@@ -1131,11 +1264,13 @@ export async function PUT(req: Request) {
           fileName: String(item.fileName || "").trim(),
           mimeType: String(item.mimeType || "").trim(),
           fileSize: Number(item.fileSize) || 0,
-          uploadedAt: item.uploadedAt ? new Date(item.uploadedAt) : new Date(),
+          uploadedAt: item.uploadedAt
+            ? new Date(item.uploadedAt)
+            : ((storedMedia as any)?.uploadedAt || new Date()),
           customFields: (() => {
             const mFields = item.customFields !== undefined
               ? validateRecordCustomFields(item.customFields, `media[${i}].customFields`)
-              : [];
+              : ((storedMedia as any)?.customFields || []);
             if (item.customFields !== undefined) attachedAssets.push(...collectRecordCustomFieldAssets(mFields));
             return mFields;
           })(),
@@ -1169,6 +1304,7 @@ export async function PUT(req: Request) {
       }
 
       const validatedLinks: IStudentPlatformLink[] = [];
+      const usedLinkIds = new Set<string>();
       for (let i = 0; i < body.links.length; i++) {
         const item = body.links[i];
         if (typeof item !== "object" || item === null || Array.isArray(item)) {
@@ -1210,20 +1346,29 @@ export async function PUT(req: Request) {
           );
         }
 
+        const storedLink = findStoredRecord(profile.links, item);
+        const identity = resolveRecordIdentity(profile.links, item, `links[${i}]`, usedLinkIds);
+        const preservedVerification =
+          storedLink &&
+          String((storedLink as any).platform || "").trim() === platform &&
+          String((storedLink as any).url || "").trim() === url
+            ? String((storedLink as any).verificationStatus || "unverified")
+            : "unverified";
+
         validatedLinks.push({
-          ...(item._id ? { _id: item._id } : {}),
-          id: item.id ? String(item.id) : undefined,
+          _id: identity._id as any,
+          id: identity.id,
           platform,
           url,
           category: (cat as any) || "professional",
           username: String(item.username || "").trim(),
           isPrimary: Boolean(item.isPrimary),
           visibility: (vis as any) || "public",
-          verificationStatus: "unverified",
+          verificationStatus: preservedVerification as any,
           customFields: (() => {
             const lFields = item.customFields !== undefined
               ? validateRecordCustomFields(item.customFields, `links[${i}].customFields`)
-              : [];
+              : ((storedLink as any)?.customFields || []);
             if (item.customFields !== undefined) attachedAssets.push(...collectRecordCustomFieldAssets(lFields));
             return lFields;
           })(),

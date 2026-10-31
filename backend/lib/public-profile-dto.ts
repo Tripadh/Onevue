@@ -1,8 +1,16 @@
 import * as crypto from "crypto";
+import { recordIdAllocator } from "./record-identity";
 import { isLegacyProfilePhotoKey, isPrefixedProfilePhotoKey } from "./storage/keys";
 import { previewAssetPath, publicAssetPath } from "./storage/asset-refs";
 import { isCustomIdentity } from "./custom-fields/builtins";
-import { applyRecordMappings, projectCustomLayout, projectRecordFields, retainOwnedCustomRecords, sanitizePublicCustomSections } from "./custom-fields/publish";
+import {
+  applyRecordMappings,
+  projectCustomLayout,
+  projectRecordFields,
+  retainOwnedCustomRecords,
+  sanitizePublicCustomSections,
+  sanitizePublicRecordFields,
+} from "./custom-fields/publish";
 import { normalizeCustomLayout } from "./custom-fields/validate";
 import type { CustomIdentity, PublicCustomField, PublicCustomSection } from "./custom-fields/types";
 
@@ -150,6 +158,7 @@ export interface IPublicTeamMember {
   id: string;
   name: string;
   role?: string;
+  customFields?: PublicCustomField[];
 }
 
 export interface IPublicResume {
@@ -168,6 +177,7 @@ export interface IPublicMediaItem {
   category: string;
   isFeatured?: boolean;
   altText?: string;
+  customFields?: PublicCustomField[];
 }
 
 export interface IPublicSocialLink {
@@ -421,8 +431,17 @@ export function toPublicProfileDTO(
     if (!Array.isArray(fields) || fields.length === 0) return undefined;
     const res = projectRecordFields(fields, {
       templateId: options.templateId || "magicui-portfolio",
-      strict: options.strictPublish === true,
-      assetHref: (assetId) => options.preview ? previewAssetPath(assetId) : publicAssetPath(assetId),
+      strict: options.strictCustomFields === true,
+      assetHref: (assetId) => {
+        try {
+          if (options.assetDelivery === "preview" && options.ownerId) {
+            return previewAssetPath(assetId, options.ownerId);
+          }
+          return publicAssetPath(assetId);
+        } catch {
+          return "";
+        }
+      },
     });
     return res.length > 0 ? res : undefined;
   };
@@ -469,11 +488,12 @@ export function toPublicProfileDTO(
     : [];
 
   // 3. Education Construction (rollNumber omitted by security allowlist)
+  const nextEducationId = recordIdAllocator("edu");
   const education: IPublicEducation[] = Array.isArray(raw.education)
     ? raw.education
         .filter((e: any) => e && e.institution && e.degree)
-        .map((e: any, idx: number) => ({
-          id: String(e.id || e._id || `edu_${idx}`),
+        .map((e: any) => ({
+          id: String(e.id || e._id || nextEducationId(e)),
           institution: sanitizeString(e.institution, 150) || "",
           degree: sanitizeString(e.degree, 150) || "",
           fieldOfStudy: sanitizeString(e.fieldOfStudy, 150),
@@ -499,11 +519,12 @@ export function toPublicProfileDTO(
     : [];
 
   // 4. Projects Construction (aiDetails omitted by security allowlist)
+  const nextProjectId = recordIdAllocator("proj");
   const projects: IPublicProject[] = Array.isArray(raw.projects)
     ? raw.projects
         .filter((p: any) => p && p.title)
-        .map((p: any, idx: number) => {
-          const id = String(p.id || p._id || `proj_${idx}`);
+        .map((p: any) => {
+          const id = String(p.id || p._id || nextProjectId(p));
           const imageUrl =
             sanitizeDeliveryUrl(p.imageUrl) || relatedProjectImage(raw.media, id);
           const project: IPublicProject = {
@@ -542,11 +563,12 @@ export function toPublicProfileDTO(
     : [];
 
   // 5. Skills Construction
+  const nextSkillId = recordIdAllocator("skill");
   const skills: IPublicSkill[] = Array.isArray(raw.skills)
     ? raw.skills
         .filter((s: any) => s && s.name)
-        .map((s: any, idx: number) => ({
-          id: String(s.id || s._id || `skill_${idx}`),
+        .map((s: any) => ({
+          id: String(s.id || s._id || nextSkillId(s)),
           name: sanitizeString(s.name, 100) || "",
           category: sanitizeString(s.category, 100) || "Other Skills",
           proficiency: sanitizeString(s.proficiency, 50) || "Intermediate",
@@ -560,11 +582,12 @@ export function toPublicProfileDTO(
     : [];
 
   // 6. Credentials Construction (internal storage keys omitted)
+  const nextCredentialId = recordIdAllocator("cred");
   const credentials: IPublicCredential[] = Array.isArray(raw.credentials)
     ? raw.credentials
         .filter((c: any) => c && c.title)
-        .map((c: any, idx: number) => ({
-          id: String(c.id || c._id || `cred_${idx}`),
+        .map((c: any) => ({
+          id: String(c.id || c._id || nextCredentialId(c)),
           title: sanitizeString(c.title, 200) || "",
           credentialType: sanitizeString(c.credentialType, 100) || "certification",
           issuer: sanitizeString(c.issuer, 150) || "",
@@ -580,20 +603,27 @@ export function toPublicProfileDTO(
                 .map((sk: any) => sanitizeString(sk, 100))
                 .filter((sk: any): sk is string => Boolean(sk))
             : undefined,
+          customFields: projectRecFields(c.customFields),
         }))
     : [];
 
   // 6b. Identity-specific sections. Empty lists are omitted so older student snapshots stay stable.
-  const experience = mapExperience(raw.experience);
-  const testimonials = mapTestimonials(raw.testimonials);
-  const team = mapTeam(raw.team);
+  const experience = mapExperience(
+    Array.isArray(raw.workExperience) && raw.workExperience.length > 0
+      ? raw.workExperience
+      : raw.experience,
+    projectRecFields,
+  );
+  const testimonials = mapTestimonials(raw.testimonials, projectRecFields);
+  const team = mapTeam(raw.team, projectRecFields);
 
   // 7. Achievements Construction (evidenceStorageKey omitted by allowlist)
+  const nextAchievementId = recordIdAllocator("ach");
   const achievements: IPublicAchievement[] = Array.isArray(raw.achievements)
     ? raw.achievements
         .filter((a: any) => a && a.title)
-        .map((a: any, idx: number) => ({
-          id: String(a.id || a._id || `ach_${idx}`),
+        .map((a: any) => ({
+          id: String(a.id || a._id || nextAchievementId(a)),
           title: sanitizeString(a.title, 200) || "",
           category: sanitizeString(a.category, 100) || "award",
           organization: sanitizeString(a.organization, 150),
@@ -628,13 +658,14 @@ export function toPublicProfileDTO(
   }
 
   // 9. Media Construction (private media strictly filtered out)
+  const nextMediaId = recordIdAllocator("media");
   const media: IPublicMediaItem[] = Array.isArray(raw.media)
     ? raw.media
-        .filter((m: any) => m && m.visibility !== "private" && (m.mediaUrl || m.title || m.id))
-        .map((m: any, idx: number) => {
+        .filter((m: any) => m && m.visibility !== "private" && (m.mediaUrl || m.title || m.id || m._id))
+        .map((m: any) => {
           const safeUrl = sanitizeDeliveryUrl(m.mediaUrl);
           return {
-            id: String(m.id || m._id || `media_${idx}`),
+            id: String(m.id || m._id || nextMediaId(m)),
             mediaUrl: safeUrl || "",
             mediaType: sanitizeString(m.mediaType, 50) || "image",
             title: sanitizeString(m.title, 150) || "Portfolio Media",
@@ -642,6 +673,7 @@ export function toPublicProfileDTO(
             category: sanitizeString(m.category, 100) || "project",
             isFeatured: typeof m.isFeatured === "boolean" ? m.isFeatured : undefined,
             altText: sanitizeString(m.altText, 200),
+            customFields: projectRecFields(m.customFields),
           };
         })
         .filter((m: any): m is IPublicMediaItem => m !== null)
@@ -659,14 +691,15 @@ export function toPublicProfileDTO(
     publicPhone && contactsObj.countryCode ? sanitizeString(contactsObj.countryCode, 10) : undefined;
 
   // Social Links (filter visibility !== 'private')
+  const nextLinkId = recordIdAllocator("link");
   const socialLinks: IPublicSocialLink[] = Array.isArray(raw.links)
     ? raw.links
         .filter((l: any) => l && l.url && l.visibility !== "private")
-        .map((l: any, idx: number) => {
+        .map((l: any) => {
           const safeUrl = sanitizeUrl(l.url);
           if (!safeUrl) return null;
           return {
-            id: String(l.id || l._id || `link_${idx}`),
+            id: String(l.id || l._id || nextLinkId(l)),
             platform: sanitizeString(l.platform, 100) || "link",
             url: safeUrl,
             category: sanitizeString(l.category, 50) || "social",
@@ -782,49 +815,60 @@ function relatedProjectImage(media: unknown, projectId: string): string | undefi
   return undefined;
 }
 
-function mapExperience(value: unknown): IPublicExperience[] {
+type RecordFieldProjector = (fields: unknown) => PublicCustomField[] | undefined;
+
+function mapExperience(value: unknown, projectFields?: RecordFieldProjector): IPublicExperience[] {
   if (!Array.isArray(value)) return [];
+  const nextId = recordIdAllocator("exp");
   return value
     .filter((item: any) => item && (item.title || item.organization || item.company || item.jobTitle))
     .slice(0, 40)
-    .map((item: any, idx: number) => ({
-      id: String(item.id || item._id || `exp_${idx}`),
+    .map((item: any) => ({
+      id: String(item.id || item._id || nextId(item)),
       title: sanitizeString(item.title || item.jobTitle, 200) || "",
       organization: sanitizeString(item.organization || item.company, 200) || "",
-      employmentType: sanitizeString(item.employmentType, 50),
+      employmentType: sanitizeString(item.experienceType || item.employmentType, 50),
       location: sanitizeString(item.location, 150),
       startDate: sanitizeString(item.startDate, 50),
       endDate: sanitizeString(item.endDate, 50),
       isCurrent: typeof item.isCurrent === "boolean" ? item.isCurrent : undefined,
-      description: sanitizeString(item.description, 4000),
+      description: sanitizeString(
+        item.description || (Array.isArray(item.responsibilities) ? item.responsibilities.join("\n") : ""),
+        4000,
+      ),
+      customFields: projectFields ? projectFields(item.customFields) : undefined,
     }))
     .filter((item) => item.title || item.organization);
 }
 
-function mapTestimonials(value: unknown): IPublicTestimonial[] {
+function mapTestimonials(value: unknown, projectFields?: RecordFieldProjector): IPublicTestimonial[] {
   if (!Array.isArray(value)) return [];
+  const nextId = recordIdAllocator("testimonial");
   return value
     .filter((item: any) => item && item.quote && item.authorName)
     .slice(0, 40)
-    .map((item: any, idx: number) => ({
-      id: String(item.id || item._id || `testimonial_${idx}`),
+    .map((item: any) => ({
+      id: String(item.id || item._id || nextId(item)),
       quote: sanitizeString(item.quote, 1000) || "",
       authorName: sanitizeString(item.authorName, 150) || "",
       relationship: sanitizeString(item.relationship, 150),
       attribution: sanitizeString(item.attribution, 40),
+      customFields: projectFields ? projectFields(item.customFields) : undefined,
     }))
     .filter((item) => item.quote && item.authorName);
 }
 
-function mapTeam(value: unknown): IPublicTeamMember[] {
+function mapTeam(value: unknown, projectFields?: RecordFieldProjector): IPublicTeamMember[] {
   if (!Array.isArray(value)) return [];
+  const nextId = recordIdAllocator("team");
   return value
     .filter((item: any) => item && item.name)
     .slice(0, 50)
-    .map((item: any, idx: number) => ({
-      id: String(item.id || item._id || `team_${idx}`),
+    .map((item: any) => ({
+      id: String(item.id || item._id || nextId(item)),
       name: sanitizeString(item.name, 150) || "",
       role: sanitizeString(item.role, 150),
+      customFields: projectFields ? projectFields(item.customFields) : undefined,
     }))
     .filter((item) => item.name);
 }
@@ -889,9 +933,14 @@ export function allowlistPublicSnapshot(snapshot: unknown): PublicProfileDTO_v1 
     contact: mapStoredContact(raw.contact),
   };
 
-  const experience = mapExperience(raw.experience);
-  const testimonials = mapTestimonials(raw.testimonials);
-  const team = mapTeam(raw.team);
+  const experience = mapExperience(
+    Array.isArray(raw.workExperience) && raw.workExperience.length > 0
+      ? raw.workExperience
+      : raw.experience,
+    storedRecordFields,
+  );
+  const testimonials = mapTestimonials(raw.testimonials, storedRecordFields);
+  const team = mapTeam(raw.team, storedRecordFields);
   if (experience.length) dto.experience = experience;
   if (testimonials.length) dto.testimonials = testimonials;
   if (team.length) dto.team = team;
@@ -912,8 +961,13 @@ export function allowlistPublicSnapshot(snapshot: unknown): PublicProfileDTO_v1 
   return dto;
 }
 
-function compact<T extends Record<string, unknown>>(value: T): T {
-  const copy = {} as T;
+/** Second allowlist for custom fields already stored on a built-in record. */
+function storedRecordFields(fields: unknown): PublicCustomField[] | undefined {
+  const projected = sanitizePublicRecordFields(fields, sanitizeDeliveryUrl);
+  return projected.length ? projected : undefined;
+}
+
+function compact<T extends Record<string, unknown>>(value: T): T {  const copy = {} as T;
   for (const key of Object.keys(value) as (keyof T)[]) {
     if (value[key] !== undefined) copy[key] = value[key];
   }
@@ -929,11 +983,12 @@ function stringList(value: unknown, maxLen: number): string[] {
 
 function mapStoredEducation(value: unknown): IPublicEducation[] {
   if (!Array.isArray(value)) return [];
+  const nextId = recordIdAllocator("edu");
   return value
     .filter((item: any) => item && item.institution && item.degree)
-    .map((item: any, idx: number) =>
+    .map((item: any) =>
       compact({
-        id: String(item.id || `edu_${idx}`),
+        id: String(item.id || item._id || nextId(item)),
         institution: sanitizeString(item.institution, 150) || "",
         degree: sanitizeString(item.degree, 150) || "",
         fieldOfStudy: sanitizeString(item.fieldOfStudy, 150),
@@ -952,17 +1007,19 @@ function mapStoredEducation(value: unknown): IPublicEducation[] {
         website: sanitizeUrl(item.website),
         coursework: sanitizeString(item.coursework, 1000),
         honors: sanitizeString(item.honors, 500),
+        customFields: storedRecordFields(item.customFields),
       })
     ) as IPublicEducation[];
 }
 
 function mapStoredProjects(value: unknown): IPublicProject[] {
   if (!Array.isArray(value)) return [];
+  const nextId = recordIdAllocator("proj");
   return value
     .filter((item: any) => item && item.title)
-    .map((item: any, idx: number) => {
+    .map((item: any) => {
       const project = compact({
-        id: String(item.id || `proj_${idx}`),
+        id: String(item.id || item._id || nextId(item)),
         title: sanitizeString(item.title, 200) || "",
         shortDescription: sanitizeString(item.shortDescription, 500),
         detailedDescription: sanitizeString(item.detailedDescription, 5000),
@@ -986,6 +1043,7 @@ function mapStoredProjects(value: unknown): IPublicProject[] {
         metricsResults: sanitizeString(item.metricsResults, 2000),
         impact: sanitizeString(item.impact, 2000),
         imageUrl: sanitizeDeliveryUrl(item.imageUrl),
+        customFields: storedRecordFields(item.customFields),
       }) as IPublicProject;
       return project;
     });
@@ -993,11 +1051,12 @@ function mapStoredProjects(value: unknown): IPublicProject[] {
 
 function mapStoredSkills(value: unknown): IPublicSkill[] {
   if (!Array.isArray(value)) return [];
+  const nextId = recordIdAllocator("skill");
   return value
     .filter((item: any) => item && item.name)
-    .map((item: any, idx: number) =>
+    .map((item: any) =>
       compact({
-        id: String(item.id || `skill_${idx}`),
+        id: String(item.id || item._id || nextId(item)),
         name: sanitizeString(item.name, 100) || "",
         category: sanitizeString(item.category, 100) || "Other Skills",
         proficiency: sanitizeString(item.proficiency, 50) || "Intermediate",
@@ -1006,17 +1065,19 @@ function mapStoredSkills(value: unknown): IPublicSkill[] {
             ? item.yearsExperience
             : undefined,
         level: sanitizeString(item.level, 50),
+        customFields: storedRecordFields(item.customFields),
       })
     );
 }
 
 function mapStoredCredentials(value: unknown): IPublicCredential[] {
   if (!Array.isArray(value)) return [];
+  const nextId = recordIdAllocator("cred");
   return value
     .filter((item: any) => item && item.title)
-    .map((item: any, idx: number) =>
+    .map((item: any) =>
       compact({
-        id: String(item.id || `cred_${idx}`),
+        id: String(item.id || item._id || nextId(item)),
         title: sanitizeString(item.title, 200) || "",
         credentialType: sanitizeString(item.credentialType, 100) || "certification",
         issuer: sanitizeString(item.issuer, 150) || "",
@@ -1028,17 +1089,19 @@ function mapStoredCredentials(value: unknown): IPublicCredential[] {
         verificationStatus: sanitizeString(item.verificationStatus, 50),
         description: sanitizeString(item.description, 2000),
         relatedSkills: Array.isArray(item.relatedSkills) ? stringList(item.relatedSkills, 100) : undefined,
+        customFields: storedRecordFields(item.customFields),
       })
     );
 }
 
 function mapStoredAchievements(value: unknown): IPublicAchievement[] {
   if (!Array.isArray(value)) return [];
+  const nextId = recordIdAllocator("ach");
   return value
     .filter((item: any) => item && item.title)
-    .map((item: any, idx: number) =>
+    .map((item: any) =>
       compact({
-        id: String(item.id || `ach_${idx}`),
+        id: String(item.id || item._id || nextId(item)),
         title: sanitizeString(item.title, 200) || "",
         category: sanitizeString(item.category, 100) || "award",
         organization: sanitizeString(item.organization, 150),
@@ -1052,20 +1115,22 @@ function mapStoredAchievements(value: unknown): IPublicAchievement[] {
         location: sanitizeString(item.location, 150),
         proofUrl: sanitizeUrl(item.proofUrl),
         certificateUrl: sanitizeUrl(item.certificateUrl),
+        customFields: storedRecordFields(item.customFields),
       })
     );
 }
 
 function mapStoredMedia(value: unknown): IPublicMediaItem[] {
   if (!Array.isArray(value)) return [];
+  const nextId = recordIdAllocator("media");
   const media: IPublicMediaItem[] = [];
-  value.forEach((item: any, idx: number) => {
+  value.forEach((item: any) => {
     if (!item || !item.mediaUrl) return;
     const mediaUrl = sanitizeDeliveryUrl(item.mediaUrl);
     if (!mediaUrl) return;
     media.push(
       compact({
-        id: String(item.id || `media_${idx}`),
+        id: String(item.id || item._id || nextId(item)),
         mediaUrl,
         mediaType: sanitizeString(item.mediaType, 50) || "image",
         title: sanitizeString(item.title, 150) || "Portfolio Media",
@@ -1073,6 +1138,7 @@ function mapStoredMedia(value: unknown): IPublicMediaItem[] {
         category: sanitizeString(item.category, 100) || "project",
         isFeatured: typeof item.isFeatured === "boolean" ? item.isFeatured : undefined,
         altText: sanitizeString(item.altText, 200),
+        customFields: storedRecordFields(item.customFields),
       }) as IPublicMediaItem
     );
   });
@@ -1093,21 +1159,24 @@ function mapStoredContact(value: unknown): IPublicContact {
     twitter: sanitizeUrl(contact.twitter),
     portfolio: sanitizeUrl(contact.portfolio),
     socialLinks: Array.isArray(contact.socialLinks)
-      ? contact.socialLinks
-          .filter((item: any) => item && item.url)
-          .map((item: any, idx: number) => {
-            const url = sanitizeUrl(item.url);
-            if (!url) return null;
-            return compact({
-              id: String(item.id || `link_${idx}`),
-              platform: sanitizeString(item.platform, 100) || "link",
-              url,
-              category: sanitizeString(item.category, 50) || "social",
-              username: sanitizeString(item.username, 100),
-              isPrimary: typeof item.isPrimary === "boolean" ? item.isPrimary : undefined,
-            });
-          })
-          .filter((item: IPublicSocialLink | null): item is IPublicSocialLink => item !== null)
+      ? (() => {
+          const nextId = recordIdAllocator("link");
+          return contact.socialLinks
+            .filter((item: any) => item && item.url)
+            .map((item: any) => {
+              const url = sanitizeUrl(item.url);
+              if (!url) return null;
+              return compact({
+                id: String(item.id || item._id || nextId(item)),
+                platform: sanitizeString(item.platform, 100) || "link",
+                url,
+                category: sanitizeString(item.category, 50) || "social",
+                username: sanitizeString(item.username, 100),
+                isPrimary: typeof item.isPrimary === "boolean" ? item.isPrimary : undefined,
+              });
+            })
+            .filter((item: IPublicSocialLink | null): item is IPublicSocialLink => item !== null);
+        })()
       : [],
   }) as IPublicContact;
 }

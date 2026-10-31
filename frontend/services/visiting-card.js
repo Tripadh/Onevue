@@ -18,7 +18,12 @@
     const token = getSessionToken();
     if (!token) throw new ServiceError('unauthorized', 'Authentication required');
 
-    const query = cardId ? `?cardId=${encodeURIComponent(cardId)}` : '';
+    const cardIdStr = cardId ? String(cardId).trim() : null;
+    const hasSpecialChars = cardIdStr ? /[^a-zA-Z0-9_-]/.test(cardIdStr) : false;
+    if (cardIdStr && (cardIdStr.length < 1 || cardIdStr.length > 128 || hasSpecialChars)) {
+      throw new ServiceError('invalid_request', 'Invalid card identifier format');
+    }
+    const query = cardIdStr ? `?cardId=${encodeURIComponent(cardIdStr)}` : '';
     try {
       const res = await fetch(`${API_BASE}/student/card${query}`, {
         method: 'GET',

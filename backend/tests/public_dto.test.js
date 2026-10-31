@@ -477,6 +477,42 @@ describe("OneVue Phase 2 — Public Profile DTO & Privacy Contract", () => {
       "https://example.com/photos/alex.jpg"
     );
   });
+
+  test("20. Legacy records without stored ids get content ids that survive reordering", () => {
+    const source = getFullSourceProfile();
+    source.education = [
+      { institution: "Alpha University", degree: "BSc" },
+      { institution: "Beta Institute", degree: "MSc" },
+    ];
+
+    const first = toPublicProfileDTO(source);
+    source.education = [source.education[1], source.education[0]];
+    const second = toPublicProfileDTO(source);
+
+    assert.equal(first.education[0].id, second.education[1].id);
+    assert.equal(first.education[1].id, second.education[0].id);
+    assert.notEqual(first.education[0].id, "edu_0");
+    assert.notEqual(first.education[0].id, first.education[1].id);
+  });
+
+  test("21. Snapshot allowlisting keeps stored ids and never renumbers them", () => {
+    const snapshot = {
+      meta: { schemaVersion: "1.0.0", username: "alexrivera" },
+      profile: { displayName: "Alex Rivera" },
+      education: [
+        { _id: "stored-edu-1", institution: "Alpha University", degree: "BSc" },
+        { id: "stored-edu-2", institution: "Beta Institute", degree: "MSc" },
+      ],
+    };
+    const first = allowlistPublicSnapshot(snapshot);
+    snapshot.education.reverse();
+    const second = allowlistPublicSnapshot(snapshot);
+
+    assert.equal(first.education[0].id, "stored-edu-1");
+    assert.equal(first.education[1].id, "stored-edu-2");
+    assert.equal(second.education[0].id, "stored-edu-2");
+    assert.equal(second.education[1].id, "stored-edu-1");
+  });
 });
 
 describe("OneVue Phase 2 — Model Schema & Validation Constraints", () => {
@@ -624,6 +660,31 @@ describe("OneVue Phase 2 — Model Schema & Validation Constraints", () => {
     assert.equal(dump.includes("jamie@secret.test"), false);
     assert.equal(dump.includes("hidden.png"), false);
     assert.equal(dump.includes(assetId), false);
+  });
+
+  test("18a. Student work experience is projected to the public experience contract", () => {
+    const dto = toPublicProfileDTO({
+      preferredName: "Ada Lovelace",
+      workExperience: [{
+        id: "exp-1",
+        organization: "Example Labs",
+        title: "Research Intern",
+        experienceType: "internship",
+        location: "London",
+        startDate: "2024-01",
+        endDate: "2024-06",
+        isCurrent: false,
+        description: "Built prototypes",
+        internalNote: "private",
+      }],
+    });
+
+    assert.equal(dto.experience.length, 1);
+    assert.equal(dto.experience[0].organization, "Example Labs");
+    assert.equal(dto.experience[0].title, "Research Intern");
+    assert.equal(dto.experience[0].employmentType, "internship");
+    assert.equal(dto.experience[0].description, "Built prototypes");
+    assert.equal(JSON.stringify(dto).includes("private"), false);
   });
 
   test("19. An existing 1.0.0 snapshot stays readable and unknown keys are removed", () => {

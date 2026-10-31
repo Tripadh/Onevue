@@ -48,12 +48,19 @@ export async function GET(req: Request) {
       }
     }
 
+    // Legacy or hand-edited rows may hold an id that is no longer registered.
+    // Reads report the only approved adapter; writes still reject anything else.
+    const storedTemplateId = String(config.selectedTemplateId || "magicui-portfolio");
+    const selectedTemplateId = APPROVED_TEMPLATES.includes(storedTemplateId as ApprovedTemplateId)
+      ? storedTemplateId
+      : "magicui-portfolio";
+
     return NextResponse.json(
       {
         success: true,
         config: {
           username: config.username,
-          selectedTemplateId: config.selectedTemplateId,
+          selectedTemplateId,
           selectedTemplateVersion: config.selectedTemplateVersion,
           customization: config.customization,
           status: config.status,
@@ -180,7 +187,7 @@ export async function PUT(req: Request) {
         presentation = presentationForTemplate(templateId, {
           ...current,
           ...body.customization,
-        });
+        }, auth.user.identity);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "Invalid appearance settings.";
         return NextResponse.json({ message }, { status: 400 });

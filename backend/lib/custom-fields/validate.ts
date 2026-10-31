@@ -186,8 +186,7 @@ function mimeAllowlist(type: CustomFieldType): readonly string[] {
 function normalizeConfig(type: CustomFieldType, raw: unknown, path: string): CustomFieldConfig {
   const source = raw === undefined || raw === null ? {} : assertPlain(raw, `${path}.config`);
   if (type === "text" || type === "textarea" || type === "heading") {
-    const maxLen = type === "heading" ? 150 : (config.maxLength || LIMITS.textMax);
-    const cap = type === "text" ? LIMITS.textMax : LIMITS.textareaMax;
+    const cap = type === "textarea" ? LIMITS.textareaMax : type === "text" ? LIMITS.textMax : 150;
     const maxLength = readBound(source.maxLength, 1, cap, cap, `${path}.maxLength`);
     const minLength = readBound(source.minLength, 0, maxLength, 0, `${path}.minLength`);
     return { minLength, maxLength };

@@ -76,9 +76,12 @@
             <p className="muted" style={{ fontSize: 14, margin: '0 0 24px 0', lineHeight: 1.5 }}>
               The digital visiting card for <strong>@{username}</strong> has not been published yet or is currently inactive.
             </p>
-            <Link to="/" className="btn btn-primary">
-              Explore OneVue
-            </Link>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <Link to="/" className="btn btn-primary">Explore OneVue</Link>
+              <button className="btn btn-glass" onClick={() => { setError(null); setLoading(true); setCardData(null); setTimeout(() => { setLoading(false); }, 800); }}>
+                Retry
+              </button>
+            </div>
           </GlassCard>
         </main>
       );

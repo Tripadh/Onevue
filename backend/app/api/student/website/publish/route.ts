@@ -8,7 +8,7 @@ import PublishedProfileRevision from "../../../../../models/PublishedProfileRevi
 import { toPublicProfileDTO, computeSnapshotChecksum } from "../../../../../lib/public-profile-dto";
 import { loadWebsiteSource } from "../../../../../lib/domain-profile/website-source";
 import { collectPublicAssetIds } from "../../../../../lib/storage/asset-refs";
-import { presentationForTemplate } from "../../../../../lib/templates/registry";
+import { getTemplate, presentationForTemplate } from "../../../../../lib/templates/registry";
 import { isAllowedProfilePhotoKey } from "../../../../../lib/storage/legacy-photo";
 import { ProfileValidationError } from "../../../../../lib/domain-profile/validate";
 import { assertProfileAssetRefs } from "../../../../../lib/storage/asset-service";
@@ -80,6 +80,16 @@ export async function POST(req: Request) {
           errors: {
             username: "Username must be configured and claimed prior to publication.",
           },
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!getTemplate(config.selectedTemplateId || "magicui-portfolio")) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Template '${config.selectedTemplateId}' is not registered. Select an approved template before publishing.`,
         },
         { status: 400 }
       );
@@ -199,7 +209,7 @@ export async function POST(req: Request) {
         config.customization && typeof (config.customization as { toObject?: () => object }).toObject === "function"
           ? (config.customization as { toObject: () => object }).toObject()
           : config.customization || {};
-      presentation = presentationForTemplate(config.selectedTemplateId || "magicui-portfolio", storedCustomization);
+      presentation = presentationForTemplate(config.selectedTemplateId || "magicui-portfolio", storedCustomization, website?.identity as never);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Invalid appearance settings.";
       return NextResponse.json({ success: false, message }, { status: 400 });

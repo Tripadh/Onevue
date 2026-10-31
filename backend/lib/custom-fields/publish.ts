@@ -222,6 +222,45 @@ function cleanPublicValue(type: string, value: unknown, hrefOk: (value: string) 
   return text ? text.slice(0, 4000) : null;
 }
 
+function cleanPublicField(
+  rawField: unknown,
+  hrefOk: (value: string) => string | undefined
+): PublicCustomField | null {
+  if (!rawField || typeof rawField !== "object") return null;
+  const field = rawField as Record<string, unknown>;
+  if (field.visibility === "private") return null;
+  if (typeof field.id !== "string" || typeof field.label !== "string" || typeof field.type !== "string") return null;
+  if (typeof field.presentation !== "string" || !PRESENTATIONS.has(field.presentation)) return null;
+  const rendered = cleanPublicValue(field.type, field.value, hrefOk);
+  if (rendered === null) return null;
+  const mapsTo = typeof field.mapsTo === "string" && /^[a-z][a-z0-9_]{0,39}$/.test(field.mapsTo) ? field.mapsTo : "";
+  const helpText = typeof field.helpText === "string" ? sanitizeStoredText(field.helpText).trim().slice(0, 200) : "";
+  return {
+    id: field.id.slice(0, 40),
+    key: typeof field.key === "string" ? field.key.slice(0, 40) : field.id.slice(0, 40),
+    label: sanitizeStoredText(field.label).trim().slice(0, 80) || "Field",
+    type: field.type as PublicCustomField["type"],
+    order: typeof field.order === "number" ? field.order : 0,
+    ...(helpText ? { helpText } : {}),
+    presentation: field.presentation as PublicCustomField["presentation"],
+    value: rendered,
+    ...(mapsTo ? { mapsTo } : {}),
+  };
+}
+
+/** Second allowlist for custom fields stored directly on a built-in record. */
+export function sanitizePublicRecordFields(
+  value: unknown,
+  hrefOk: (value: string) => string | undefined
+): PublicCustomField[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .slice(0, 30)
+    .map((item) => cleanPublicField(item, hrefOk))
+    .filter((item): item is PublicCustomField => item !== null)
+    .map((field, index) => ({ ...field, order: field.order || index }));
+}
+
 /** Second allowlist for a stored snapshot. Drops private-looking and unsafe values. */
 export function sanitizePublicCustomSections(
   value: unknown,
@@ -239,27 +278,11 @@ export function sanitizePublicCustomSections(
     for (const rawRecord of rawRecords.slice(0, 40)) {
       if (!rawRecord || typeof rawRecord !== "object") continue;
       const record = rawRecord as Record<string, unknown>;
-      const fields: PublicCustomField[] = [];
       const rawFields = Array.isArray(record.fields) ? record.fields : [];
-      for (const rawField of rawFields.slice(0, 30)) {
-        if (!rawField || typeof rawField !== "object") continue;
-        const field = rawField as Record<string, unknown>;
-        if (typeof field.id !== "string" || typeof field.label !== "string" || typeof field.type !== "string") continue;
-        if (typeof field.presentation !== "string" || !PRESENTATIONS.has(field.presentation)) continue;
-        const rendered = cleanPublicValue(field.type, field.value, hrefOk);
-        if (rendered === null) continue;
-        const mapsTo = typeof field.mapsTo === "string" && /^[a-z][a-z0-9_]{0,39}$/.test(field.mapsTo) ? field.mapsTo : "";
-        fields.push({
-          id: field.id.slice(0, 40),
-          key: typeof field.key === "string" ? field.key.slice(0, 40) : field.id.slice(0, 40),
-          label: sanitizeStoredText(field.label).trim().slice(0, 80) || "Field",
-          type: field.type as PublicCustomField["type"],
-          order: typeof field.order === "number" ? field.order : fields.length,
-          presentation: field.presentation as PublicCustomField["presentation"],
-          value: rendered,
-          ...(mapsTo ? { mapsTo } : {}),
-        });
-      }
+      const fields = rawFields
+        .slice(0, 30)
+        .map((rawField) => cleanPublicField(rawField, hrefOk))
+        .filter((field): field is PublicCustomField => field !== null);
       if (fields.length) records.push({ id: typeof record.id === "string" ? record.id.slice(0, 100) : "", fields });
     }
     if (!records.length) continue;
@@ -388,7 +411,7 @@ export function projectRecordFields(
   options: ProjectCustomLayoutOptions
 ): PublicCustomField[] {
   if (!Array.isArray(fields)) return [];
-  const hrefFor = options.assetHref || defaultHref;
+  const hrefFor = options.assetHref || (() => "");
   const out: PublicCustomField[] = [];
   for (const item of fields) {
     if (!item || typeof item !== "object") continue;

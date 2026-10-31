@@ -82,6 +82,9 @@ const MAGICUI = {
     "Test adapter used to exercise publishing. It is not the permanent OneVue template library. Profile content stays stored when this adapter cannot display it.",
   supportedSections: MAGICUI_SUPPORTED_SECTIONS,
   supportedBlocks: ["text", "richText", "link", "repeatable", "media", "choice"],
+  supportedFieldTypes: ["text", "textarea", "number", "url", "date", "boolean", "select", "multiselect", "tags", "image", "gallery", "video", "file"],
+  hiddenFieldTypes: [],
+  identities: IDENTITIES,
   requiredInputs: ["displayName", "username"],
   media: {
     images: true,
@@ -124,6 +127,9 @@ function listTemplates() {
   return TEMPLATES.map((template) => Object.assign({}, template, {
     supportedSections: template.supportedSections.slice(),
     supportedBlocks: template.supportedBlocks.slice(),
+    supportedFieldTypes: template.supportedFieldTypes.slice(),
+    hiddenFieldTypes: template.hiddenFieldTypes.slice(),
+    identities: template.identities.slice(),
     visibilityControls: template.visibilityControls.map((item) => Object.assign({}, item)),
     retainedSections: template.retainedSections.slice(),
     limits: template.limits.slice(),
@@ -143,50 +149,6 @@ function contentForIdentity(identity) {
     }));
 }
 
-function hasContent(value) {
-  if (value == null || value === "") return false;
-  if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === "object") return Object.keys(value).length > 0;
-  return true;
-}
-
-function readPath(source, path) {
-  return String(path).split(".").reduce((current, key) => {
-    if (current == null || typeof current !== "object") return undefined;
-    return current[key];
-  }, source);
-}
-
-function partitionPublication(templateId, dto) {
-  const template = getTemplate(templateId);
-  if (!template) {
-    throw new Error("Template '" + templateId + "' is not registered.");
-  }
-  const displayed = [];
-  const retained = [];
-  CONTENT_SECTIONS.forEach((section) => {
-    if (!section.publicKey) return;
-    if (!hasContent(readPath(dto, section.publicKey))) return;
-    if (template.supportedSections.indexOf(section.id) !== -1) displayed.push(section.id);
-    else retained.push(section.id);
-  });
-  return { displayed, retained };
-}
-
-function retainedProfileKeys(templateId, identity, profile) {
-  const template = getTemplate(templateId);
-  if (!template) {
-    throw new Error("Template '" + templateId + "' is not registered.");
-  }
-  if (!profile || typeof profile !== "object") return [];
-  return CONTENT_SECTIONS.filter((section) => {
-    return section.identities.indexOf(identity) !== -1 &&
-      section.storage === "identity-profile" &&
-      template.supportedSections.indexOf(section.id) === -1 &&
-      hasContent(profile[section.id]);
-  }).map((section) => section.id);
-}
-
 function sanitizeStoredText(value) {
   if (typeof value !== "string") return "";
   return value
@@ -194,112 +156,6 @@ function sanitizeStoredText(value) {
     .replace(/<\/?[a-zA-Z][^>\n]*>/g, "")
     .replace(/!\[[^\]]*\]\(\s*(?:javascript|data|vbscript):[^)]*\)/gi, "")
     .replace(/\[([^\]]*)\]\(\s*(?:javascript|data|vbscript):[^)]*\)/gi, "$1");
-}
-
-function uniqueAllowed(values, allowed) {
-  const next = [];
-  values.forEach((value) => {
-    const key = String(value);
-    if (allowed.indexOf(key) !== -1 && next.indexOf(key) === -1) next.push(key);
-  });
-  return next;
-}
-
-function presentationForTemplate(templateId, customization) {
-  const template = getTemplate(templateId);
-  if (!template) {
-    throw new Error("Template '" + templateId + "' is not registered.");
-  }
-  const allowed = template.visibilityControls.map((item) => item.id);
-  const fallbackOrder = uniqueAllowed(template.defaultSectionOrder || allowed, allowed);
-  allowed.forEach((id) => {
-    if (fallbackOrder.indexOf(id) === -1) fallbackOrder.push(id);
-  });
-  const source = customization && typeof customization === "object" ? customization : {};
-  const hex = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
-
-  let accentColor = "#3b82f6";
-  if (source.accentColor !== undefined && source.accentColor !== null && String(source.accentColor).trim() !== "") {
-    const accent = String(source.accentColor).trim();
-    if (!template.presentation.accentColor) {
-      throw new Error("This template does not apply an accent color.");
-    }
-    if (!hex.test(accent)) {
-      throw new Error("Invalid hex accent color. Must be a valid 3- or 6-digit hex string (e.g. #3b82f6).");
-    }
-    accentColor = accent;
-  }
-
-  let themeMode = "system";
-  if (source.themeMode !== undefined && source.themeMode !== null && source.themeMode !== "") {
-    if (!template.presentation.themeMode) {
-      throw new Error("This template does not apply a theme.");
-    }
-    if (source.themeMode !== "light" && source.themeMode !== "dark" && source.themeMode !== "system") {
-      throw new Error("Invalid themeMode. Must be 'light', 'dark', or 'system'.");
-    }
-    themeMode = source.themeMode;
-  }
-
-  const defaultVisible = ["about", "education", "projects", "skills", "achievements", "contact"].filter((id) => allowed.indexOf(id) !== -1);
-  let visibleSections = defaultVisible.slice();
-  if (source.visibleSections !== undefined) {
-    if (!Array.isArray(source.visibleSections)) {
-      throw new Error("visibleSections must be a list of section ids.");
-    }
-    if (!template.presentation.sectionVisibility) {
-      throw new Error("This template does not hide sections.");
-    }
-    const unknown = source.visibleSections.filter((id) => allowed.indexOf(String(id)) === -1);
-    if (unknown.length) {
-      throw new Error("Unsupported section visibility: " + unknown.join(", ") + ".");
-    }
-    visibleSections = uniqueAllowed(source.visibleSections, allowed);
-  }
-
-  let sectionOrder = fallbackOrder.slice();
-  if (source.sectionOrder !== undefined) {
-    if (!Array.isArray(source.sectionOrder)) {
-      throw new Error("sectionOrder must be a list of section ids.");
-    }
-    if (!template.presentation.sectionOrder) {
-      throw new Error("This template does not reorder sections.");
-    }
-    const unknownOrder = source.sectionOrder.filter((id) => allowed.indexOf(String(id)) === -1);
-    if (unknownOrder.length) {
-      throw new Error("Unsupported section order: " + unknownOrder.join(", ") + ".");
-    }
-    sectionOrder = uniqueAllowed(source.sectionOrder, allowed);
-    fallbackOrder.forEach((id) => {
-      if (sectionOrder.indexOf(id) === -1) sectionOrder.push(id);
-    });
-  }
-
-  return {
-    accentColor,
-    themeMode,
-    visibleSections,
-    sectionOrder,
-  };
-}
-
-function publishedCustomization(revisionPresentation, configCustomization, templateId) {
-  const id = templateId || "magicui-portfolio";
-  const stored = revisionPresentation && typeof revisionPresentation === "object" ? revisionPresentation : null;
-  if (stored && Array.isArray(stored.visibleSections)) {
-    return presentationForTemplate(id, stored);
-  }
-  const config = configCustomization && typeof configCustomization === "object" ? configCustomization : {};
-  return presentationForTemplate(id, config);
-}
-
-function rollbackPresentation(revisionPresentation, templateId) {
-  const id = templateId || "magicui-portfolio";
-  const stored = revisionPresentation && typeof revisionPresentation === "object" ? revisionPresentation : null;
-  if (stored && Array.isArray(stored.visibleSections)) {
-    return presentationForTemplate(id, stored);
-  }
-  return presentationForTemplate(id, {});
 }
 
 function reorderEntries(list, index, direction) {
@@ -320,12 +176,7 @@ return {
   listTemplates,
   getTemplate,
   contentForIdentity,
-  partitionPublication,
-  retainedProfileKeys,
   sanitizeStoredText,
-  presentationForTemplate,
-  publishedCustomization,
-  rollbackPresentation,
   reorderEntries,
 };
 

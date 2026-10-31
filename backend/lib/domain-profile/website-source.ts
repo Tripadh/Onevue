@@ -13,6 +13,7 @@ import FreelancerProfile from "../../models/FreelancerProfile";
 import CreatorProfile from "../../models/CreatorProfile";
 import BusinessProfile from "../../models/BusinessProfile";
 import { recordIdsForIdentity, isCustomIdentity } from "../custom-fields/builtins";
+import { contentDerivedRecordId } from "../record-identity";
 import { projectPublicDomainProfile } from "./public-projection";
 import { deliveryPath } from "../storage/asset-refs";
 import { isAssetId } from "../storage/keys";
@@ -169,8 +170,18 @@ function block(value: unknown): Row {
   return value && typeof value === "object" ? (value as Row) : {};
 }
 
-function rowId(row: Row, prefix: string, idx: number): string {
-  return str(row.id) || (row._id ? String(row._id) : `${prefix}_${idx}`);
+function rowId(row: Row, prefix: string, _idx: number): string {
+  return str(row.id) || (row._id ? String(row._id) : contentDerivedRecordId(prefix, row));
+}
+
+/** Stable ID derived from the value instead of an array index. */
+function slugId(prefix: string, value: string, idx: number): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return slug ? `${prefix}_${slug}` : `${prefix}_${idx}`;
 }
 
 function isDomainIdentity(identity: unknown): identity is DomainIdentity {
@@ -180,27 +191,31 @@ function isDomainIdentity(identity: unknown): identity is DomainIdentity {
 function mapSkills(list: unknown, category: string): Row[] {
   return rows(list)
     .filter((s) => str(s.name))
-    .map((s, idx) => ({
-      id: rowId(s, "skill", idx),
-      name: str(s.name),
-      category,
-      proficiency: str(s.proficiency) || "Intermediate",
-      yearsExperience: typeof s.yearsExperience === "number" ? s.yearsExperience : undefined,
-    }));
+    .map((s, idx) =>
+      withCustom({
+        id: rowId(s, "skill", idx),
+        name: str(s.name),
+        category,
+        proficiency: str(s.proficiency) || "Intermediate",
+        yearsExperience: typeof s.yearsExperience === "number" ? s.yearsExperience : undefined,
+      }, s)
+    );
 }
 
 function mapEducation(list: unknown): Row[] {
   return rows(list)
     .filter((e) => str(e.institution) && str(e.degree))
-    .map((e, idx) => ({
-      id: rowId(e, "edu", idx),
-      institution: str(e.institution),
-      degree: str(e.degree),
-      fieldOfStudy: str(e.fieldOfStudy),
-      startDate: str(e.startDate),
-      endDate: str(e.endDate),
-      currentStatus: str(e.currentStatus) || "completed",
-    }));
+    .map((e, idx) =>
+      withCustom({
+        id: rowId(e, "edu", idx),
+        institution: str(e.institution),
+        degree: str(e.degree),
+        fieldOfStudy: str(e.fieldOfStudy),
+        startDate: str(e.startDate),
+        endDate: str(e.endDate),
+        currentStatus: str(e.currentStatus) || "completed",
+      }, e)
+    );
 }
 
 function mapEmployment(job: Row, idx: number): Row | null {
@@ -234,6 +249,21 @@ function withImage(row: Row, imageUrl: string): Row {
   return { ...row, imageUrl };
 }
 
+/** Public resume keys understood by toPublicProfileDTO. The projection removed unsafe resumes. */
+function publicResumeFields(value: unknown): Row {
+  const resume = block(value);
+  const url = str(resume.url);
+  if (!url) return {};
+  return {
+    resumeUrl: url,
+    ...(str(resume.fileName) ? { resumeFileName: str(resume.fileName) } : {}),
+    resume: {
+      ...(str(resume.targetRole) ? { targetRole: str(resume.targetRole) } : {}),
+      ...(resume.uploadedAt ? { uploadedAt: resume.uploadedAt } : {}),
+    },
+  };
+}
+
 function professionalSource(p: Row, delivery: Delivery): Row {
   const contact = block(p.contact);
   const current = block(p.currentEmployment);
@@ -246,6 +276,7 @@ function professionalSource(p: Row, delivery: Delivery): Row {
   return {
     headline: str(p.headline),
     bio: str(p.bio),
+    ...publicResumeFields(p.resume),
     city: str(contact.city),
     country: str(contact.country),
     currentStatus: str(current.jobTitle),
@@ -253,44 +284,51 @@ function professionalSource(p: Row, delivery: Delivery): Row {
     education: mapEducation(p.education),
     credentials: rows(p.certifications)
       .filter((c) => str(c.title))
-      .map((c, idx) => ({
-        id: rowId(c, "cred", idx),
-        title: str(c.title),
-        credentialType: "certification",
-        issuer: str(c.issuer),
-        issueDate: str(c.issueDate),
-        expirationDate: str(c.expirationDate),
-        credentialUrl: str(c.credentialUrl),
-        verificationStatus: str(c.verificationStatus),
-      })),
+      .map((c, idx) =>
+        withCustom({
+          id: rowId(c, "cred", idx),
+          title: str(c.title),
+          credentialType: "certification",
+          issuer: str(c.issuer),
+          issueDate: str(c.issueDate),
+          expirationDate: str(c.expirationDate),
+          credentialUrl: str(c.credentialUrl),
+          verificationStatus: str(c.verificationStatus),
+        }, c)
+      ),
     projects: rows(p.portfolio)
       .filter((item) => str(item.title))
       .map((item, idx) =>
-        withImage(
-          {
-            id: rowId(item, "proj", idx),
-            title: str(item.title),
-            shortDescription: str(item.description),
-            role: str(item.role),
-            liveUrl: str(item.url),
-            technologies: [],
-          },
-          assetUrl(item.assetId, delivery)
+        withCustom(
+          withImage(
+            {
+              id: rowId(item, "proj", idx),
+              title: str(item.title),
+              shortDescription: str(item.description),
+              role: str(item.role),
+              liveUrl: str(item.url),
+              technologies: [],
+            },
+            assetUrl(item.assetId, delivery)
+          ),
+          item
         )
       ),
     experience,
     achievements: [
       ...rows(p.achievements)
         .filter((item) => str(item.title))
-        .map((item, idx) => ({
-          id: rowId(item, "achievement", idx),
-          title: str(item.title),
-          category: "other",
-          organization: str(item.organization),
-          date: str(item.date),
-          description: str(item.description),
-          proofUrl: str(item.evidenceUrl),
-        })),
+        .map((item, idx) =>
+          withCustom({
+            id: rowId(item, "achievement", idx),
+            title: str(item.title),
+            category: "other",
+            organization: str(item.organization),
+            date: str(item.date),
+            description: str(item.description),
+            proofUrl: str(item.evidenceUrl),
+          }, item)
+        ),
     ],
     links: rows(p.socialLinks)
       .filter((item) => str(item.url))
@@ -323,32 +361,35 @@ function freelancerSource(p: Row, delivery: Delivery): Row {
           const price = typeof pkg.price === "number" ? `${str(pkg.currency)} ${pkg.price}`.trim() : "";
           return ["Package: " + str(pkg.name), price, str(pkg.description)].filter(Boolean).join(" — ");
         });
-      return {
+      return withCustom({
         id: rowId(s, "service", idx),
         title: str(s.name),
         shortDescription: [str(s.description), ...packageLines].filter(Boolean).join("\n"),
         projectType: "service",
         technologies: [],
-      };
+      }, s);
     });
   const portfolio = rows(p.portfolio)
     .filter((item) => str(item.title))
     .map((item, idx) =>
-      withImage(
-        {
-          id: rowId(item, "proj", idx),
-          title: str(item.title),
-          shortDescription: str(item.summary),
-          liveUrl: str(item.url),
-          impact: str(item.outcome),
-          projectType: "case-study",
-          technologies: [],
-        },
-        assetUrl(item.assetId, delivery)
+      withCustom(
+        withImage(
+          {
+            id: rowId(item, "proj", idx),
+            title: str(item.title),
+            shortDescription: str(item.summary),
+            liveUrl: str(item.url),
+            impact: str(item.outcome),
+            projectType: "case-study",
+            technologies: [],
+          },
+          assetUrl(item.assetId, delivery)
+        ),
+        item
       )
     );
   const technologies = strings(p.technologies).map((name, idx) => ({
-    id: `tech_${idx}`,
+    id: slugId("tech", name, idx),
     name,
     category: "Technologies",
     proficiency: "Intermediate",
@@ -362,33 +403,39 @@ function freelancerSource(p: Row, delivery: Delivery): Row {
     projects: [...services, ...portfolio],
     experience: rows(p.workExperience)
       .filter((job) => str(job.company) || str(job.jobTitle))
-      .map((job, idx) => ({
-        id: rowId(job, "work", idx),
-        title: str(job.jobTitle) || str(job.company),
-        organization: str(job.company),
-        startDate: str(job.startDate),
-        endDate: job.isCurrent ? "" : str(job.endDate),
-        isCurrent: Boolean(job.isCurrent),
-        description: [str(job.description), ...strings(job.responsibilities)].filter(Boolean).join("\n"),
-      })),
+      .map((job, idx) =>
+        withCustom({
+          id: rowId(job, "work", idx),
+          title: str(job.jobTitle) || str(job.company),
+          organization: str(job.company),
+          startDate: str(job.startDate),
+          endDate: job.isCurrent ? "" : str(job.endDate),
+          isCurrent: Boolean(job.isCurrent),
+          description: [str(job.description), ...strings(job.responsibilities)].filter(Boolean).join("\n"),
+        }, job)
+      ),
     testimonials: rows(p.testimonials)
       .filter((t) => str(t.quote) && str(t.authorName))
-      .map((t, idx) => ({
-        id: rowId(t, "testimonial", idx),
-        quote: str(t.quote),
-        authorName: str(t.authorName),
-        relationship: str(t.relationship),
-        attribution: str(t.attribution) === "verified" ? "verified" : "self-reported",
-      })),
+      .map((t, idx) =>
+        withCustom({
+          id: rowId(t, "testimonial", idx),
+          quote: str(t.quote),
+          authorName: str(t.authorName),
+          relationship: str(t.relationship),
+          attribution: str(t.attribution) === "verified" ? "verified" : "self-reported",
+        }, t)
+      ),
     media: rows(p.workSamples)
       .filter((w) => str(w.url) || str(w.title))
-      .map((w, idx) => ({
-        id: rowId(w, "sample", idx),
-        mediaUrl: str(w.url),
-        mediaType: str(w.mediaType) || "link",
-        title: str(w.title) || "Work sample",
-        category: "work-sample",
-      })),
+      .map((w, idx) =>
+        withCustom({
+          id: rowId(w, "sample", idx),
+          mediaUrl: str(w.url),
+          mediaType: str(w.mediaType) || "link",
+          title: str(w.title) || "Work sample",
+          category: "work-sample",
+        }, w)
+      ),
     contacts: {
       email: str(contact.email),
       phone: str(contact.phone),
@@ -409,45 +456,74 @@ function creatorSource(p: Row, delivery: Delivery): Row {
     bio: str(p.bio),
     careerInterests: strings(p.contentCategories),
     areasOfInterest: strings(p.contentFormats),
+    skills: strings(p.contentCategories).map((name, idx) => ({
+      id: slugId("skill", name, idx),
+      name,
+      category: "Content Categories",
+      proficiency: "Intermediate",
+    })),
     projects: rows(p.featuredContent)
       .filter((f) => str(f.title))
-      .map((f, idx) =>
-        withImage(
-          {
-            id: rowId(f, "content", idx),
-            title: str(f.title),
-            shortDescription: str(f.summary),
-            projectType: str(f.format) || "featured",
-            liveUrl: str(f.url),
-            startDate: str(f.publishedAt),
-            technologies: str(f.category) ? [str(f.category)] : [],
-          },
-          assetUrl(f.assetId, delivery) || str(f.thumbnailUrl)
-        )
-      ),
+      .map((f, idx) => {
+        const image = assetUrl(f.assetId, delivery) || str(f.thumbnailUrl);
+        return withCustom(
+          withImage(
+            {
+              id: rowId(f, "content", idx),
+              title: str(f.title),
+              shortDescription: str(f.summary),
+              projectType: str(f.format) || "featured",
+              liveUrl: str(f.url),
+              startDate: str(f.publishedAt),
+              technologies: str(f.category) ? [str(f.category)] : [],
+            },
+            image
+          ),
+          f
+        );
+      }),
+    media: rows(p.featuredContent)
+      .filter((f) => str(f.title))
+      .map((f, idx) => {
+        const image = assetUrl(f.assetId, delivery) || str(f.thumbnailUrl);
+        return image
+          ? withCustom({
+              id: `media_${rowId(f, "content", idx)}`,
+              title: str(f.title),
+              mediaUrl: image,
+              mediaType: "image",
+              category: "featured",
+            }, f)
+          : null;
+      })
+      .filter((item): item is Row => item !== null),
     achievements: [
       ...rows(p.pastCollaborations)
         .filter((item) => str(item.organization))
-        .map((item, idx) => ({
-          id: rowId(item, "collab", idx),
-          title: str(item.title) || str(item.organization),
-          category: "other",
-          organization: str(item.organization),
-          date: str(item.date),
-          description: [str(item.description), str(item.outcome) ? "Self-reported outcome: " + str(item.outcome) : ""]
-            .filter(Boolean)
-            .join("\n"),
-          proofUrl: str(item.url),
-        })),
+        .map((item, idx) =>
+          withCustom({
+            id: rowId(item, "collab", idx),
+            title: str(item.title) || str(item.organization),
+            category: "other",
+            organization: str(item.organization),
+            date: str(item.date),
+            description: [str(item.description), str(item.outcome) ? "Self-reported outcome: " + str(item.outcome) : ""]
+              .filter(Boolean)
+              .join("\n"),
+            proofUrl: str(item.url),
+          }, item)
+        ),
       ...rows(p.audienceStats)
       .filter((s) => str(s.platform) && typeof s.value === "number")
-      .map((s, idx) => ({
-        id: rowId(s, "audience", idx),
-        title: `${Number(s.value).toLocaleString("en-US")} ${str(s.metric).replace(/_/g, " ")} on ${str(s.platform)}`,
-        category: "audience",
-        date: str(s.measuredAt),
-        description: str(s.verificationStatus) === "verified" ? "Verified" : "Self-reported",
-      })),
+      .map((s, idx) =>
+        withCustom({
+          id: rowId(s, "audience", idx),
+          title: `${Number(s.value).toLocaleString("en-US")} ${str(s.metric).replace(/_/g, " ")} on ${str(s.platform)}`,
+          category: "audience",
+          date: str(s.measuredAt),
+          description: str(s.verificationStatus) === "verified" ? "Verified" : "Self-reported",
+        }, s)
+      ),
     ],
     links: rows(p.channels)
       .filter((c) => str(c.url))
@@ -473,21 +549,44 @@ function businessSource(p: Row, delivery: Delivery): Row {
   const branding = block(p.branding);
   const asProject = (projectType: string, prefix: string) => (item: Row, idx: number) => {
     const price = typeof item.price === "number" ? [str(item.currency), String(item.price)].filter(Boolean).join(" ") : "";
-    return withImage(
-      {
-        id: rowId(item, prefix, idx),
-        title: str(item.name) || str(item.title),
-        shortDescription: [str(item.description) || str(item.summary), price].filter(Boolean).join("\n"),
-        liveUrl: str(item.url),
-        projectType,
-        technologies: [],
-      },
-      assetUrl(item.assetId, delivery) || str(item.imageUrl)
+    return withCustom(
+      withImage(
+        {
+          id: rowId(item, prefix, idx),
+          title: str(item.name) || str(item.title),
+          shortDescription: [str(item.description) || str(item.summary), price].filter(Boolean).join("\n"),
+          liveUrl: str(item.url),
+          projectType,
+          technologies: [],
+        },
+        assetUrl(item.assetId, delivery) || str(item.imageUrl)
+      ),
+      item
     );
   };
   const headlineParts = [str(p.industry), str(p.organizationType).replace(/_/g, " ")].filter(Boolean);
   const founded = typeof p.foundedYear === "number" ? "Founded " + String(p.foundedYear) : "";
   const customers = strings(p.targetCustomers);
+  const brandMedia: Row[] = [];
+  const brandLogo = assetUrl(branding.assetId, delivery) || str(branding.logoUrl);
+  if (brandLogo) {
+    brandMedia.push(withCustom({
+      id: "branding_logo",
+      title: "Brand logo",
+      mediaUrl: brandLogo,
+      mediaType: "image",
+      category: "branding",
+    }, branding));
+  }
+  if (str(branding.guidelinesUrl)) {
+    brandMedia.push({
+      id: "branding_guidelines",
+      title: "Brand guidelines",
+      mediaUrl: str(branding.guidelinesUrl),
+      mediaType: "document",
+      category: "branding",
+    });
+  }
   return {
     preferredName: str(p.businessName),
     headline: str(p.tagline) || headlineParts.join(" · "),
@@ -505,25 +604,30 @@ function businessSource(p: Row, delivery: Delivery): Row {
     ],
     credentials: rows(p.credentials)
       .filter((item) => str(item.title))
-      .map((item, idx) => ({
-        id: rowId(item, "credential", idx),
-        title: str(item.title),
-        credentialType: str(item.recordType) === "award" ? "other" : "certification",
-        issuer: str(item.issuer),
-        issueDate: str(item.issueDate),
-        expirationDate: str(item.expirationDate),
-        credentialUrl: str(item.evidenceUrl),
-        description: str(item.description),
-        verificationStatus: str(item.verificationStatus) || "self-reported",
-      })),
+      .map((item, idx) =>
+        withCustom({
+          id: rowId(item, "credential", idx),
+          title: str(item.title),
+          credentialType: str(item.recordType) === "award" ? "other" : "certification",
+          issuer: str(item.issuer),
+          issueDate: str(item.issueDate),
+          expirationDate: str(item.expirationDate),
+          credentialUrl: str(item.evidenceUrl),
+          description: str(item.description),
+          verificationStatus: str(item.verificationStatus) || "self-reported",
+        }, item)
+      ),
     achievements: [],
     team: rows(p.team)
       .filter((m) => str(m.name))
-      .map((m, idx) => ({
-        id: rowId(m, "team", idx),
-        name: str(m.name),
-        role: str(m.role),
-      })),
+      .map((m, idx) =>
+        withCustom({
+          id: rowId(m, "team", idx),
+          name: str(m.name),
+          role: str(m.role),
+        }, m)
+      ),
+    media: brandMedia,
     links: rows(p.resources)
       .filter((r) => str(r.url))
       .map((r, idx) => ({

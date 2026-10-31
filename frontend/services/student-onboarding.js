@@ -22,7 +22,7 @@
   function profileHasContent(profile) {
     if (!profile) return false;
     if (text(profile.headline) || text(profile.bio)) return true;
-    return ["education", "projects", "skills", "credentials", "achievements", "links"].some(function (key) {
+    return ["education", "workExperience", "projects", "skills", "credentials", "achievements", "links"].some(function (key) {
       return Array.isArray(profile[key]) && profile[key].length > 0;
     });
   }
@@ -59,6 +59,7 @@
       bio: "",
       contacts: { email: "", phone: "" },
       education: [],
+      workExperience: [],
       projects: [],
       skills: [],
       credentials: [],
@@ -90,6 +91,7 @@
   function applyExtraction(draft, rows) {
     const next = clone(draft && draft.headline !== undefined ? draft : emptyDraft());
     next.contacts = Object.assign({ email: "", phone: "" }, next.contacts || {});
+    next.workExperience = Array.isArray(next.workExperience) ? next.workExperience : [];
     (rows || []).forEach(function (row) {
       if (!row || row.section !== "profile" || !text(row.value)) return;
       if (row.field === "headline") next.headline = text(row.value);
@@ -122,6 +124,30 @@
         });
         if (index >= 0) next.education[index] = Object.assign({}, next.education[index], created);
         else next.education.push(created);
+      }
+      if (section === "experience") {
+        const organization = field(entry, "company");
+        const title = field(entry, "title");
+        if (!organization || !title) return;
+        const experienceType = field(entry, "employmentType");
+        const created = {
+          organization: organization,
+          title: title,
+          experienceType: experienceType.toLowerCase().indexOf("intern") !== -1 || /\bintern(ship)?\b/i.test(title)
+            ? "internship"
+            : "employment",
+          isCurrent: field(entry, "isCurrent") === "true",
+        };
+        ["location", "startDate", "endDate", "responsibilities"].forEach(function (name) {
+          const value = field(entry, name);
+          if (value) created[name === "responsibilities" ? "description" : name] = value;
+        });
+        if (created.isCurrent) created.endDate = "";
+        const index = next.workExperience.findIndex(function (item) {
+          return same(item.organization, organization) && same(item.title, title);
+        });
+        if (index >= 0) next.workExperience[index] = Object.assign({}, next.workExperience[index], created);
+        else next.workExperience.push(created);
       }
       if (section === "projects") {
         const title = field(entry, "name");

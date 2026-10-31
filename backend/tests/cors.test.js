@@ -46,6 +46,7 @@ const {
   CORS_ALLOW_METHODS,
   applyCorsHeaders,
   isAllowedOrigin,
+  isTrustedStateChangingRequest,
   preflightResponse,
 } = require(path.join(projectRoot, "lib", "cors.ts"));
 
@@ -74,7 +75,7 @@ function assertAllowedCors(response, origin) {
   assert.equal(response.headers.get("access-control-allow-headers"), CORS_ALLOW_HEADERS);
   assert.equal(response.headers.get("vary"), "Origin");
   assert.equal(response.headers.get("access-control-allow-origin"), origin);
-  assert.equal(response.headers.get("access-control-allow-credentials"), null);
+  assert.equal(response.headers.get("access-control-allow-credentials"), "true");
 }
 
 describe("CORS allowlist", () => {
@@ -101,6 +102,13 @@ describe("CORS allowlist", () => {
     }
   });
 
+  test("requires an explicit trusted origin for state-changing requests", () => {
+    assert.equal(isTrustedStateChangingRequest(null), false);
+    assert.equal(isTrustedStateChangingRequest(""), false);
+    assert.equal(isTrustedStateChangingRequest("https://evil.example"), false);
+    assert.equal(isTrustedStateChangingRequest(ALLOWED), true);
+  });
+
   test("platform config does not publish a wildcard origin", () => {
     const config = fs.readFileSync(path.join(projectRoot, "next.config.ts"), "utf8");
     assert.equal(config.includes('Access-Control-Allow-Origin"'), false);
@@ -119,6 +127,7 @@ describe("preflight", () => {
       assert.match(CORS_ALLOW_METHODS, /\bOPTIONS\b/);
       assert.match(CORS_ALLOW_HEADERS, /Content-Type/);
       assert.match(CORS_ALLOW_HEADERS, /Authorization/);
+      assert.match(CORS_ALLOW_HEADERS, /X-CSRF-Token/);
     }
   });
 

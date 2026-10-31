@@ -199,6 +199,51 @@ describe("student profile linkage", () => {
     assert.equal(body.user.id.toString(), user._id.toString());
   });
 
+  test("work experience and internships persist without removing stored media", async () => {
+    const stamp = Date.now();
+    const user = await User.create({
+      name: `Experience Student ${stamp}`,
+      email: `experience_${stamp}@example.com`,
+      password: "hash",
+      identity: "student",
+    });
+    const token = jwt.sign({ id: user._id.toString(), email: user.email }, jwtSecret);
+    await StudentProfile.create({
+      userId: user._id,
+      media: [{ title: "Existing poster", mediaUrl: "https://example.com/poster.png" }],
+    });
+
+    const saved = await profileRoute.PUT(
+      jsonRequest("http://localhost:3000/api/student/profile", "PUT", token, {
+        workExperience: [{
+          id: "exp_intern",
+          organization: "Example Labs",
+          title: "Research Intern",
+          experienceType: "internship",
+          startDate: "2024-01",
+          endDate: "2024-06",
+          description: "Built research prototypes",
+        }],
+      }),
+    );
+    const savedBody = await saved.json();
+    assert.equal(saved.status, 200);
+    assert.equal(savedBody.profile.workExperience[0].organization, "Example Labs");
+    assert.equal(savedBody.profile.workExperience[0].experienceType, "internship");
+    assert.equal(savedBody.profile.media[0].title, "Existing poster");
+
+    const invalid = await profileRoute.PUT(
+      jsonRequest("http://localhost:3000/api/student/profile", "PUT", token, {
+        workExperience: [{ organization: "Example Labs", title: "Intern", experienceType: "contractor" }],
+      }),
+    );
+    assert.equal(invalid.status, 400);
+
+    const stored = await StudentProfile.findOne({ userId: user._id }).lean();
+    assert.equal(stored.workExperience[0].description, "Built research prototypes");
+    assert.equal(stored.media[0].title, "Existing poster");
+  });
+
   test("editing a credential saves its verification URL and leaves the rest of the profile intact", async () => {
     const stamp = Date.now();
     const user = await User.create({
@@ -286,5 +331,126 @@ describe("student profile linkage", () => {
     assert.equal(afterBody.profile.credentials[0].verificationUrl, editedUrl);
     assert.equal(afterBody.profile.credentials[1].verificationUrl, otherUrl);
     assert.equal(afterBody.profile.headline, "Keep this headline");
+  });
+
+  test("records keep their stored ids across reorders and id-only saves", async () => {
+    const stamp = Date.now();
+    const user = await User.create({
+      name: `Stable Ids ${stamp}`,
+      email: `stable_ids_${stamp}@example.com`,
+      password: "hash",
+      identity: "student",
+    });
+    const token = jwt.sign({ id: user._id.toString(), email: user.email }, jwtSecret);
+
+    const created = await profileRoute.PUT(
+      jsonRequest("http://localhost:3000/api/student/profile", "PUT", token, {
+        projects: [
+          {
+            id: "proj_alpha",
+            title: "Alpha",
+            customFields: [{ id: "fld_alpha_note", label: "Note", type: "text", value: "keep me" }],
+          },
+          { title: "Beta" },
+        ],
+      }),
+    );
+    const createdBody = await created.json();
+    assert.equal(created.status, 200);
+
+    const alpha = createdBody.profile.projects[0];
+    const beta = createdBody.profile.projects[1];
+    assert.equal(alpha.id, "proj_alpha");
+    assert.ok(alpha._id);
+    assert.ok(beta.id);
+    assert.notEqual(beta.id, "proj_1");
+
+    // A client may echo only `id`; the stored ObjectId must not be regenerated.
+    const reordered = [beta, alpha].map(({ _id, __v, ...record }) => record);
+    const saved = await profileRoute.PUT(
+      jsonRequest("http://localhost:3000/api/student/profile", "PUT", token, {
+        projects: reordered,
+      }),
+    );
+    const savedBody = await saved.json();
+    assert.equal(saved.status, 200);
+    assert.equal(savedBody.profile.projects[0].id, beta.id);
+    assert.equal(String(savedBody.profile.projects[0]._id), String(beta._id));
+    assert.equal(savedBody.profile.projects[1].id, alpha.id);
+    assert.equal(String(savedBody.profile.projects[1]._id), String(alpha._id));
+    assert.equal(savedBody.profile.projects[1].customFields[0].value, "keep me");
+
+    const stored = await StudentProfile.findOne({ userId: user._id }).lean();
+    assert.equal(String(stored.projects[1]._id), String(alpha._id));
+    assert.equal(stored.projects[1].id, "proj_alpha");
+  });
+
+  test("media and links keep server-managed fields when a save omits them", async () => {
+    const stamp = Date.now();
+    const user = await User.create({
+      name: `Partial Records ${stamp}`,
+      email: `partial_records_${stamp}@example.com`,
+      password: "hash",
+      identity: "student",
+    });
+    const token = jwt.sign({ id: user._id.toString(), email: user.email }, jwtSecret);
+    const uploadedAt = new Date("2025-01-02T03:04:05.000Z");
+    const assetId = "ast_0123456789abcdef01234567";
+
+    await StudentProfile.create({
+      userId: user._id,
+      media: [{
+        id: "media_poster",
+        title: "Poster",
+        mediaUrl: "https://example.com/poster.png",
+        mediaType: "image",
+        category: "project",
+        visibility: "public",
+        assetId,
+        uploadedAt,
+        customFields: [{ id: "fld_media_note", label: "Note", type: "text", value: "keep media" }],
+      }],
+      links: [{
+        id: "link_github",
+        platform: "GitHub",
+        url: "https://github.com/example",
+        category: "coding",
+        visibility: "public",
+        verificationStatus: "verified",
+        customFields: [{ id: "fld_link_note", label: "Note", type: "text", value: "keep link" }],
+      }],
+    });
+
+    const saved = await profileRoute.PUT(
+      jsonRequest("http://localhost:3000/api/student/profile", "PUT", token, {
+        media: [{
+          id: "media_poster",
+          title: "Poster renamed",
+          mediaUrl: "https://example.com/poster.png",
+          mediaType: "image",
+          category: "project",
+          visibility: "public",
+        }],
+        links: [{
+          id: "link_github",
+          platform: "GitHub",
+          url: "https://github.com/example",
+          category: "coding",
+          visibility: "public",
+        }],
+      }),
+    );
+    const body = await saved.json();
+    assert.equal(saved.status, 200);
+    assert.equal(body.profile.media[0].title, "Poster renamed");
+    assert.equal(body.profile.media[0].assetId, assetId);
+    assert.equal(body.profile.media[0].customFields[0].value, "keep media");
+    assert.equal(new Date(body.profile.media[0].uploadedAt).toISOString(), uploadedAt.toISOString());
+    assert.equal(body.profile.links[0].verificationStatus, "verified");
+    assert.equal(body.profile.links[0].customFields[0].value, "keep link");
+
+    const stored = await StudentProfile.findOne({ userId: user._id }).lean();
+    assert.equal(stored.media[0].customFields[0].value, "keep media");
+    assert.equal(stored.links[0].customFields[0].value, "keep link");
   });
 });

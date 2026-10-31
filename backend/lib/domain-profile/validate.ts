@@ -334,7 +334,7 @@ function applyObject(
   }
   const managed = new Map((spec.managed || []).map((rule) => [rule.key, rule]));
   for (const key of Object.keys(input)) {
-    if (!spec.fields[key] && !managed.has(key)) {
+    if (key !== "customFields" && !spec.fields[key] && !managed.has(key)) {
       throw new ProfileValidationError(`Unsupported field '${path}.${key}'.`);
     }
   }
@@ -425,7 +425,9 @@ function applyCollection(
       : undefined;
 
     const objectId = existing?._id ? existing._id : new Types.ObjectId();
-    const id = incomingId || (existing?.id ? String(existing.id) : String(objectId));
+    // A matched record keeps the id it was stored with, even if the client sent
+    // its ObjectId instead; rekeying on save would break custom field bindings.
+    const id = existing?.id ? String(existing.id) : incomingId || String(objectId);
     if (seen.has(id)) {
       throw new ProfileValidationError(`Field '${itemPath}.id' duplicates another record.`);
     }

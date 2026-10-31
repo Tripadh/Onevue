@@ -249,18 +249,18 @@ export function mapExtractionToRows(extraction: LlmExtractionResult): ReviewRow[
 
   asList(data.experience).forEach((item, index) => {
     const prefix = `experience[${index}]`;
-    const note = "Work experience and internships are not saved on the student profile yet.";
-    pushText(rows, extraction, "experience", "company", item.company, null, false, note, prefix);
-    pushText(rows, extraction, "experience", "title", item.title, null, false, note, prefix);
-    pushText(rows, extraction, "experience", "location", item.location, null, false, note, prefix);
-    pushText(rows, extraction, "experience", "startDate", item.startDate, null, false, note, prefix);
-    pushText(rows, extraction, "experience", "endDate", item.endDate, null, false, note, prefix);
-    if (item.isCurrent === true) {
-      pushText(rows, extraction, "experience", "isCurrent", "true", null, false, note, prefix);
+    pushText(rows, extraction, "experience", "company", item.company, "workExperience.organization", true, null, prefix);
+    pushText(rows, extraction, "experience", "title", item.title, "workExperience.title", true, null, prefix);
+    pushText(rows, extraction, "experience", "employmentType", item.employmentType, "workExperience.experienceType", true, null, prefix);
+    pushText(rows, extraction, "experience", "location", item.location, "workExperience.location", true, null, prefix);
+    pushText(rows, extraction, "experience", "startDate", item.startDate, "workExperience.startDate", true, null, prefix);
+    pushText(rows, extraction, "experience", "endDate", item.endDate, "workExperience.endDate", true, null, prefix);
+    if (typeof item.isCurrent === "boolean") {
+      pushText(rows, extraction, "experience", "isCurrent", String(item.isCurrent), "workExperience.isCurrent", true, null, prefix);
     }
     const bullets = stringList(item.bullets);
     if (bullets.length > 0) {
-      pushText(rows, extraction, "experience", "responsibilities", bullets.join("\n"), null, false, note, prefix);
+      pushText(rows, extraction, "experience", "responsibilities", bullets.join("\n"), "workExperience.description", true, null, prefix);
     }
   });
 
@@ -490,6 +490,7 @@ function isHttpUrl(value: string): boolean {
 const REVISION_SECTIONS = [
   "profile",
   "education",
+  "experience",
   "projects",
   "skills",
   "credentials",
@@ -520,6 +521,18 @@ function sectionSnapshot(section: string, profile: Record<string, unknown>): unk
       endDate: text(item.endDate),
       gpa: text(item.gpa),
       percentage: text(item.percentage),
+    }));
+  }
+  if (section === "experience") {
+    return asList(profile.workExperience).map((item) => ({
+      organization: text(item.organization),
+      title: text(item.title),
+      experienceType: text(item.experienceType),
+      location: text(item.location),
+      startDate: text(item.startDate),
+      endDate: text(item.endDate),
+      isCurrent: item.isCurrent === true,
+      description: text(item.description),
     }));
   }
   if (section === "projects") {

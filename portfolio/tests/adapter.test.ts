@@ -234,6 +234,28 @@ describe("OneVue Magic UI Profile Adapter", () => {
     assert.equal(adaptedNoWork.visibleSections.work, false);
   });
 
+  it("renders explicit student experience through the existing portfolio adapter", () => {
+    const dto = createValidDTO();
+    dto.projects = [];
+    dto.experience = [{
+      id: "exp-intern",
+      organization: "Example Labs",
+      title: "Research Intern",
+      employmentType: "internship",
+      location: "Remote",
+      startDate: "2024-01",
+      endDate: "2024-06",
+      description: "Built prototypes",
+    }];
+
+    const adapted = adaptOneVueProfile(dto, createValidWebsite());
+    assert.equal(adapted.work.length, 1);
+    assert.equal(adapted.work[0].company, "Example Labs");
+    assert.equal(adapted.work[0].title, "Research Intern");
+    assert.deepEqual(adapted.work[0].badges, ["internship"]);
+    assert.equal(adapted.work[0].description, "Built prototypes");
+  });
+
   it("does not mutate the input DTO object", () => {
     const dto = createValidDTO();
     const originalJson = JSON.stringify(dto);
@@ -1031,5 +1053,104 @@ describe("OneVue Magic UI Profile Adapter", () => {
     assert.equal(renamedLink?.customFields?.[0].text, "Guardian");
     assert.equal(renamed.contact.social.GitHub.navbar, true);
     assert.equal(Object.values(renamed.contact.social).filter((item) => item.navbar && item.iconName === "github").length, 1);
+  });
+});
+
+describe("Section visibility and canonical ordering", () => {
+  function dtoWithBuckets(): PublicProfileDTO_v1 {
+    const dto = createValidDTO();
+    dto.projects = [
+      { id: "p_personal", title: "Personal", projectType: "personal", technologies: [] },
+      { id: "p_service", title: "Consulting", projectType: "service", technologies: [] },
+      { id: "p_product", title: "Widget", projectType: "product", technologies: [] },
+      { id: "p_case", title: "Migration", projectType: "case-study", technologies: [] },
+      { id: "p_featured", title: "Talk", projectType: "video", technologies: [] },
+    ];
+    dto.testimonials = [{ id: "t_1", quote: "Excellent work", authorName: "Ada" }];
+    dto.team = [{ id: "tm_1", name: "Grace", role: "Engineer" }];
+    dto.media = [
+      {
+        id: "m_1",
+        mediaUrl: "https://cdn.example/gallery.png",
+        mediaType: "image",
+        title: "Gallery",
+        category: "media",
+      },
+    ];
+    return dto;
+  }
+
+  it("maps the legacy work id onto the canonical experience section", () => {
+    const website = createValidWebsite();
+    website.customization.visibleSections = ["about", "work", "education"];
+    const adapted = adaptOneVueProfile(createValidDTO(), website);
+
+    assert.equal(adapted.visibleSections.work, true);
+    assert.equal(adapted.sectionOrder.includes("work"), false);
+    assert.ok(adapted.sectionOrder.includes("experience"));
+  });
+
+  it("keeps the legacy projects umbrella only when no concrete bucket is listed", () => {
+    const umbrella = createValidWebsite();
+    umbrella.customization.visibleSections = ["projects"];
+    const legacy = adaptOneVueProfile(dtoWithBuckets(), umbrella);
+    assert.equal(legacy.visibleSections.services, true);
+    assert.equal(legacy.visibleSections.products, true);
+    assert.equal(legacy.visibleSections.caseStudies, true);
+    assert.equal(legacy.visibleSections.featured, true);
+
+    const concrete = createValidWebsite();
+    concrete.customization.visibleSections = ["projects", "products"];
+    const explicit = adaptOneVueProfile(dtoWithBuckets(), concrete);
+    assert.equal(explicit.visibleSections.projects, true);
+    assert.equal(explicit.visibleSections.products, true);
+    assert.equal(explicit.visibleSections.services, false);
+    assert.equal(explicit.visibleSections.caseStudies, false);
+    assert.equal(explicit.visibleSections.featured, false);
+  });
+
+  it("hides concrete and standalone sections that the configuration omits", () => {
+    const website = createValidWebsite();
+    website.customization.visibleSections = ["about", "projects", "products", "contact"];
+    const adapted = adaptOneVueProfile(dtoWithBuckets(), website);
+
+    assert.equal(adapted.visibleSections.testimonials, false);
+    assert.equal(adapted.visibleSections.team, false);
+    assert.equal(adapted.visibleSections.media, false);
+
+    website.customization.visibleSections = ["about", "testimonials", "team", "media", "contact"];
+    const shown = adaptOneVueProfile(dtoWithBuckets(), website);
+    assert.equal(shown.visibleSections.testimonials, true);
+    assert.equal(shown.visibleSections.team, true);
+    assert.equal(shown.visibleSections.media, true);
+  });
+
+  it("honors a canonical reorder and drops unknown ids", () => {
+    const website = createValidWebsite();
+    website.customization.visibleSections = ["about", "experience", "media", "contact"];
+    website.customization.sectionOrder = ["contact", "media", "work", "about", "not-a-section"];
+    const adapted = adaptOneVueProfile(createValidDTO(), website);
+
+    assert.deepEqual(adapted.sectionOrder.slice(0, 4), ["contact", "media", "experience", "about"]);
+    assert.equal(adapted.sectionOrder.includes("not-a-section"), false);
+    assert.equal(adapted.sectionOrder.includes("work"), false);
+  });
+});
+
+describe("Template registry compatibility", () => {
+  it("rejects a template the renderer does not implement", () => {
+    const dto = createValidDTO();
+    dto.meta.templateId = "minimal-portfolio";
+    assert.throws(
+      () => adaptOneVueProfile(dto, { ...createValidWebsite(), templateId: "minimal-portfolio" }),
+      /not registered with this renderer/
+    );
+  });
+
+  it("accepts the registered adapter and reports its id", () => {
+    const dto = createValidDTO();
+    delete dto.meta.templateId;
+    const adapted = adaptOneVueProfile(dto, undefined);
+    assert.equal(adapted.templateId, "magicui-portfolio");
   });
 });

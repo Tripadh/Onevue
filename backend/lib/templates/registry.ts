@@ -38,6 +38,9 @@ export interface TemplateDefinition {
   description: string;
   supportedSections: string[];
   supportedBlocks: ContentBlockKind[];
+  supportedFieldTypes: string[];
+  hiddenFieldTypes: string[];
+  identities: IdentityName[];
   requiredInputs: string[];
   media: {
     images: boolean;
@@ -71,6 +74,7 @@ export interface WebsitePresentation {
 export const CONTENT_SECTIONS = contract.CONTENT_SECTIONS as unknown as ContentSectionDefinition[];
 export const listTemplates = contract.listTemplates as unknown as () => TemplateDefinition[];
 export const getTemplate = contract.getTemplate as unknown as (id: string) => TemplateDefinition | null;
+export const validateTemplateRegistry = contract.validateTemplateRegistry as () => boolean;
 export const contentForIdentity = contract.contentForIdentity as unknown as (identity: IdentityName) => ContentSectionDefinition[];
 export const partitionPublication = contract.partitionPublication as (
   templateId: string,
@@ -84,18 +88,63 @@ export const retainedProfileKeys = contract.retainedProfileKeys as (
 export const sanitizeStoredText = contract.sanitizeStoredText as (value: string) => string;
 export const presentationForTemplate = contract.presentationForTemplate as (
   templateId: string,
-  customization: object
+  customization: object,
+  identity?: IdentityName
 ) => WebsitePresentation;
 export const publishedCustomization = contract.publishedCustomization as (
   revisionPresentation: object | null | undefined,
   configCustomization: object | null | undefined,
-  templateId?: string
+  templateId?: string,
+  identity?: IdentityName
 ) => WebsitePresentation;
 export const rollbackPresentation = contract.rollbackPresentation as (
   revisionPresentation: object | null | undefined,
-  templateId?: string
+  templateId?: string,
+  identity?: IdentityName
 ) => WebsitePresentation;
+export const listIdentityContracts = contract.listIdentityContracts as unknown as (
+  templateId?: string
+) => IdentityWebsiteContract[];
+export const getIdentityContract = contract.getIdentityContract as unknown as (
+  identity: IdentityName,
+  templateId?: string
+) => IdentityWebsiteContract;
 export const reorderEntries = contract.reorderEntries as <T>(list: T[], index: number, direction: number) => T[];
+
+export interface IdentityWebsiteSection {
+  id: string;
+  label: string;
+  description: string;
+  rendererSection: string;
+  legacyIds: string[];
+  defaultVisible: boolean;
+  independentlyHideable: boolean;
+  reorderable: boolean;
+  recordCustomFields: boolean;
+  sectionCustomFields: boolean;
+  sourcePaths: string[];
+  readiness: { paths: string[]; where?: Record<string, string[]> };
+  privacy?: string;
+  supported?: boolean;
+}
+
+export interface IdentityWebsiteContract {
+  identity: IdentityName;
+  label: string;
+  heading: string;
+  description: string;
+  identityPageLabel: string;
+  identityPagePath: string;
+  readinessTitle: string;
+  sections: IdentityWebsiteSection[];
+  readiness: { sectionId: string; label: string; paths: string[]; where?: Record<string, string[]> }[];
+  defaultSections: { visible: string[]; order: string[] };
+  templateCompatibility: {
+    supported: boolean;
+    sections: { id: string; rendererSection: string; supported: boolean }[];
+    unsupportedSections: string[];
+  } | null;
+}
 
 export function sanitizeIncomingStrings(value: unknown): unknown {
   if (typeof value === "string") return sanitizeStoredText(value);

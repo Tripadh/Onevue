@@ -2,6 +2,7 @@
 (function () {
   const { db, http, latency, uid, isLive, ServiceError } = window.OV.core;
   const listeners = new Set();
+  let sessionRestore = Promise.resolve(null);
   const emit = () => listeners.forEach(fn => fn(getSessionSync()));
   function getSessionSync() { return db.get('session', null); }
   const clean = u => {
@@ -30,11 +31,27 @@
 
   /** @returns {Promise<Session|null>} */
   async function getSession() {
-    if (isLive()) { try { return await http('GET', '/auth/session'); } catch (e) { return null; } }
+    if (isLive()) {
+      try {
+        const data = await http('GET', '/auth/me');
+        const current = getSessionSync();
+        const session = { token: current?.token || '', user: clean(data.user) };
+        db.set('session', session);
+        return session;
+      } catch (e) { return null; }
+    }
     return getSessionSync();
   }
 
   const API_BASE = (window.OV_ENV && window.OV_ENV.API_BASE) || 'http://localhost:3000/api';
+  function isLocalOAuthHost() {
+    const pageHost = window.location.hostname;
+    let apiHost = '';
+    try { apiHost = new URL(API_BASE, window.location.origin).hostname; } catch (e) { return false; }
+    const localHosts = new Set(['localhost', '127.0.0.1', '::1']);
+    return localHosts.has(pageHost) && localHosts.has(apiHost);
+  }
+  function canUseGoogleOAuth() { return isLive() || isLocalOAuthHost(); }
 
   /** @param {{name:string,email:string,password:string,identity:string,username?:string}} input */
   async function signUp(input) {
@@ -44,6 +61,7 @@
       const res = await fetch(`${API_BASE}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ 
           name: input.name, 
           email: input.email, 
@@ -71,6 +89,7 @@
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ email: input.email, password: input.password })
       });
       const data = await res.json();
@@ -83,7 +102,56 @@
       if (e instanceof ServiceError) throw e;
       throw new ServiceError('network_error', 'Could not connect to the server.');
     }
+
   }
+
+  function signInWithGoogle() {
+    if (!canUseGoogleOAuth()) throw new ServiceError('oauth_unavailable', 'Google sign-in is unavailable in this environment.');
+    window.location.assign(`${API_BASE}/auth/google/start`);
+  }
+
+  async function linkGoogleAccount() {
+    if (!canUseGoogleOAuth()) throw new ServiceError('oauth_unavailable', 'Google account linking is unavailable in this environment.');
+    const data = await http('POST', '/auth/google/link/start');
+    window.location.assign(data.authorizationUrl);
+  }
+
+  async function restoreLiveSession() {
+    const oauthSuccess = new URLSearchParams(window.location.search).get('oauth') === 'success';
+    if (!isLive() && !(isLocalOAuthHost() && oauthSuccess)) return null;
+    try {
+      const csrf = document.cookie.match(/(?:^|;\s*)onevue_csrf=([^;]+)/);
+      const response = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(csrf ? { 'X-CSRF-Token': decodeURIComponent(csrf[1]) } : {}),
+        },
+      });
+      if (!response.ok) throw new ServiceError('session_expired', 'Your session could not be restored.');
+      const data = await response.json();
+      const currentResponse = await fetch(`${API_BASE}/auth/me`, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${data.token}`,
+        },
+        credentials: 'include',
+      });
+      if (!currentResponse.ok) throw new ServiceError('session_expired', 'Your session has expired.');
+      const current = await currentResponse.json();
+      const session = { token: data.token, user: clean(current.user) };
+      db.set('session', session);
+      emit();
+      return session;
+    } catch (e) {
+      db.remove('session');
+      emit();
+      return null;
+    }
+  }
+
+  function waitForSessionRestore() { return sessionRestore; }
 
   /** Calls protected dashboard API to verify backend authorization */
   async function getDashboardData(role) {
@@ -159,7 +227,7 @@
   }
 
   async function signOut() {
-    if (isLive()) { try { await http('POST', '/auth/signout'); } catch (e) {} }
+    if (isLive()) { try { await http('POST', '/auth/logout'); } catch (e) {} }
     db.remove('session'); emit();
   }
 
@@ -330,6 +398,9 @@
     getSessionSync,
     signUp,
     signIn,
+    signInWithGoogle,
+    linkGoogleAccount,
+    waitForSessionRestore,
     signOut,
     attachUsername,
     onChange,
@@ -343,5 +414,6 @@
     changePassword,
   };
 
-})();
+  sessionRestore = restoreLiveSession();
 
+})();

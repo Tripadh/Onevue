@@ -4,6 +4,12 @@
   const env = window.OV_ENV || { API_MODE: 'mock', API_URL: '', STORAGE_PREFIX: 'onevue:' };
   const prefix = env.STORAGE_PREFIX || 'onevue:';
   const mem = {};
+  let liveSession = null;
+  let refreshInFlight = null;
+  function csrfToken() {
+    const match = document.cookie.match(/(?:^|;\s*)onevue_csrf=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : '';
+  }
   const ls = (() => {
     try { const k = '__ov_probe'; localStorage.setItem(k, '1'); localStorage.removeItem(k); return localStorage; }
     catch (e) { return null; }
@@ -12,17 +18,19 @@
   /** Tiny document store over localStorage (in-memory fallback). */
   const db = {
     get(key, fallback) {
+      if (key === 'session' && env.API_MODE === 'live') return liveSession || fallback;
       try {
         const raw = ls ? ls.getItem(prefix + key) : mem[key];
         return raw == null ? fallback : JSON.parse(raw);
       } catch (e) { return fallback; }
     },
     set(key, value) {
+      if (key === 'session' && env.API_MODE === 'live') { liveSession = value; return value; }
       const raw = JSON.stringify(value);
       try { if (ls) ls.setItem(prefix + key, raw); else mem[key] = raw; } catch (e) { mem[key] = raw; }
       return value;
     },
-    remove(key) { try { if (ls) ls.removeItem(prefix + key); } catch (e) {} delete mem[key]; },
+    remove(key) { if (key === 'session' && env.API_MODE === 'live') { liveSession = null; return; } try { if (ls) ls.removeItem(prefix + key); } catch (e) {} delete mem[key]; },
     list(collection) { return db.get('c:' + collection, []); },
     insert(collection, record) {
       const all = db.list(collection); all.push(record); db.set('c:' + collection, all); return record;
@@ -41,13 +49,24 @@
 
   /** Live-mode HTTP client. Session token is attached automatically. */
   async function http(method, path, body) {
-    const session = db.get('session', null);
-    const res = await fetch(env.API_URL.replace(/\/$/, '') + path, {
+    const request = () => {
+      const session = db.get('session', null);
+      return fetch(env.API_URL.replace(/\/$/, '') + path, {
       method,
-      headers: { 'Content-Type': 'application/json', ...(session && session.token ? { Authorization: 'Bearer ' + session.token } : {}) },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(session && session.token ? { Authorization: 'Bearer ' + session.token } : {}),
+        ...(csrfToken() ? { 'X-CSRF-Token': csrfToken() } : {}),
+      },
       body: body ? JSON.stringify(body) : undefined,
       credentials: 'include',
-    });
+      });
+    };
+    let res = await request();
+    if (res.status === 401 && isLivePath(path) && path !== '/auth/refresh') {
+      await refreshAccessToken();
+      res = await request();
+    }
     if (!res.ok) {
       let msg = 'Request failed (' + res.status + ')';
       try { const j = await res.json(); msg = j.message || msg; } catch (e) {}
@@ -56,11 +75,30 @@
     return res.status === 204 ? null : res.json();
   }
 
+  function isLivePath(path) { return path.indexOf('/auth/login') < 0 && path.indexOf('/auth/register') < 0; }
+
+  async function refreshAccessToken() {
+    if (!refreshInFlight) {
+      refreshInFlight = fetch(env.API_URL.replace(/\/$/, '') + '/auth/refresh', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...(csrfToken() ? { 'X-CSRF-Token': csrfToken() } : {}) }
+      }).then(async response => {
+        if (!response.ok) throw new ServiceError('session_expired', 'Your session has expired.');
+        const data = await response.json();
+        const current = db.get('session', null) || {};
+        db.set('session', { ...current, token: data.token });
+        return data.token;
+      }).finally(() => { refreshInFlight = null; });
+    }
+    return refreshInFlight;
+  }
+
   const latency = (min = 160, max = 420) => new Promise(r => setTimeout(r, min + Math.random() * (max - min)));
   const uid = (p = 'id') => p + '_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
   const isLive = () => env.API_MODE === 'live';
 
   window.OV = window.OV || {};
-  window.OV.core = { env, db, http, latency, uid, isLive, ServiceError };
+  window.OV.core = { env, db, http, latency, uid, isLive, refreshAccessToken, ServiceError };
   window.OV.services = window.OV.services || {};
 })();

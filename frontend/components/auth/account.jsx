@@ -185,6 +185,15 @@ function AuthModal({ state, setState, onClose }) {
           
           {err.form && <p className="field-error" role="alert">{err.form}</p>}
           <Button type="submit" block size="lg" loading={busy}>{isUp ? (state.username ? 'Create account & claim' : 'Create account') : 'Sign in'}</Button>
+          <button type="button" className="link-btn" onClick={() => {
+            try {
+              SV.auth.signInWithGoogle();
+            } catch (e) {
+              setErr({ form: e && e.message ? e.message : 'Google sign-in is unavailable.' });
+            }
+          }}>
+            Continue with Google
+          </button>
           <p className="faint" style={{ fontSize: 13.5, textAlign: 'center' }}>
             {isUp ? 'Already have an account? ' : 'New to Onevue? '}
             <button type="button" className="link-btn" onClick={() => setState(s => ({ ...s, mode: isUp ? 'signin' : 'signup' }))}>{isUp ? 'Sign in' : 'Create one'}</button>
@@ -357,4 +366,3 @@ function Navbar() {
 }
 
 Object.assign(window, { AppProvider, useApp, UrlClaimer, Navbar, Brand, NAV_LINKS, IDENTITY_OPTIONS, DASHBOARD_ROUTES, resolveDashboardRoute });
-

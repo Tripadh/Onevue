@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
 import connectToDatabase from "../../../../lib/db";
+import { createSession, issueSessionCookie } from "../../../../lib/session";
 import User, { IdentityType } from "../../../../models/User";
 
 function json(req: Request, body: unknown, init: { status: number }) {
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
+    const isMatch = typeof user.password === "string" && await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
       return json(req,
@@ -50,21 +50,11 @@ export async function POST(req: Request) {
     const identity: IdentityType | undefined = user.identity;
     const surveyCompleted = !!user.onboarding?.surveyCompleted;
 
-    const token = jwt.sign(
-      {
-        id: user._id,
-        email: user.email,
-        identity,
-        surveyCompleted,
-      },
-      process.env.JWT_SECRET || "fallback_secret",
-      { expiresIn: "7d" }
-    );
-
-    return json(req,
+    const session = await createSession(user, req);
+    const response = json(req,
       {
         message: "Login successful",
-        token,
+        token: session.accessToken,
         user: {
           id: user._id,
           name: user.name,
@@ -75,6 +65,9 @@ export async function POST(req: Request) {
       },
       { status: 200 }
     );
+    issueSessionCookie(response, session.refreshToken, session.csrfToken);
+    return response;
+
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal server error";
     return json(req,

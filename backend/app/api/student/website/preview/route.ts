@@ -3,9 +3,16 @@ import { preflightResponse } from "../../../../../lib/cors";
 import connectToDatabase from "../../../../../lib/db";
 import { verifyAuth } from "../../../../../lib/auth";
 import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
+import PublishedProfileRevision from "../../../../../models/PublishedProfileRevision";
 import { toPublicProfileDTO } from "../../../../../lib/public-profile-dto";
 import { loadWebsiteSource } from "../../../../../lib/domain-profile/website-source";
-import { presentationForTemplate } from "../../../../../lib/templates/registry";
+import {
+  presentationForTemplate,
+  getIdentityContract,
+  getTemplate,
+} from "../../../../../lib/templates/registry";
+import type { IdentityName } from "../../../../../lib/templates/registry";
+import * as identityWebsite from "../../../../../lib/website/identity-contract.js";
 
 export function OPTIONS(req: Request) {
   return preflightResponse(req.headers.get("origin"));
@@ -55,8 +62,15 @@ export async function GET(req: Request) {
       (config && config.username) ||
       (auth.user.name ? auth.user.name.toLowerCase().replace(/[^a-z0-9]/g, "") : "student");
 
-    const templateId = (config && config.selectedTemplateId) || "magicui-portfolio";
-    const templateVersion = (config && config.selectedTemplateVersion) || "1.0.0";
+    const storedTemplateId = String((config && config.selectedTemplateId) || "magicui-portfolio");
+    const templateDefinition = getTemplate(storedTemplateId);
+    // A row written before the registry existed may name a template this
+    // deployment does not implement. Preview with the approved adapter and
+    // never echo an unregistered id back to the renderer.
+    const templateId = templateDefinition ? storedTemplateId : "magicui-portfolio";
+    const templateVersion = templateDefinition
+      ? String((config && config.selectedTemplateVersion) || templateDefinition.version)
+      : "1.0.0";
 
     const dto = toPublicProfileDTO(profile, {
       username: resolvedUsername,
@@ -70,26 +84,85 @@ export async function GET(req: Request) {
       recordIds: website.recordIds,
     });
 
-    let customization = config?.customization || {
-      accentColor: "#3b82f6",
-      themeMode: "system" as const,
-      visibleSections: ["about", "education", "projects", "skills", "achievements", "contact"],
-    };
+    let customization;
     try {
       const stored =
         config?.customization && typeof (config.customization as { toObject?: () => object }).toObject === "function"
           ? (config.customization as { toObject: () => object }).toObject()
           : config?.customization || {};
-      customization = presentationForTemplate(templateId, stored);
+      customization = presentationForTemplate(templateId, stored, website.identity as IdentityName);
     } catch {
-      customization = config?.customization || customization;
+      try {
+        customization = presentationForTemplate(templateId, {}, website.identity as IdentityName);
+      } catch {
+        customization = config?.customization || {
+          accentColor: "#3b82f6",
+          themeMode: "system" as const,
+          visibleSections: [],
+          sectionOrder: [],
+        };
+      }
+    }
+
+    const identityContract = (() => {
+      try {
+        return getIdentityContract(website.identity as IdentityName);
+      } catch {
+        return getIdentityContract("student");
+      }
+    })();
+
+    const draftSummary = identityWebsite.summarizeSections(
+      website.identity,
+      dto,
+      customization && customization.visibleSections,
+      templateDefinition ? templateDefinition.supportedSections : null
+    );
+
+    let activeRevision = null;
+    let activeSummary = null;
+    let activeRevisionMeta = null;
+    if (config?.activeRevisionId) {
+      activeRevision = await PublishedProfileRevision.findOne({
+        _id: config.activeRevisionId,
+        userId: auth.user._id,
+        websiteConfigId: config._id,
+      })
+        .select("revisionNumber templateId templateVersion publishedAt snapshot presentation")
+        .lean();
+      if (activeRevision && activeRevision.snapshot) {
+        const activeTemplate = getTemplate(activeRevision.templateId);
+        const storedPresentation = activeRevision.presentation;
+        const revisionVisible =
+          storedPresentation && Array.isArray(storedPresentation.visibleSections)
+            ? storedPresentation.visibleSections
+            : identityWebsite.defaultVisibleFor(website.identity);
+        activeSummary = identityWebsite.summarizeSections(
+          website.identity,
+          activeRevision.snapshot,
+          revisionVisible,
+          activeTemplate ? activeTemplate.supportedSections : null
+        );
+        activeRevisionMeta = {
+          id: String(activeRevision._id),
+          revisionNumber: activeRevision.revisionNumber,
+          templateId: activeRevision.templateId,
+          templateVersion: activeRevision.templateVersion,
+          publishedAt: activeRevision.publishedAt,
+          sections: activeSummary.sections,
+        };
+      }
     }
 
     const response = NextResponse.json(
       {
         success: true,
         preview: true,
+        identity: website.identity,
+        contract: identityContract,
         dto,
+        summary: { draft: draftSummary, active: activeSummary },
+        activeRevision: activeRevisionMeta,
         config: {
           username: config?.username || null,
           selectedTemplateId: templateId,

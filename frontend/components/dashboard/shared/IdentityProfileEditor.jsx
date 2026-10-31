@@ -2,6 +2,7 @@
    section tabs, card lists, add/edit modals, and a save that persists one section. */
 
 const { useEffect: idUseEffect, useReducer: idUseReducer, useRef: idUseRef, useState: idUseState } = React;
+const IdentityRouterLink = ReactRouterDOM.Link;
 
 const IDENTITY_PLACEHOLDERS = {
   headline: "e.g. Staff engineer focused on hiring platforms",
@@ -377,6 +378,30 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
     setModalError("");
   }
 
+  function onModalCustomFieldsChange(customFields) {
+    if (!modal) return;
+    setModal(Object.assign({}, modal, {
+      record: Object.assign({}, modal.record, { customFields }),
+    }));
+    setModalError("");
+  }
+
+  function onNestedCustomFieldsChange(nested, recordIndex, customFields) {
+    if (!modal) return;
+    const list = (modal.record[nested.key] || []).map((item, index) => (
+      index === recordIndex ? Object.assign({}, item, { customFields }) : item
+    ));
+    setModal(Object.assign({}, modal, {
+      record: Object.assign({}, modal.record, { [nested.key]: list }),
+    }));
+    setModalError("");
+  }
+
+  function onObjectCustomFieldsChange(objectKey, customFields) {
+    const nextObject = Object.assign({}, state.draft[objectKey] || {}, { customFields });
+    editDraft(Object.assign({}, state.draft, { [objectKey]: nextObject }));
+  }
+
   function addNested(nested) {
     if (!modal) return;
     const list = modal.record[nested.key] || [];
@@ -595,29 +620,31 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
 
   return (
     <div style={{ display: "grid", gap: 24 }}>
-      <section className="glass" style={{ padding: "14px 16px", borderRadius: 16, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <div>
-          <strong style={{ fontSize: 14 }}>{siteStatus === "published" ? "Published website" : "Draft website"}</strong>
-          <p className="muted" style={{ margin: "4px 0 0", fontSize: 13 }}>
-            Profile edits stay in this browser until you save a section. Saving does not publish. {unsaved ? "Unsaved edits are stored for this account only." : "Saved sections are ready to preview."}
-            {staleDraft ? " The saved profile changed on the server, so older browser edits were not applied." : ""}
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {unsaved ? (
-            <Button type="button" size="sm" variant="ghost" onClick={() => {
-              if (!state.profile) return;
-              const drafts = editorDraftApi();
-              if (drafts) drafts.clearDraft(sessionStorage, "identity-" + identity, session);
-              draftBase.current = drafts ? drafts.stampOf(state.profile) : "";
-              dispatch({ type: "edit", draft: JSON.parse(JSON.stringify(state.profile)) });
-              setRestoredDraft(false);
-              setStaleDraft(false);
-            }}>Discard unsaved edits</Button>
-          ) : null}
-          <a href={websiteHref}>Open website</a>
-        </div>
-      </section>
+      {identity !== "business" ? (
+        <section className="glass" style={{ padding: "14px 16px", borderRadius: 16, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <div>
+            <strong style={{ fontSize: 14 }}>{siteStatus === "published" ? "Published website" : "Draft website"}</strong>
+            <p className="muted" style={{ margin: "4px 0 0", fontSize: 13 }}>
+              Profile edits stay in this browser until you save a section. Saving does not publish. {unsaved ? "Unsaved edits are stored for this account only." : "Saved sections are ready to preview."}
+              {staleDraft ? " The saved profile changed on the server, so older browser edits were not applied." : ""}
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {unsaved ? (
+              <Button type="button" size="sm" variant="ghost" onClick={() => {
+                if (!state.profile) return;
+                const drafts = editorDraftApi();
+                if (drafts) drafts.clearDraft(sessionStorage, "identity-" + identity, session);
+                draftBase.current = drafts ? drafts.stampOf(state.profile) : "";
+                dispatch({ type: "edit", draft: JSON.parse(JSON.stringify(state.profile)) });
+                setRestoredDraft(false);
+                setStaleDraft(false);
+              }}>Discard unsaved edits</Button>
+            ) : null}
+            <IdentityRouterLink to={websiteHref}>Open website</IdentityRouterLink>
+          </div>
+        </section>
+      ) : null}
       {restoredDraft ? <p role="status" style={{ margin: 0 }}>Unsaved edits from this browser were restored.</p> : null}
       {retainedNote ? <p className="muted" style={{ margin: 0 }}>{retainedNote}</p> : null}
       <div
@@ -778,6 +805,13 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
                   : renderControl(field, readValue(field, draft), (raw) => onScalarChange(field, raw), disabled, current)}
               </div>
             ))}
+            {current.object && window.RecordCustomFieldsEditor ? (
+              <RecordCustomFieldsEditor
+                fields={(draft[current.object] || {}).customFields || []}
+                disabled={disabled}
+                onChange={(next) => onObjectCustomFieldsChange(current.object, next)}
+              />
+            ) : null}
             <Button type="submit" variant="primary" loading={state.saving} disabled={disabled || !state.draft} style={{ justifySelf: "start" }}>
               {ui.saveLabel || "Save profile"}
             </Button>
@@ -785,35 +819,25 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
         </section>
       ) : null}
 
-      <CustomFieldBoard
-        identity={identity}
-        sectionId={current && current.id}
-        layout={draft.customLayout}
-        records={current && current.collection ? (draft[current.collection] || []).map((record) => ({
-          id: record.id,
-          title: cardTitle(current, record),
-        })) : []}
-        disabled={disabled}
-        templateId="magicui-portfolio"
-        onChange={(next) => editDraft(Object.assign({}, draft, { customLayout: next }))}
-        onSave={(next) => persist(
-          current,
-          Object.assign({}, state.draft, { customLayout: next }),
-          "Custom fields are stored in your account."
-        )}
-      />
-      <CustomSectionManager
-        layout={draft.customLayout}
-        disabled={disabled}
-        templateId="magicui-portfolio"
-        onChange={(next) => editDraft(Object.assign({}, draft, { customLayout: next }))}
-        onSave={(next) => persist(
-          current,
-          Object.assign({}, state.draft, { customLayout: next }),
-          "Custom sections are stored in your account."
-        )}
-      />
-
+      {identity !== "business" ? (
+        <CustomFieldBoard
+          identity={identity}
+          sectionId={current && current.id}
+          layout={draft.customLayout}
+          records={current && current.collection ? (draft[current.collection] || []).map((record) => ({
+            id: record.id,
+            title: cardTitle(current, record),
+          })) : []}
+          disabled={disabled}
+          templateId="magicui-portfolio"
+          onChange={(next) => editDraft(Object.assign({}, draft, { customLayout: next }))}
+          onSave={(next) => persist(
+            current,
+            Object.assign({}, state.draft, { customLayout: next }),
+            "Custom fields are stored in your account."
+          )}
+        />
+      ) : null}
       <Modal
         open={!!modalSection}
         onClose={() => { if (!state.saving) { setModal(null); setModalError(""); } }}
@@ -830,6 +854,13 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
                 {renderControl(field, readValue(field, modal.record), (raw) => onModalChange(field, raw), disabled, modalSection)}
               </div>
             ))}
+            {window.RecordCustomFieldsEditor ? (
+              <RecordCustomFieldsEditor
+                fields={modal.record.customFields || []}
+                disabled={disabled}
+                onChange={onModalCustomFieldsChange}
+              />
+            ) : null}
             {modalSection.nested ? (
               <div style={{ display: "grid", gap: 12 }}>
                 <div>
@@ -849,6 +880,14 @@ function IdentityProfileEditor({ identity, session, onSaved }) {
                         )}
                       </div>
                     ))}
+                    {window.RecordCustomFieldsEditor ? (
+                      <RecordCustomFieldsEditor
+                        fields={pkg.customFields || []}
+                        disabled={disabled}
+                        title="Additional Package Fields"
+                        onChange={(next) => onNestedCustomFieldsChange(modalSection.nested, packageIndex, next)}
+                      />
+                    ) : null}
                     <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => removeNested(modalSection.nested, pkg.id)} style={{ justifySelf: "start", color: "#ef4444" }}>
                       Remove package
                     </Button>

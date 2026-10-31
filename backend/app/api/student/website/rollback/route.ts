@@ -4,7 +4,7 @@ import connectToDatabase from "../../../../../lib/db";
 import { verifyAuth } from "../../../../../lib/auth";
 import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
 import PublishedProfileRevision from "../../../../../models/PublishedProfileRevision";
-import { rollbackPresentation } from "../../../../../lib/templates/registry";
+import { getTemplate, rollbackPresentation } from "../../../../../lib/templates/registry";
 
 export function OPTIONS(req: Request) {
   return preflightResponse(req.headers.get("origin"));
@@ -86,6 +86,16 @@ export async function POST(req: Request) {
       );
     }
 
+    // A revision written before the registry existed may name a template this
+    // deployment cannot render. Refuse to activate it instead of publishing an
+    // unsupported template id.
+    if (!getTemplate(targetRevision.templateId)) {
+      return NextResponse.json(
+        { message: `Revision template '${targetRevision.templateId}' is not registered.` },
+        { status: 400 }
+      );
+    }
+
     // Atomically activate target historical revision.
     // Stored appearance is restored. A revision without that record uses the
     // template defaults, so a newer draft appearance is not applied to it.
@@ -99,7 +109,7 @@ export async function POST(req: Request) {
         ? (targetRevision.presentation as { toObject: () => object }).toObject()
         : targetRevision.presentation;
     try {
-      config.customization = rollbackPresentation(storedPresentation, targetRevision.templateId);
+      config.customization = rollbackPresentation(storedPresentation, targetRevision.templateId, auth.user.identity);
       config.markModified("customization");
     } catch {
       /* Leave the current appearance draft when the stored record cannot be read. */

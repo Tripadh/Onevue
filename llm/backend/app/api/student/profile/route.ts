@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
-import * as jwtLib from "jsonwebtoken";
 import mongoose from "mongoose";
 import connectToDatabase from "../../../../lib/db";
+import { verifySessionToken } from "../../../../lib/auth";
 import { ensureStudentProfile } from "../../../../lib/ensure-student-profile";
 import User from "../../../../models/User";
 import {
@@ -29,19 +29,6 @@ export function OPTIONS(req: Request) {
    Authentication & Authorization Helper
    ========================================================================= */
 
-function verifyJwtToken(token: string, secret: string): { id: string; email: string } {
-  const pkg: any = jwtLib;
-  const verifier =
-    (pkg && typeof pkg.verify === "function" && pkg.verify) ||
-    (pkg && pkg.default && typeof pkg.default.verify === "function" && pkg.default.verify) ||
-    (typeof require === "function" && require("jsonwebtoken").verify);
-
-  if (!verifier) {
-    throw new Error("JWT verify function not found.");
-  }
-  return verifier(token, secret) as { id: string; email: string };
-}
-
 function getUserModel() {
   return (User as any).default || User;
 }
@@ -58,9 +45,8 @@ async function verifyStudentAuth(req: Request) {
   const token = authHeader.split(" ")[1];
   let decoded: { id: string; email: string };
   try {
-    decoded = verifyJwtToken(token, process.env.JWT_SECRET || "fallback_secret");
-  } catch (err) {
-    console.error("verifyJwtToken failed with:", err);
+    decoded = await verifySessionToken(token);
+  } catch {
     return { error: "Invalid or expired session token.", status: 401 };
   }
 

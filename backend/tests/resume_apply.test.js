@@ -163,6 +163,7 @@ describe("resume review application", () => {
         fieldOfStudy: "History",
         verificationStatus: "verified",
       }],
+      workExperience: [],
       projects: [{ title: "Kept Project", shortDescription: "Stay" }],
       skills: [{ name: "Existing Skill", category: "Tools", proficiency: "Beginner" }],
       achievements: [{
@@ -239,6 +240,7 @@ describe("resume review application", () => {
       reviewId: review.reviewId,
       selections: [
         { section: "education", index: 0, fields: ["institution", "degree", "fieldOfStudy"] },
+        { section: "experience", index: 0, fields: ["company", "title", "isCurrent"] },
         { section: "projects", index: 0, fields: ["name", "description", "technologies", "links"] },
         { section: "skills", index: 0, fields: ["name"], category: "Tools", proficiency: "Intermediate" },
         { section: "achievements", index: 0, fields: ["title", "description"] },
@@ -257,6 +259,11 @@ describe("resume review application", () => {
     assert.equal(profile.education[0].verificationStatus, "verified");
     assert.equal(profile.education[1].institution, "Example University");
     assert.equal(profile.education[1].verificationStatus, "self-reported");
+    assert.equal(profile.workExperience.length, 1);
+    assert.equal(profile.workExperience[0].organization, "Analytical Engines");
+    assert.equal(profile.workExperience[0].title, "Intern");
+    assert.equal(profile.workExperience[0].experienceType, "internship");
+    assert.equal(profile.workExperience[0].isCurrent, false);
     assert.equal(profile.projects.length, 2);
     assert.equal(profile.projects[0].title, "Kept Project");
     assert.equal(profile.projects[1].repoUrl, "https://github.com/ada/notes");
@@ -444,6 +451,22 @@ describe("resume review application", () => {
     assert.equal(profile.education.some((item) => item.institution === "Example University"), false);
   });
 
+  test("returns 409 when work experience changes after the review", async () => {
+    const review = await reviewFrom();
+    await StudentProfile.updateOne(
+      { userId: userA._id },
+      { $set: { workExperience: [{ organization: "Changed Company", title: "Engineer" }] } },
+    );
+    const response = await applyStudentResume(applyRequest(tokenA, {
+      reviewId: review.reviewId,
+      selections: [{ section: "experience", index: 0, fields: ["company", "title"] }],
+    }));
+    assert.equal(response.status, 409);
+    const profile = await StudentProfile.findOne({ userId: userA._id }).lean();
+    assert.equal(profile.workExperience.length, 1);
+    assert.equal(profile.workExperience[0].organization, "Changed Company");
+  });
+
   test("extracts with a mocked PDF without changing the profile, then applies only the selected field", async () => {
     const before = await StudentProfile.findOne({ userId: userA._id }).lean();
     const review = await reviewFrom();
@@ -451,6 +474,7 @@ describe("resume review application", () => {
     assert.equal(afterExtract.headline, before.headline);
     assert.equal(afterExtract.bio, before.bio);
     assert.equal(afterExtract.education.length, before.education.length);
+    assert.equal(afterExtract.workExperience.length, before.workExperience.length);
     assert.equal(afterExtract.projects.length, before.projects.length);
     assert.equal(afterExtract.skills.length, before.skills.length);
     assert.equal(afterExtract.achievements.length, before.achievements.length);

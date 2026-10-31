@@ -109,6 +109,67 @@ function DashboardRedirect() {
   return null;
 }
 
+function OAuthRedirectHandler() {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const handled = React.useRef(false);
+
+  apUseEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('oauth');
+    if (!status) return;
+
+    if (status === 'error') {
+      const reason = params.get('reason');
+      window.history.replaceState(window.history.state, document.title, window.location.pathname + window.location.hash);
+      const failureMessages = {
+        google_callback_google_code_exchange: 'Google rejected the callback. Check that the configured callback URL matches Google OAuth settings.',
+        google_callback_google_identity_verification: 'The Google account response could not be verified. Please try again.',
+        google_callback_database_connection: 'The backend could not connect to the account database.',
+        google_callback_account_lookup: 'The backend could not look up the Google account.',
+        google_callback_account_conflict: 'An account already uses this email. Sign in with that account, then link Google from account settings.',
+        google_callback_account_creation: 'The account could not be created. If this email already has an account, sign in and link Google from account settings.',
+        google_callback_account_linking: 'The Google account could not be linked.',
+        google_callback_session_creation: 'Google was verified, but the backend could not create your session.',
+        google_callback_state_validation: 'The sign-in request expired or could not be verified. Start Google sign-in again.',
+        google_callback_google_configuration: 'Google sign-in is not configured correctly on the backend.',
+      };
+      const failureMessage = Object.prototype.hasOwnProperty.call(failureMessages, reason)
+        ? failureMessages[reason]
+        : 'Please try again. Check the backend log for a safe failure-stage diagnostic.';
+      toast.push({
+        title: 'Google sign-in failed',
+        body: failureMessage,
+        tone: 'error',
+      });
+      return;
+    }
+    if (status !== 'success' || handled.current) return;
+    handled.current = true;
+
+    window.OV.services.auth.waitForSessionRestore().then((restoredSession) => {
+      window.history.replaceState(window.history.state, document.title, window.location.pathname + window.location.hash);
+      if (!restoredSession) {
+        toast.push({ title: 'Could not restore your session', body: 'Please sign in again.', tone: 'error' });
+        return;
+      }
+
+      if (!restoredSession.user?.identity) {
+        navigate('/onboarding/identity', { replace: true });
+      } else if (!restoredSession.user?.onboarding?.surveyCompleted) {
+        navigate('/onboarding/survey', { replace: true });
+      } else {
+        navigate(resolveDashboardRoute(restoredSession.user.identity), { replace: true });
+      }
+    }).catch(() => {
+      window.history.replaceState(window.history.state, document.title, window.location.pathname + window.location.hash);
+      toast.push({ title: 'Could not restore your session', body: 'Please sign in again.', tone: 'error' });
+    });
+  }, [navigate, toast]);
+
+  return null;
+}
+
 // Attach helpers to window for other components
 Object.assign(window, {
   DASHBOARD_ROUTES,
@@ -190,6 +251,7 @@ function App() {
       <ToastProvider>
         <AppProvider>
           <a href="#main" className="skip" onClick={e => { e.preventDefault(); const m = document.getElementById('main'); m && m.focus && (m.tabIndex = -1, m.focus()); }}>Skip to content</a>
+          <OAuthRedirectHandler />
           <Navbar />
           <Routes>
             <Route path="/" element={<Landing />} />

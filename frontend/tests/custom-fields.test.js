@@ -1,6 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fields = require("../services/custom-fields.js");
+const identityProfileState = require("../services/identity-profile-state.js");
 
 test("renaming a field keeps its id and key", () => {
   const layout = fields.ensureBuiltin(fields.emptyLayout(), { key: "education", label: "Education", repeatable: true });
@@ -143,4 +144,65 @@ test("every identity can open a custom section without an education builtin", ()
   assert.equal(fields.validateFieldDraft({ label: "", type: "text" }), "A field label is required.");
   assert.equal(fields.isHttpUrl("javascript:alert(1)"), false);
   assert.equal(fields.isHttpUrl("https://example.com"), true);
+});
+
+test("identity profile payloads preserve record, nested, and object custom fields for every domain", () => {
+  const customFields = [{
+    id: "fld_extra",
+    label: "Supporting note",
+    type: "text",
+    visibility: "public",
+    order: 0,
+    value: "Included with the record",
+  }];
+  const collectionCases = [
+    {
+      identity: "professional",
+      collection: "certifications",
+      record: { id: "cert_one", title: "Cloud certification", issuer: "Example", customFields },
+    },
+    {
+      identity: "freelancer",
+      collection: "services",
+      record: {
+        id: "service_one",
+        name: "Consulting",
+        customFields,
+        packages: [{ id: "package_one", name: "Review", customFields }],
+      },
+    },
+    {
+      identity: "creator",
+      collection: "channels",
+      record: { id: "channel_one", platform: "Video", url: "https://example.com", customFields },
+    },
+    {
+      identity: "business",
+      collection: "products",
+      record: { id: "product_one", name: "Widget", customFields },
+    },
+  ];
+
+  for (const item of collectionCases) {
+    const payload = identityProfileState.buildUpdatePayload(item.identity, {
+      [item.collection]: [item.record],
+    });
+    assert.deepEqual(payload[item.collection][0].customFields, customFields, item.identity);
+    if (item.identity === "freelancer") {
+      assert.deepEqual(payload.services[0].packages[0].customFields, customFields);
+    }
+  }
+
+  const objectCases = [
+    { identity: "professional", key: "currentEmployment" },
+    { identity: "freelancer", key: "contact" },
+    { identity: "creator", key: "mediaKit" },
+    { identity: "business", key: "branding" },
+  ];
+  for (const item of objectCases) {
+    const payload = identityProfileState.buildUpdatePayload(item.identity, {
+      [item.key]: { customFields },
+    });
+    assert.deepEqual(payload[item.key].customFields, customFields, item.identity);
+  }
 });

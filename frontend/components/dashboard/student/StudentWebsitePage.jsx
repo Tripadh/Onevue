@@ -123,28 +123,17 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
   const [activeRevisionId, setActiveRevisionId] = sUseState(null);
   const [activeRevisionNumber, setActiveRevisionNumber] = sUseState(null);
   const [previewData, setPreviewData] = sUseState(null);
+  const [contract, setContract] = sUseState(null);
+  const [templates, setTemplates] = sUseState(CANONICAL_TEMPLATES);
 
-  /* Working customization form state */
+  /* Working customization form state. Initial values come from the identity
+     contract; they are replaced by the stored draft before any interaction. */
   const [themeMode, setThemeMode] = sUseState('system');
   const [accentColor, setAccentColor] = sUseState('#3b82f6');
-  const [visibleSections, setVisibleSections] = sUseState([
-    'about',
-    'education',
-    'projects',
-    'skills',
-    'work',
-    'achievements',
-    'contact',
-  ]);
-  const [sectionOrder, setSectionOrder] = sUseState([
-    'about',
-    'work',
-    'education',
-    'skills',
-    'projects',
-    'achievements',
-    'contact',
-  ]);
+  const [visibleSections, setVisibleSections] = sUseState([]);
+  const [sectionOrder, setSectionOrder] = sUseState([]);
+  const configRef = sUseRef(null);
+  const defaultsAppliedRef = sUseRef(false);
   const [savingCustomization, setSavingCustomization] = sUseState(false);
   const [selectingTemplate, setSelectingTemplate] = sUseState(false);
 
@@ -175,7 +164,68 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
     return session?.token || (window.OV?.core?.db?.get('session')?.token);
   }, [session]);
 
+  /* The backend registry is authoritative. Offer only templates that are both
+     registered by the backend and implemented by this dashboard's mirror. */
+  sUseEffect(() => {
+    let cancelled = false;
+    const mirrorIds = CANONICAL_TEMPLATES.map((template) => template.id);
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase}/templates`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const list = data && data.success && Array.isArray(data.templates)
+          ? data.templates.filter((template) => mirrorIds.indexOf(template.id) !== -1)
+          : [];
+        if (!cancelled && list.length) setTemplates(list);
+      } catch {
+        /* Keep the local approved mirror when the registry is unreachable. */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [apiBase]);
+
   /* ---------------- Data Fetchers ---------------- */
+
+  /* Defaults only apply when the user has never stored a customization. An
+     explicitly saved empty list is respected instead of being replaced. */
+  const applyContractDefaults = sUseCallback((nextContract) => {
+    if (!nextContract || !nextContract.defaultSections || defaultsAppliedRef.current) return;
+    const saved = configRef.current && configRef.current.customization;
+    if (saved && Array.isArray(saved.visibleSections)) {
+      defaultsAppliedRef.current = true;
+      return;
+    }
+    defaultsAppliedRef.current = true;
+    if (Array.isArray(nextContract.defaultSections.visible)) {
+      setVisibleSections(nextContract.defaultSections.visible.slice());
+    }
+    if (Array.isArray(nextContract.defaultSections.order)) {
+      setSectionOrder(nextContract.defaultSections.order.slice());
+    }
+  }, []);
+
+  const fetchContract = sUseCallback(async (templateId) => {
+    const identity = session && session.user && session.user.identity;
+    if (!identity) return null;
+    try {
+      const res = await fetch(
+        `${apiBase}/website/contract?identity=${encodeURIComponent(identity)}&templateId=${encodeURIComponent(templateId || 'magicui-portfolio')}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const next = data && data.success && Array.isArray(data.contracts) ? data.contracts[0] : null;
+        if (next) {
+          setContract(next);
+          applyContractDefaults(next);
+          return next;
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load website contract:', err);
+    }
+    return null;
+  }, [apiBase, session, applyContractDefaults]);
 
   const fetchConfig = sUseCallback(async () => {
     const token = getAuthToken();
@@ -190,6 +240,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
       if (res.ok) {
         const data = await res.json();
         if (data && data.config) {
+          configRef.current = data.config;
           setConfig(data.config);
           if (data.config.username) {
             setDesiredUsername(data.config.username);
@@ -208,13 +259,14 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
           if (data.config.activeRevisionNumber) setActiveRevisionNumber(data.config.activeRevisionNumber);
           return data.config;
         } else {
+          configRef.current = null;
           setConfig(null);
           // If no config, ensure desiredUsername is primed from user session
           const fallbackHandle = (
             session?.user?.username ||
             (session?.user?.name ? session.user.name.toLowerCase().replace(/[^a-z0-9_-]/g, '') : '') ||
             (session?.user?.email ? session.user.email.split('@')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '') : '') ||
-            'student'
+            (session?.user?.identity || 'user')
           );
           setDesiredUsername((prev) => prev || fallbackHandle);
           return null;
@@ -280,13 +332,26 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
     let mounted = true;
     (async () => {
       setLoading(true);
-      await Promise.all([fetchConfig(), fetchHistory()]);
+      const loadedConfig = await fetchConfig();
+      await Promise.all([
+        fetchHistory(),
+        fetchPreview(),
+        fetchContract(loadedConfig && loadedConfig.selectedTemplateId),
+      ]);
       if (mounted) setLoading(false);
     })();
     return () => {
       mounted = false;
     };
-  }, [fetchConfig, fetchHistory]);
+  }, [fetchConfig, fetchHistory, fetchPreview, fetchContract]);
+
+  /* Preview embeds the identity contract, so it covers a failed contract request. */
+  sUseEffect(() => {
+    if (!contract && previewData && previewData.contract) {
+      setContract(previewData.contract);
+      applyContractDefaults(previewData.contract);
+    }
+  }, [contract, previewData, applyContractDefaults]);
 
   /* Open Preview Handler: Opens in a dedicated separate page tab */
   const handleOpenPreview = async () => {
@@ -316,13 +381,13 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
         },
         body: JSON.stringify({
           username: cleanUsername,
-          selectedTemplateId: 'magicui-portfolio',
-          selectedTemplateVersion: '1.0.0',
+          selectedTemplateId: (config && config.selectedTemplateId) || (activeTemplate && activeTemplate.id) || 'magicui-portfolio',
+          selectedTemplateVersion: (config && config.selectedTemplateVersion) || (activeTemplate && activeTemplate.version) || '1.0.0',
           customization: {
             themeMode,
             accentColor,
-            visibleSections,
-            sectionOrder,
+            visibleSections: sanitizeSectionIds(visibleSections),
+            sectionOrder: sanitizeSectionIds(sectionOrder),
           },
         }),
       });
@@ -350,8 +415,13 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
       return;
     }
 
+    if (!templates.some((template) => template.id === templateId)) {
+      toast.push({ title: 'Unsupported template', body: 'Only templates in the approved registry can be selected.', tone: 'error' });
+      return;
+    }
+
     if (!config?.username) {
-      const defaultName = (session?.user?.username || session?.user?.name || 'student')
+      const defaultName = (session?.user?.username || session?.user?.name || session?.user?.identity || 'user')
         .toLowerCase()
         .replace(/[^a-z0-9_-]/g, '');
       setDesiredUsername(defaultName);
@@ -379,10 +449,11 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
       }
       toast.push({
         title: 'Template selected',
-        body: 'Magic UI Portfolio is now selected for your draft. Live site will update upon publication.',
+        body: `${data.template?.name || 'The template'} is now selected for your draft. The live site updates upon publication.`,
         tone: 'success',
       });
       await fetchConfig();
+      await fetchContract(templateId);
     } catch (err) {
       toast.push({ title: 'Network error', body: 'Could not update template selection.', tone: 'error' });
     } finally {
@@ -399,7 +470,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
     }
 
     if (!config?.username) {
-      const defaultName = (session?.user?.username || session?.user?.name || 'student')
+      const defaultName = (session?.user?.username || session?.user?.name || session?.user?.identity || 'user')
         .toLowerCase()
         .replace(/[^a-z0-9_-]/g, '');
       setDesiredUsername(defaultName);
@@ -419,8 +490,8 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
           customization: {
             themeMode,
             accentColor,
-            visibleSections,
-            sectionOrder,
+            visibleSections: sanitizeSectionIds(visibleSections),
+            sectionOrder: sanitizeSectionIds(sectionOrder),
           },
         }),
       });
@@ -451,11 +522,13 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
     }
     setPublishing(true);
     try {
+      const isClaimingUsername = !config?.username;
       let activeUsername = config?.username;
+      let cleanHandle = '';
 
-      // 1. If username is not configured yet, claim it first
-      if (!activeUsername) {
-        const cleanHandle = String(desiredUsername || '').toLowerCase().trim();
+      // 1. Claim a handle first when the user has no website configuration yet.
+      if (isClaimingUsername) {
+        cleanHandle = String(desiredUsername || '').toLowerCase().trim();
         if (!cleanHandle || cleanHandle.length < 3) {
           toast.push({
             title: 'Handle required',
@@ -465,42 +538,51 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
           setPublishing(false);
           return;
         }
-
-        const configRes = await fetch(`${apiBase}/student/website/config`, {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            username: cleanHandle,
-            selectedTemplateId: 'magicui-portfolio',
-            selectedTemplateVersion: '1.0.0',
-            customization: {
-              themeMode,
-              accentColor,
-              visibleSections,
-              sectionOrder,
-            },
-          }),
-        });
-
-        const configData = await configRes.json();
-        if (!configRes.ok) {
-          toast.push({
-            title: 'Could not claim handle',
-            body: configData.message || 'Username may already be taken. Please pick another handle.',
-            tone: 'error',
-          });
-          setPublishing(false);
-          return;
-        }
-
-        activeUsername = configData.config?.username || cleanHandle;
-        setConfig(configData.config);
       }
 
-      // 2. Publish with claimed handle
+      // 2. Persist the latest customization before publishing. Publication must
+      // build from the exact configuration shown in the Customize tab, and a
+      // failed save must prevent publication.
+      const configRes = await fetch(`${apiBase}/student/website/config`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...(isClaimingUsername
+            ? {
+                username: cleanHandle,
+                selectedTemplateId: config?.selectedTemplateId || 'magicui-portfolio',
+                selectedTemplateVersion: config?.selectedTemplateVersion || '1.0.0',
+              }
+            : {}),
+          customization: {
+            themeMode,
+            accentColor,
+            visibleSections: sanitizeSectionIds(visibleSections),
+            sectionOrder: sanitizeSectionIds(sectionOrder),
+          },
+        }),
+      });
+
+      const configData = await configRes.json();
+      if (!configRes.ok) {
+        toast.push({
+          title: isClaimingUsername ? 'Could not claim handle' : 'Could not save customization',
+          body: isClaimingUsername
+            ? configData.message || 'Username may already be taken. Please pick another handle.'
+            : configData.message || 'Fix the customization settings before publishing.',
+          tone: 'error',
+        });
+        setPublishing(false);
+        return;
+      }
+
+      activeUsername = configData.config?.username || activeUsername;
+      if (configData.config) setConfig(configData.config);
+
+      // 3. Publish using the configuration persisted above.
       const res = await fetch(`${apiBase}/student/website/publish`, {
         method: 'POST',
         headers: {
@@ -581,7 +663,123 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
     return false;
   }, [isPublished, config?.publishedAt, config?.updatedAt, studentProfile?.updatedAt]);
 
-  const activeTemplate = CANONICAL_TEMPLATES.find((template) => template.id === (config && config.selectedTemplateId)) || CANONICAL_TEMPLATES[0];
+  const activeTemplate = templates.find((template) => template.id === (config && config.selectedTemplateId))
+    || templates[0]
+    || CANONICAL_TEMPLATES[0];
+
+  /* Identity, section catalog, and readiness all come from the authoritative
+     contract. Nothing below re-declares per-identity section lists. */
+  const identity = (previewData && previewData.identity) || (session && session.user && session.user.identity) || (contract && contract.identity) || '';
+  const contractData = (contract && contract.identity === identity)
+    ? contract
+    : (previewData && previewData.contract && previewData.contract.identity === identity ? previewData.contract : null);
+  const identityLabel = (contractData && contractData.label) || (identity ? identity.charAt(0).toUpperCase() + identity.slice(1) : 'Website');
+  const identityHeading = (contractData && contractData.heading) || `${identityLabel} Website`;
+  const identityDescription = (contractData && contractData.description) ||
+    `Manage the public website built from your saved ${identityLabel.toLowerCase()} identity, preview draft changes, and publish versioned revisions.`;
+  const identityPagePath = (contractData && contractData.identityPagePath) || `${basePath}/identity`;
+  const identityPageLabel = (contractData && contractData.identityPageLabel) || `${identityLabel} Identity`;
+  const readinessTitle = (contractData && contractData.readinessTitle) || `${identityLabel} content readiness`;
+
+  const templateSupportedSections = sUseMemo(() => {
+    if (!activeTemplate || !Array.isArray(activeTemplate.supportedSections)) return null;
+    return new Set(activeTemplate.supportedSections);
+  }, [activeTemplate]);
+
+  const sectionControls = sUseMemo(() => {
+    const sections = contractData && Array.isArray(contractData.sections) ? contractData.sections : [];
+    return sections.map((section) => ({
+      id: section.id,
+      label: section.label,
+      description: section.description,
+      rendererSection: section.rendererSection,
+      supported: templateSupportedSections ? templateSupportedSections.has(section.id) : section.supported !== false,
+      recordCustomFields: !!section.recordCustomFields,
+      sectionCustomFields: !!section.sectionCustomFields,
+    }));
+  }, [contractData, templateSupportedSections]);
+
+  const customizableSections = sUseMemo(() => sectionControls.filter((section) => section.supported), [sectionControls]);
+  const unsupportedSections = sUseMemo(() => sectionControls.filter((section) => !section.supported), [sectionControls]);
+  const allowedSectionIds = sUseMemo(() => customizableSections.map((section) => section.id), [customizableSections]);
+  const sectionLabelById = sUseMemo(() => {
+    const map = {};
+    sectionControls.forEach((section) => { map[section.id] = section.label; });
+    return map;
+  }, [sectionControls]);
+
+  /* Unknown or template-unsupported ids are dropped before persisting so the
+     backend never receives settings it will reject. If the contract is
+     unavailable the stored draft is passed through unchanged. */
+  const sanitizeSectionIds = sUseCallback((ids) => {
+    const source = Array.isArray(ids) ? ids : [];
+    if (!allowedSectionIds.length) return source.slice();
+    const next = [];
+    source.forEach((id) => {
+      if (allowedSectionIds.indexOf(id) !== -1 && next.indexOf(id) === -1) next.push(id);
+    });
+    return next;
+  }, [allowedSectionIds]);
+
+  const draftSummarySections = (previewData && previewData.summary && previewData.summary.draft && Array.isArray(previewData.summary.draft.sections))
+    ? previewData.summary.draft.sections
+    : [];
+  const activeSummarySections = (previewData && previewData.summary && previewData.summary.active && Array.isArray(previewData.summary.active.sections))
+    ? previewData.summary.active.sections
+    : [];
+  const draftSummaryById = sUseMemo(() => {
+    const map = {};
+    draftSummarySections.forEach((section) => { map[section.id] = section; });
+    return map;
+  }, [draftSummarySections]);
+  const activeSummaryById = sUseMemo(() => {
+    const map = {};
+    activeSummarySections.forEach((section) => { map[section.id] = section; });
+    return map;
+  }, [activeSummarySections]);
+  const liveRevisionNumber = (previewData && previewData.activeRevision && previewData.activeRevision.revisionNumber) || activeRevisionNumber;
+
+  const readinessSections = sUseMemo(() => sectionControls.map((section) => {
+    const draft = draftSummaryById[section.id];
+    const active = activeSummaryById[section.id];
+    return {
+      ...section,
+      summaryAvailable: !!draft,
+      savedCount: draft ? draft.savedCount : null,
+      countKind: draft ? draft.countKind : 'records',
+      saved: draft ? draft.saved : null,
+      enabled: visibleSections.indexOf(section.id) !== -1,
+      inActiveRevision: !!active && active.savedCount > 0,
+      liveOnPublishedPage: !!active && active.savedCount > 0 && active.enabled,
+    };
+  }), [sectionControls, draftSummaryById, activeSummaryById, visibleSections]);
+
+  const enabledSectionLabels = sUseMemo(
+    () => visibleSections.map((id) => sectionLabelById[id]).filter(Boolean),
+    [visibleSections, sectionLabelById]
+  );
+  const enabledMissingContent = sUseMemo(
+    () => readinessSections.filter((section) => section.enabled && section.saved === false),
+    [readinessSections]
+  );
+  const draftSummaryAvailable = !!(previewData && previewData.summary && previewData.summary.draft);
+  const activePublishedSectionCount = sUseMemo(
+    () => activeSummarySections.filter((section) => section.saved && section.enabled).length,
+    [activeSummarySections]
+  );
+  const publishSummarySections = sUseMemo(
+    () => draftSummarySections.filter((section) => section.saved || visibleSections.indexOf(section.id) !== -1),
+    [draftSummarySections, visibleSections]
+  );
+  const customizationDirty = sUseMemo(() => {
+    const saved = config && config.customization;
+    if (!saved) return false;
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    return (saved.themeMode || 'system') !== themeMode ||
+      (saved.accentColor || '#3b82f6') !== accentColor ||
+      !same(Array.isArray(saved.visibleSections) ? saved.visibleSections : [], visibleSections) ||
+      !same(Array.isArray(saved.sectionOrder) ? saved.sectionOrder : [], sectionOrder);
+  }, [config, themeMode, accentColor, visibleSections, sectionOrder]);
 
   /* ---------------- Loading State ---------------- */
   if (loading) {
@@ -606,13 +804,13 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
         <div>
           <span className="eyebrow" style={{ color: 'var(--accent)', fontSize: 12 }}>
-            PORTFOLIO MANAGEMENT
+            {identityLabel.toUpperCase()} WEBSITE
           </span>
           <h1 className="h-card" style={{ fontSize: 32, margin: '4px 0 6px', letterSpacing: '-0.02em' }}>
-            My Website
+            {identityHeading}
           </h1>
           <p className="muted" style={{ fontSize: 15, margin: 0, maxWidth: 640 }}>
-            Manage your public developer & student portfolio website, preview draft changes with your saved identity, and publish versioned revisions.
+            {identityDescription}
           </p>
         </div>
 
@@ -706,7 +904,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
             >
               <div>
                 <span className="eyebrow" style={{ color: 'var(--accent)', fontSize: 11 }}>QUICK SETUP</span>
-                <h4 style={{ fontSize: 18, margin: '2px 0 4px', fontWeight: 600 }}>Choose your Public Portfolio Handle</h4>
+                <h4 style={{ fontSize: 18, margin: '2px 0 4px', fontWeight: 600 }}>Choose your Public Website Handle</h4>
                 <p className="muted" style={{ fontSize: 13, margin: 0 }}>
                   Claim your unique handle before publishing. Your website will be live at <code>onevue.me/p/{desiredUsername || 'yourname'}</code>.
                 </p>
@@ -770,9 +968,9 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
                   <h3 style={{ fontSize: 22, margin: 0, fontWeight: 600 }}>
                     {username ? `onevue.me/p/${username}` : 'No Public Handle Set'}
                   </h3>
-                  {isPublished && activeRevisionNumber && (
+                  {isPublished && liveRevisionNumber && (
                     <span className="mono" style={{ fontSize: 13, color: 'var(--text-2)' }}>
-                      (Revision #{activeRevisionNumber})
+                      (Revision #{liveRevisionNumber})
                     </span>
                   )}
                 </div>
@@ -782,9 +980,15 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
                     Last published: {new Date(config.publishedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
                   </span>
                 )}
+                {isPublished && liveRevisionNumber && draftSummaryAvailable && (
+                  <span className="muted" style={{ fontSize: 13, display: 'block', marginTop: 4 }}>
+                    Revision #{liveRevisionNumber} serves {activePublishedSectionCount} section{activePublishedSectionCount === 1 ? '' : 's'} with published content.
+                    Draft readiness below is not live until you republish.
+                  </span>
+                )}
                 {!isPublished && username && (
                   <span className="muted" style={{ fontSize: 13, display: 'block', marginTop: 4 }}>
-                    Your public portfolio is configured as a draft. Click Publish below to make it live.
+                    Your public website is configured as a draft. Click Publish below to make it live.
                   </span>
                 )}
               </div>
@@ -818,7 +1022,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
                     size="sm"
                     variant="glass"
                     onClick={() => {
-                      const defaultName = (session?.user?.username || session?.user?.name || 'student')
+                      const defaultName = (session?.user?.username || session?.user?.name || session?.user?.identity || 'user')
                         .toLowerCase()
                         .replace(/[^a-z0-9_-]/g, '');
                       setDesiredUsername(defaultName);
@@ -850,12 +1054,28 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
               </div>
 
               <div style={{ padding: '14px 18px', borderRadius: 16, background: 'color-mix(in oklab, var(--bg-0) 40%, transparent)', border: '1px solid var(--line)' }}>
-                <span className="field-hint" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>VISIBLE SECTIONS</span>
+                <span className="field-hint" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>PUBLICLY ENABLED SECTIONS</span>
                 <strong style={{ fontSize: 15, display: 'block', color: 'var(--text-1)' }}>
-                  {visibleSections.length} of 7 Enabled
+                  {sectionControls.length ? `${enabledSectionLabels.length} of ${sectionControls.length} enabled` : 'Section contract unavailable'}
                 </strong>
                 <span className="muted" style={{ fontSize: 12 }}>
-                  {visibleSections.slice(0, 3).join(', ')}...
+                  {enabledSectionLabels.length
+                    ? `${enabledSectionLabels.slice(0, 3).join(', ')}${enabledSectionLabels.length > 3 ? '…' : ''}`
+                    : 'No sections are enabled for public display.'}
+                </span>
+              </div>
+
+              <div style={{ padding: '14px 18px', borderRadius: 16, background: 'color-mix(in oklab, var(--bg-0) 40%, transparent)', border: '1px solid var(--line)' }}>
+                <span className="field-hint" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>TEMPLATE COMPATIBILITY</span>
+                <strong style={{ fontSize: 15, display: 'block', color: 'var(--text-1)' }}>
+                  {sectionControls.length
+                    ? `${customizableSections.length} of ${sectionControls.length} sections supported`
+                    : 'Not available'}
+                </strong>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  {unsupportedSections.length
+                    ? `Not rendered by ${activeTemplate.name}: ${unsupportedSections.map((section) => section.label).join(', ')}`
+                    : `All sections for your ${identityLabel.toLowerCase()} identity fit this template.`}
                 </span>
               </div>
             </div>
@@ -944,118 +1164,149 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
               <div>
-                <span className="eyebrow" style={{ color: 'var(--accent)', fontSize: 11 }}>PORTFOLIO DATA STATUS</span>
-                <h3 style={{ fontSize: 18, margin: '4px 0 2px' }}>Identity Sections & Content Breakdown</h3>
+                <span className="eyebrow" style={{ color: 'var(--accent)', fontSize: 11 }}>IDENTITY DATA STATUS</span>
+                <h3 style={{ fontSize: 18, margin: '4px 0 2px' }}>{readinessTitle}</h3>
                 <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-                  Your public website strictly displays genuine data saved in your profile. Empty sections are omitted cleanly to keep your site polished.
+                  Saved records from your {identityLabel.toLowerCase()} identity. A section appears publicly only when it has saved content, is enabled here, and is supported by the selected template.
                 </p>
               </div>
               <Button
                 size="sm"
                 variant="glass"
-                onClick={() => navigate(`${basePath}/identity`)}
+                onClick={() => navigate(identityPagePath)}
               >
-                Edit Student Identity →
+                Edit {identityPageLabel} →
               </Button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-              {[
-                {
-                  label: 'Education',
-                  count: (studentProfile?.education || []).length,
-                  unit: 'record(s)',
-                  status: (studentProfile?.education || []).length > 0 ? 'Live on site' : 'Hidden (0 saved)',
-                  isLive: (studentProfile?.education || []).length > 0,
-                  icon: '🎓',
-                },
-                {
-                  label: 'Projects',
-                  count: (studentProfile?.projects || []).length,
-                  unit: 'project(s)',
-                  status: (studentProfile?.projects || []).length > 0 ? 'Live on site' : 'Hidden (0 saved)',
-                  isLive: (studentProfile?.projects || []).length > 0,
-                  icon: '💻',
-                },
-                {
-                  label: 'Skills',
-                  count: (studentProfile?.skills || []).length,
-                  unit: 'skill(s)',
-                  status: (studentProfile?.skills || []).length > 0 ? 'Live on site' : 'Hidden (0 saved)',
-                  isLive: (studentProfile?.skills || []).length > 0,
-                  icon: '⚡',
-                },
-                {
-                  label: 'Bio / About',
-                  count: studentProfile?.bio?.trim() ? 1 : 0,
-                  unit: studentProfile?.bio?.trim() ? 'written' : 'empty',
-                  status: studentProfile?.bio?.trim() ? 'Live on site' : 'Hidden (empty)',
-                  isLive: !!studentProfile?.bio?.trim(),
-                  icon: '📝',
-                },
-              ].map((item, i) => (
-                <div
-                  key={i}
-                  style={{
-                    padding: '12px 16px',
-                    borderRadius: 14,
-                    background: item.isLive
-                      ? 'color-mix(in oklab, var(--accent) 8%, transparent)'
-                      : 'color-mix(in oklab, var(--bg-0) 40%, transparent)',
-                    border: item.isLive ? '1px solid var(--accent)' : '1px solid var(--line)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 20 }}>{item.icon}</span>
-                    <div>
-                      <strong style={{ fontSize: 14, display: 'block' }}>{item.label}</strong>
-                      <span className="muted" style={{ fontSize: 12 }}>
-                        {item.count} {item.unit}
+            {sectionControls.length === 0 ? (
+              <EmptyState
+                title="Section contract unavailable"
+                body="The website section contract could not be loaded. Reload the page before changing visibility or publishing."
+              />
+            ) : (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+                  {readinessSections.map((item) => {
+                    const countLabel = item.savedCount === null
+                      ? 'Readiness not loaded'
+                      : item.countKind === 'fields'
+                        ? `${item.savedCount} saved field${item.savedCount === 1 ? '' : 's'}`
+                        : `${item.savedCount} saved record${item.savedCount === 1 ? '' : 's'}`;
+                    const badges = [];
+                    if (item.saved !== null) {
+                      badges.push({ label: item.saved ? 'Saved' : 'Empty', tone: item.saved ? 'ok' : 'muted' });
+                    }
+                    badges.push({ label: item.enabled ? 'Enabled for public' : 'Hidden', tone: item.enabled ? 'ok' : 'muted' });
+                    badges.push({ label: item.supported ? 'Template-ready' : 'Not supported by template', tone: item.supported ? 'ok' : 'warn' });
+                    if (isPublished) {
+                      badges.push({
+                        label: item.liveOnPublishedPage
+                          ? `Live in revision #${liveRevisionNumber}`
+                          : item.inActiveRevision
+                            ? `In revision #${liveRevisionNumber}, hidden`
+                            : 'Not in live revision',
+                        tone: item.liveOnPublishedPage ? 'ok' : 'muted',
+                      });
+                    } else {
+                      badges.push({ label: 'No live revision', tone: 'muted' });
+                    }
+                    return (
+                      <div
+                        key={item.id}
+                        style={{
+                          padding: '12px 16px',
+                          borderRadius: 14,
+                          background: item.liveOnPublishedPage
+                            ? 'color-mix(in oklab, var(--accent) 8%, transparent)'
+                            : 'color-mix(in oklab, var(--bg-0) 40%, transparent)',
+                          border: item.liveOnPublishedPage ? '1px solid var(--accent)' : '1px solid var(--line)',
+                          display: 'grid',
+                          gap: 8,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+                          <strong style={{ fontSize: 14 }}>{item.label}</strong>
+                          <span className="mono muted" style={{ fontSize: 11 }}>{countLabel}</span>
+                        </div>
+                        {item.description ? (
+                          <span className="muted" style={{ fontSize: 12 }}>{item.description}</span>
+                        ) : null}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {badges.map((badge, index) => (
+                            <span
+                              key={index}
+                              className={badge.tone === 'ok' ? 'badge badge-verified' : 'badge'}
+                              style={{
+                                fontSize: 10,
+                                ...(badge.tone === 'warn'
+                                  ? { color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.4)' }
+                                  : {}),
+                              }}
+                            >
+                              {badge.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {enabledMissingContent.length > 0 && (
+                  <div
+                    style={{
+                      padding: '12px 16px',
+                      borderRadius: 14,
+                      background: 'color-mix(in oklab, #f59e0b 12%, transparent)',
+                      border: '1px solid rgba(245, 158, 11, 0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: 13,
+                      flexWrap: 'wrap',
+                      gap: 10,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 18 }}>💡</span>
+                      <span>
+                        <strong>{enabledMissingContent.map((section) => section.label).join(', ')}</strong>
+                        {enabledMissingContent.length === 1 ? ' is' : ' are'} enabled but {enabledMissingContent.length === 1 ? 'has' : 'have'} no saved content, so {enabledMissingContent.length === 1 ? 'it is' : 'they are'} omitted from the published page. Add content in your {identityPageLabel}.
                       </span>
                     </div>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={() => navigate(identityPagePath)}
+                    >
+                      Edit {identityPageLabel} →
+                    </Button>
                   </div>
-                  <span
-                    className={item.isLive ? 'badge badge-verified' : 'badge'}
-                    style={{ fontSize: 11 }}
-                  >
-                    {item.status}
-                  </span>
-                </div>
-              ))}
-            </div>
+                )}
 
-            {((studentProfile?.projects || []).length === 0 || (studentProfile?.skills || []).length === 0) && (
-              <div
-                style={{
-                  padding: '12px 16px',
-                  borderRadius: 14,
-                  background: 'color-mix(in oklab, #f59e0b 12%, transparent)',
-                  border: '1px solid rgba(245, 158, 11, 0.3)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  fontSize: 13,
-                  flexWrap: 'wrap',
-                  gap: 10,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 18 }}>💡</span>
-                  <span>
-                    <strong>Want Projects & Skills to appear on your portfolio?</strong> Add them in your <strong>Student Identity</strong> tab, then return here and click <strong>Republish Changes</strong>.
-                  </span>
-                </div>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={() => navigate(`${basePath}/identity`)}
-                >
-                  Add Projects & Skills →
-                </Button>
-              </div>
+                {unsupportedSections.length > 0 && (
+                  <div
+                    style={{
+                      padding: '12px 16px',
+                      borderRadius: 14,
+                      background: 'color-mix(in oklab, var(--bg-0) 40%, transparent)',
+                      border: '1px solid var(--line)',
+                      fontSize: 13,
+                      color: 'var(--text-2)',
+                    }}
+                  >
+                    <strong style={{ color: 'var(--text-1)' }}>Not rendered by {activeTemplate.name}:</strong>{' '}
+                    {unsupportedSections.map((section) => section.label).join(', ')}. This content stays saved on your identity; it is not deleted.
+                  </div>
+                )}
+
+                {!draftSummaryAvailable && (
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    Readiness counts appear once your saved identity data loads. Counts are never inferred from the template.
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -1074,7 +1325,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
-            {CANONICAL_TEMPLATES.map((tmpl) => {
+            {templates.map((tmpl) => {
               const isSelected = config?.selectedTemplateId === tmpl.id;
               const isCurrentlyPublished = isPublished && history.some((h) => h.isActive && h.templateId === tmpl.id);
 
@@ -1213,6 +1464,12 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
             })}
           </div>
 
+          {templates.length === 0 ? (
+            <div className="glass" style={{ padding: 20, borderRadius: 18, border: '1px solid var(--line)', fontSize: 13, color: 'var(--text-2)' }}>
+              No approved templates are available. The template registry could not be reached, so no template is being advertised.
+            </div>
+          ) : null}
+
           <div
             className="glass"
             style={{
@@ -1223,7 +1480,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
               color: 'var(--text-2)',
             }}
           >
-            <strong style={{ color: 'var(--text-1)' }}>Registry Notice:</strong> Additional official templates (Academic CV, Minimalist Writer, and Engineering Lab) will be integrated in future phases through the approved backend template registry.
+            <strong style={{ color: 'var(--text-1)' }}>Registry Notice:</strong> Only templates registered by the backend are listed. Changing templates keeps content that the current adapter cannot render; it is never deleted.
           </div>
         </div>
       )}
@@ -1234,9 +1491,9 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
       {subTab === 'customize' && (
         <div style={{ display: 'grid', gap: 24 }}>
           <div>
-            <h3 style={{ fontSize: 22, margin: '0 0 6px' }}>Customize Portfolio Sections</h3>
+            <h3 style={{ fontSize: 22, margin: '0 0 6px' }}>Customize Website Sections</h3>
               <p className="muted" style={{ fontSize: 14, margin: 0 }}>
-              Choose which sections appear and the order they use. These choices stay in the draft until you publish.
+              Choose which {identityLabel.toLowerCase()} sections appear and the order they use. Only sections supported by {activeTemplate.name} are listed. These choices stay in the draft until you publish.
             </p>
           </div>
 
@@ -1254,30 +1511,39 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
             <div>
               <div style={{ marginBottom: 12 }}>
                 <label className="field-label" style={{ fontSize: 14, margin: 0, display: 'block' }}>
-                  Visible Portfolio Sections
+                  Publicly Enabled Sections
                 </label>
                 <span className="muted" style={{ fontSize: 13 }}>
-                  Select which sections appear on your public website.
+                  {customizableSections.length
+                    ? `${customizableSections.length} sections from your ${identityLabel.toLowerCase()} identity can be enabled here.`
+                    : 'No sections for this identity are supported by the selected template.'}
                 </span>
               </div>
 
-              <EditorSectionVisibility
-                sections={(activeTemplate && activeTemplate.visibilityControls) || []}
-                selected={visibleSections}
-                onChange={setVisibleSections}
-              />
+              {customizableSections.length ? (
+                <EditorSectionVisibility
+                  sections={customizableSections}
+                  selected={visibleSections}
+                  onChange={setVisibleSections}
+                />
+              ) : (
+                <EmptyState
+                  title="No compatible sections"
+                  body="The selected template does not render any sections for this identity. Choose another registered template or review the template limits below."
+                />
+              )}
             </div>
 
-            {activeTemplate && activeTemplate.presentation && activeTemplate.presentation.sectionOrder ? (
+            {activeTemplate && activeTemplate.presentation && activeTemplate.presentation.sectionOrder && customizableSections.length ? (
               <div style={{ borderTop: '1px solid var(--line)', paddingTop: 20 }}>
                 <label className="field-label" style={{ fontSize: 14, margin: '0 0 8px', display: 'block' }}>
                   Section order
                 </label>
                 <p className="muted" style={{ fontSize: 12, margin: '0 0 12px' }}>
-                  Services, products, case studies, and featured work move with Projects. Credentials, highlights, and hackathons move with Achievements. Testimonials, team, and media stay just before Contact. Entry order inside a section is saved on the profile.
+                  Reorder the sections available to your identity and this template. Entry order inside each section is saved on the profile.
                 </p>
                 <EditorSectionOrder
-                  sections={(activeTemplate && activeTemplate.visibilityControls) || []}
+                  sections={customizableSections}
                   order={sectionOrder}
                   disabled={savingCustomization}
                   onChange={setSectionOrder}
@@ -1285,9 +1551,21 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
               </div>
             ) : null}
 
+            {unsupportedSections.length > 0 && (
+              <div style={{ borderTop: '1px solid var(--line)', paddingTop: 20 }}>
+                <p className="field-label" style={{ marginTop: 0 }}>Not supported by {activeTemplate.name}</p>
+                <p className="muted" style={{ margin: '0 0 8px', fontSize: 13 }}>
+                  These sections are not offered or published by the current template. Their saved content stays on your identity and returns when a compatible template is selected.
+                </p>
+                <ul className="muted" style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
+                  {unsupportedSections.map((section) => <li key={section.id}>{section.label}</li>)}
+                </ul>
+              </div>
+            )}
+
             {activeTemplate && Array.isArray(activeTemplate.limits) && activeTemplate.limits.length > 0 ? (
               <div style={{ borderTop: '1px solid var(--line)', paddingTop: 20 }}>
-                <p className="field-label" style={{ marginTop: 0 }}>Unavailable on this template</p>
+                <p className="field-label" style={{ marginTop: 0 }}>Template limits</p>
                 <ul className="muted" style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
                   {activeTemplate.limits.map((limit) => <li key={limit}>{limit}</li>)}
                 </ul>
@@ -1295,17 +1573,22 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
             ) : null}
 
             {/* Save Customization Buttons */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, borderTop: '1px solid var(--line)', paddingTop: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, borderTop: '1px solid var(--line)', paddingTop: 20 }}>
+              {customizationDirty && (
+                <span className="badge" style={{ fontSize: 11, color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.4)' }}>
+                  Unsaved draft changes
+                </span>
+              )}
               <Button
                 variant="glass"
                 onClick={() => {
-                  setThemeMode(config?.customization?.themeMode || 'system');
-                  setAccentColor(config?.customization?.accentColor || '#3b82f6');
-                  setVisibleSections(config?.customization?.visibleSections || ['about', 'education', 'projects', 'skills', 'work', 'achievements', 'contact']);
-                  setSectionOrder(config?.customization?.sectionOrder || ['about', 'work', 'education', 'skills', 'projects', 'achievements', 'contact']);
+                  setThemeMode('system');
+                  setAccentColor('#3b82f6');
+                  setVisibleSections((contractData && contractData.defaultSections ? contractData.defaultSections.visible : []).filter((id) => allowedSectionIds.indexOf(id) !== -1));
+                  setSectionOrder((contractData && contractData.defaultSections ? contractData.defaultSections.order : []).filter((id) => allowedSectionIds.indexOf(id) !== -1));
                 }}
               >
-                Reset
+                Reset to defaults
               </Button>
               <Button
                 variant="primary"
@@ -1340,9 +1623,9 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
                 <span className="eyebrow" style={{ color: 'var(--accent)', fontSize: 12 }}>
                   IMMUTABLE REVISION CONTROL
                 </span>
-                <h3 style={{ fontSize: 22, margin: '4px 0 6px' }}>Publish Your Portfolio</h3>
+                <h3 style={{ fontSize: 22, margin: '4px 0 6px' }}>Publish Your {identityLabel} Website</h3>
                 <p className="muted" style={{ fontSize: 14, margin: 0, maxWidth: 580 }}>
-                  Publishing takes an authenticated, immutable snapshot of your saved profile data and website settings. The snapshot is permanently recorded and immediately served to visitors at your public URL.
+                  Publishing takes an authenticated, immutable snapshot of your saved {identityLabel.toLowerCase()} identity data and website settings. Draft changes that were never saved are not included. The snapshot is permanently recorded and immediately served to visitors at your public URL.
                 </p>
               </div>
 
@@ -1381,9 +1664,17 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
                 </span>
               </div>
               <div>
-                <span className="field-hint" style={{ fontSize: 11 }}>CURRENT REVISION</span>
+                <span className="field-hint" style={{ fontSize: 11 }}>ACTIVE LIVE REVISION</span>
                 <span className="mono" style={{ fontSize: 13, fontWeight: 600, display: 'block', color: 'var(--text-1)' }}>
-                  {activeRevisionNumber ? `Revision #${activeRevisionNumber}` : 'Unpublished (Draft)'}
+                  {liveRevisionNumber ? `Revision #${liveRevisionNumber} · ${activePublishedSectionCount} published section${activePublishedSectionCount === 1 ? '' : 's'}` : 'Unpublished (Draft)'}
+                </span>
+              </div>
+              <div>
+                <span className="field-hint" style={{ fontSize: 11 }}>DRAFT READINESS</span>
+                <span style={{ fontSize: 12, color: 'var(--text-2)', display: 'block' }}>
+                  {draftSummaryAvailable
+                    ? `${readinessSections.filter((section) => section.saved && section.enabled && section.supported).length} of ${visibleSections.length} enabled sections have saved content`
+                    : 'Saved content summary not loaded'}
                 </span>
               </div>
               <div>
@@ -1411,6 +1702,11 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
               <p className="muted" style={{ fontSize: 14, margin: 0 }}>
                 Every publication creates a versioned, immutable snapshot in MongoDB. You can roll back to any prior revision instantly.
               </p>
+              {liveRevisionNumber && draftSummaryAvailable && (
+                <p className="muted" style={{ fontSize: 13, margin: '6px 0 0' }}>
+                  Revision #{liveRevisionNumber} currently includes {activePublishedSectionCount} section{activePublishedSectionCount === 1 ? '' : 's'} with content on the live page. Draft readiness in the Overview tab is not live until you publish a new revision.
+                </p>
+              )}
             </div>
 
             {history.length === 0 ? (
@@ -1601,7 +1897,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
           >
             <WebsiteIcons.alert />
             <span>
-              <strong>PREVIEW MODE:</strong> Displaying latest saved profile data and draft settings. This is <strong>not</strong> public yet.
+              <strong>PREVIEW MODE:</strong> Rendering your saved {identityLabel.toLowerCase()} identity data with the draft settings currently selected on this page. Sections you have hidden are excluded. This is <strong>not</strong> public until you publish.
             </span>
           </div>
 
@@ -1672,9 +1968,9 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
                 <PortfolioPreviewFrame
                   dto={previewData?.dto}
                   username={username}
-                  customization={previewData?.config?.customization || { visibleSections, accentColor, themeMode, sectionOrder }}
-                  templateId={config?.selectedTemplateId}
-                  templateVersion={config?.selectedTemplateVersion}
+                  customization={{ visibleSections: sanitizeSectionIds(visibleSections), accentColor, themeMode, sectionOrder: sanitizeSectionIds(sectionOrder) }}
+                  templateId={activeTemplate ? activeTemplate.id : (config?.selectedTemplateId || 'magicui-portfolio')}
+                  templateVersion={(activeTemplate && activeTemplate.version) || config?.selectedTemplateVersion}
                   height={previewViewport === 'mobile' ? 640 : 760}
                 />
               </div>
@@ -1694,9 +1990,9 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
         <div style={{ display: 'grid', gap: 18, minWidth: 320 }}>
           <div>
             <span className="eyebrow" style={{ color: 'var(--accent)', fontSize: 11 }}>EXPLICIT ACTION</span>
-            <h3 style={{ fontSize: 20, margin: '4px 0 6px' }}>Publish Portfolio Website?</h3>
+            <h3 style={{ fontSize: 20, margin: '4px 0 6px' }}>Publish {identityLabel} Website?</h3>
             <p className="muted" style={{ fontSize: 14, margin: 0 }}>
-              This will create a new, immutable publication revision snapshot and immediately update your public live website.
+              This saves the settings shown on this page, then creates a new immutable revision from your saved {identityLabel.toLowerCase()} identity data. The live website updates immediately.
             </p>
           </div>
 
@@ -1733,7 +2029,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
                   />
                 </div>
                 <span className="field-hint" style={{ fontSize: 11, margin: 0 }}>
-                  This will be your live portfolio URL.
+                  This will be your live website URL.
                 </span>
               </div>
             )}
@@ -1742,9 +2038,15 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
               <span>{activeTemplate.name} v{activeTemplate.version}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span className="muted">Visible Sections:</span>
-              <span>{visibleSections.length} sections</span>
+              <span className="muted">Publicly enabled:</span>
+              <span>{sanitizeSectionIds(visibleSections).length} of {sectionControls.length} sections</span>
             </div>
+            {liveRevisionNumber ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span className="muted">Currently live:</span>
+                <span>Revision #{liveRevisionNumber} · {activePublishedSectionCount} section{activePublishedSectionCount === 1 ? '' : 's'} with content</span>
+              </div>
+            ) : null}
 
             {/* Identity Snapshot Data Summary */}
             <div
@@ -1759,30 +2061,29 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
               }}
             >
               <span className="field-hint" style={{ fontSize: 11, marginBottom: 2 }}>
-                DATA INCLUDED IN THIS REVISION:
+                SAVED {identityLabel.toUpperCase()} CONTENT IN THIS DRAFT:
               </span>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>🎓 Education:</span>
-                <strong>{(studentProfile?.education || []).length} record(s)</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>💻 Projects:</span>
-                <strong style={{ color: (studentProfile?.projects || []).length === 0 ? '#f59e0b' : 'inherit' }}>
-                  {(studentProfile?.projects || []).length} record(s) {(studentProfile?.projects || []).length === 0 ? '(Section hidden)' : ''}
-                </strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>⚡ Skills:</span>
-                <strong style={{ color: (studentProfile?.skills || []).length === 0 ? '#f59e0b' : 'inherit' }}>
-                  {(studentProfile?.skills || []).length} record(s) {(studentProfile?.skills || []).length === 0 ? '(Section hidden)' : ''}
-                </strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>📝 Bio / About:</span>
-                <strong style={{ color: !studentProfile?.bio?.trim() ? '#f59e0b' : 'inherit' }}>
-                  {studentProfile?.bio?.trim() ? 'Written' : 'Empty (Section hidden)'}
-                </strong>
-              </div>
+              {publishSummarySections.length ? publishSummarySections.map((section) => {
+                const enabled = visibleSections.indexOf(section.id) !== -1;
+                const supported = section.templateSupported !== false;
+                const countLabel = section.countKind === 'fields'
+                  ? `${section.savedCount} saved field${section.savedCount === 1 ? '' : 's'}`
+                  : `${section.savedCount} saved record${section.savedCount === 1 ? '' : 's'}`;
+                return (
+                  <div key={section.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                    <span>{section.label}:</span>
+                    <strong style={{ color: section.saved && enabled && supported ? 'inherit' : '#f59e0b', textAlign: 'right' }}>
+                      {section.saved ? countLabel : 'No saved content'}
+                      {!enabled ? ' · hidden' : ''}
+                      {!supported ? ' · not rendered by this template' : ''}
+                    </strong>
+                  </div>
+                );
+              }) : (
+                <span className="muted">
+                  Saved content summary is unavailable. The revision still uses the data saved on your {identityLabel.toLowerCase()} identity.
+                </span>
+              )}
             </div>
           </div>
 
@@ -1865,7 +2166,7 @@ function StudentWebsitePage({ session, studentProfile, basePath = '/app/student'
             <span className="eyebrow" style={{ color: 'var(--accent)', fontSize: 11 }}>HANDLE SETUP</span>
             <h3 style={{ fontSize: 20, margin: '4px 0 6px' }}>Choose your Public Handle</h3>
             <p className="muted" style={{ fontSize: 14, margin: 0 }}>
-              Your portfolio will be accessible at <code>onevue.me/p/yourhandle</code>. Letters, numbers, hyphens, and underscores only.
+              Your website will be accessible at <code>onevue.me/p/yourhandle</code>. Letters, numbers, hyphens, and underscores only.
             </p>
           </div>
 

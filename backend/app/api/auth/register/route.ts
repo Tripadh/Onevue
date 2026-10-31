@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
 import connectToDatabase from "../../../../lib/db";
+import { createSession, issueSessionCookie } from "../../../../lib/session";
 import { ensureStudentProfile } from "../../../../lib/ensure-student-profile";
 import User, { IdentityType } from "../../../../models/User";
 
@@ -76,21 +76,11 @@ export async function POST(req: Request) {
       await ensureStudentProfile(newUser);
     }
 
-    const token = jwt.sign(
-      {
-        id: newUser._id,
-        email: newUser.email,
-        identity: newUser.identity,
-        surveyCompleted: false,
-      },
-      process.env.JWT_SECRET || "fallback_secret",
-      { expiresIn: "7d" }
-    );
-
-    return json(req,
+    const session = await createSession(newUser, req);
+    const response = json(req,
       {
         message: "User created successfully",
-        token,
+        token: session.accessToken,
         user: {
           id: newUser._id,
           name: newUser.name,
@@ -101,6 +91,8 @@ export async function POST(req: Request) {
       },
       { status: 201 }
     );
+    issueSessionCookie(response, session.refreshToken, session.csrfToken);
+    return response;
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal server error";
     return json(req,

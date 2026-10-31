@@ -6,64 +6,39 @@
  * magicui-portfolio is the only registered template, and it is a test adapter.
  */
 
-const IDENTITIES = ["student", "professional", "freelancer", "creator", "business"];
+const identityWebsite = require("../website/identity-contract");
 
-const CONTENT_SECTIONS = [
-  { id: "profile", label: "Profile", identities: IDENTITIES, storage: "public-dto", publicKey: "profile.displayName", repeatable: false, blocks: ["text", "media"] },
-  { id: "about", label: "About", identities: IDENTITIES, storage: "public-dto", publicKey: "profile.bio", repeatable: false, blocks: ["richText"] },
-  { id: "experience", label: "Experience", identities: ["student", "professional", "freelancer"], storage: "public-dto", publicKey: "experience", repeatable: true, blocks: ["text", "richText", "repeatable"] },
-  { id: "education", label: "Education", identities: ["student", "professional"], storage: "public-dto", publicKey: "education", repeatable: true, blocks: ["text", "link", "repeatable"] },
-  { id: "skills", label: "Skills", identities: ["student", "professional", "freelancer", "creator"], storage: "public-dto", publicKey: "skills", repeatable: true, blocks: ["text", "choice", "repeatable"] },
-  { id: "projects", label: "Projects", identities: IDENTITIES, storage: "public-dto", publicKey: "projects", repeatable: true, blocks: ["text", "richText", "link", "media", "repeatable"] },
-  { id: "services", label: "Services", identities: ["freelancer", "business"], storage: "public-dto", publicKey: "projects", repeatable: true, blocks: ["text", "richText", "repeatable"] },
-  { id: "products", label: "Products", identities: ["business"], storage: "public-dto", publicKey: "projects", repeatable: true, blocks: ["text", "link", "media", "repeatable"] },
-  { id: "caseStudies", label: "Case studies", identities: ["freelancer", "business"], storage: "public-dto", publicKey: "projects", repeatable: true, blocks: ["text", "link", "media", "repeatable"] },
-  { id: "featured", label: "Featured content", identities: ["creator"], storage: "public-dto", publicKey: "projects", repeatable: true, blocks: ["text", "link", "media", "repeatable"] },
-  { id: "credentials", label: "Credentials", identities: ["student", "professional", "business"], storage: "public-dto", publicKey: "credentials", repeatable: true, blocks: ["text", "link", "media", "repeatable"] },
-  { id: "highlights", label: "Highlights", identities: ["student", "professional"], storage: "public-dto", publicKey: "achievements", repeatable: true, blocks: ["text", "link", "repeatable"] },
-  { id: "hackathons", label: "Hackathons", identities: ["student"], storage: "public-dto", publicKey: "achievements", repeatable: true, blocks: ["text", "link", "repeatable"] },
-  { id: "testimonials", label: "Testimonials", identities: ["freelancer"], storage: "public-dto", publicKey: "testimonials", repeatable: true, blocks: ["richText", "repeatable"] },
-  { id: "team", label: "Team", identities: ["business"], storage: "public-dto", publicKey: "team", repeatable: true, blocks: ["text", "repeatable"] },
-  { id: "media", label: "Media", identities: ["student", "freelancer", "creator", "business"], storage: "public-dto", publicKey: "media", repeatable: true, blocks: ["text", "link", "media", "repeatable"] },
-  { id: "contact", label: "Contact", identities: IDENTITIES, storage: "public-dto", publicKey: "contact", repeatable: false, blocks: ["link", "choice"] },
-  { id: "languages", label: "Languages", identities: ["student"], storage: "public-dto", publicKey: "profile.languages", repeatable: true, blocks: ["text", "choice", "repeatable"] },
-  { id: "careerInterests", label: "Career interests", identities: ["student", "freelancer", "creator"], storage: "public-dto", publicKey: "profile.careerInterests", repeatable: true, blocks: ["text", "repeatable"] },
-  { id: "areasOfInterest", label: "Areas of interest", identities: ["student", "creator"], storage: "public-dto", publicKey: "profile.areasOfInterest", repeatable: true, blocks: ["text", "repeatable"] },
-  { id: "nationality", label: "Nationality", identities: ["student"], storage: "public-dto", publicKey: "profile.nationality", repeatable: false, blocks: ["text"] },
-  { id: "currentStatus", label: "Current status", identities: IDENTITIES, storage: "public-dto", publicKey: "profile.currentStatus", repeatable: false, blocks: ["text", "choice"] },
-  { id: "registration", label: "Registration", identities: ["business"], storage: "identity-profile", publicKey: null, repeatable: false, blocks: ["text", "media"] },
-  { id: "audienceStats", label: "Audience statistics", identities: ["creator"], storage: "identity-profile", publicKey: null, repeatable: true, blocks: ["text", "choice", "repeatable"] },
+const IDENTITIES = identityWebsite.IDENTITIES;
+const CONTENT_SECTIONS = identityWebsite.CONTENT_SECTIONS;
+const RETAINED_PUBLIC_FIELDS = identityWebsite.RETAINED_PUBLIC_FIELDS;
+
+/** `profile` is rendered by the template shell, not a toggleable section. */
+const MAGICUI_SUPPORTED_SECTIONS = ["profile"].concat(identityWebsite.RENDERER_SECTION_IDS);
+
+/** Custom-field presentations the template can draw. */
+const CUSTOM_FIELD_TYPES = [
+  "text",
+  "textarea",
+  "number",
+  "url",
+  "date",
+  "boolean",
+  "select",
+  "multiselect",
+  "tags",
+  "image",
+  "gallery",
+  "video",
+  "file",
 ];
 
-const RETAINED_PUBLIC_FIELDS = [
-  "profile.languages",
-  "profile.careerInterests",
-  "profile.areasOfInterest",
-  "profile.nationality",
-  "profile.currentStatus",
-];
-
-const MAGICUI_SUPPORTED_SECTIONS = [
-  "profile",
-  "about",
-  "experience",
-  "education",
-  "skills",
-  "projects",
-  "services",
-  "products",
-  "caseStudies",
-  "featured",
-  "credentials",
-  "highlights",
-  "hackathons",
-  "testimonials",
-  "team",
-  "media",
-  "contact",
-];
-
-const DEFAULT_SECTION_ORDER = ["about", "work", "education", "skills", "projects", "achievements", "contact"];
+/**
+ * Legacy ordering used only when no identity is supplied (older callers and
+ * stored configurations written before the identity contract existed).
+ * Identity-aware callers receive the canonical order from identity-contract.js.
+ */
+const LEGACY_DEFAULT_SECTION_ORDER = ["about", "work", "education", "skills", "projects", "achievements", "contact"];
+const DEFAULT_SECTION_ORDER = LEGACY_DEFAULT_SECTION_ORDER;
 
 const MAGICUI = {
   id: "magicui-portfolio",
@@ -74,6 +49,9 @@ const MAGICUI = {
     "Test adapter used to exercise publishing. It is not the permanent OneVue template library. Profile content stays stored when this adapter cannot display it.",
   supportedSections: MAGICUI_SUPPORTED_SECTIONS,
   supportedBlocks: ["text", "richText", "link", "repeatable", "media", "choice"],
+  supportedFieldTypes: CUSTOM_FIELD_TYPES,
+  hiddenFieldTypes: [],
+  identities: IDENTITIES,
   requiredInputs: ["displayName", "username"],
   media: {
     images: true,
@@ -116,12 +94,42 @@ function listTemplates() {
   return TEMPLATES.map((template) => Object.assign({}, template, {
     supportedSections: template.supportedSections.slice(),
     supportedBlocks: template.supportedBlocks.slice(),
+    supportedFieldTypes: template.supportedFieldTypes.slice(),
+    hiddenFieldTypes: template.hiddenFieldTypes.slice(),
+    identities: template.identities.slice(),
     visibilityControls: template.visibilityControls.map((item) => Object.assign({}, item)),
     retainedSections: template.retainedSections.slice(),
     limits: template.limits.slice(),
     defaultSectionOrder: template.defaultSectionOrder.slice(),
   }));
 }
+
+const KNOWN_FIELD_TYPES = new Set(CUSTOM_FIELD_TYPES);
+
+/**
+ * A template may only declare sections, identities, and field types that the
+ * contract knows about. An invalid registry cannot be served or persisted.
+ */
+function validateTemplateRegistry() {
+  const rendererSections = new Set(MAGICUI_SUPPORTED_SECTIONS);
+  const ids = new Set();
+  TEMPLATES.forEach((template) => {
+    if (ids.has(template.id)) throw new Error(`Duplicate template id '${template.id}'.`);
+    ids.add(template.id);
+    template.supportedSections.forEach((id) => {
+      if (!rendererSections.has(id)) throw new Error(`Template '${template.id}' declares unknown section '${id}'.`);
+    });
+    template.identities.forEach((identity) => {
+      if (!isKnownIdentity(identity)) throw new Error(`Template '${template.id}' declares unknown identity '${identity}'.`);
+    });
+    template.supportedFieldTypes.forEach((type) => {
+      if (!KNOWN_FIELD_TYPES.has(type)) throw new Error(`Template '${template.id}' declares unknown field type '${type}'.`);
+    });
+  });
+  return true;
+}
+
+validateTemplateRegistry();
 
 function getTemplate(id) {
   return listTemplates().find((template) => template.id === id) || null;
@@ -197,13 +205,51 @@ function uniqueAllowed(values, allowed) {
   return next;
 }
 
-function presentationForTemplate(templateId, customization) {
+function isKnownIdentity(identity) {
+  return typeof identity === "string" && Boolean(identityWebsite.IDENTITY_META[identity]);
+}
+
+function identityAllowedSections(identity, template) {
+  return identityWebsite.sectionControlsFor(identity)
+    .filter((section) => template.supportedSections.indexOf(section.id) !== -1)
+    .map((section) => section.id);
+}
+
+const LEGACY_SECTION_ALIASES = (() => {
+  const aliases = new Set(["work", "achievements"]);
+  identityWebsite.SECTION_CATALOG.forEach((section) => {
+    section.legacyIds.forEach((id) => aliases.add(id));
+  });
+  return aliases;
+})();
+
+/**
+ * A known section can be missing for this identity or template because the
+ * configuration was written before the identity contract existed. Those are
+ * migrated by normalization. Only ids that are not sections at all are errors.
+ */
+function unknownIdentitySections(values, allowed) {
+  const allowedLower = new Set(allowed.map((id) => String(id).toLowerCase()));
+  return values.filter((value) => {
+    const id = String(value || "").toLowerCase().trim();
+    if (LEGACY_SECTION_ALIASES.has(id)) return false;
+    if (identityWebsite.canonicalSectionId(id)) return false;
+    return !allowedLower.has(id);
+  });
+}
+
+function presentationForTemplate(templateId, customization, identity) {
   const template = getTemplate(templateId);
   if (!template) {
     throw new Error("Template '" + templateId + "' is not registered.");
   }
-  const allowed = template.visibilityControls.map((item) => item.id);
-  const fallbackOrder = uniqueAllowed(template.defaultSectionOrder || allowed, allowed);
+  const identityAware = isKnownIdentity(identity);
+  const allowed = identityAware
+    ? identityAllowedSections(identity, template)
+    : template.visibilityControls.map((item) => item.id);
+  const fallbackOrder = identityAware
+    ? identityWebsite.defaultOrderFor(identity).filter((id) => allowed.indexOf(id) !== -1)
+    : uniqueAllowed(template.defaultSectionOrder || allowed, allowed);
   allowed.forEach((id) => {
     if (fallbackOrder.indexOf(id) === -1) fallbackOrder.push(id);
   });
@@ -233,7 +279,10 @@ function presentationForTemplate(templateId, customization) {
     themeMode = source.themeMode;
   }
 
-  const defaultVisible = ["about", "education", "projects", "skills", "achievements", "contact"].filter((id) => allowed.indexOf(id) !== -1);
+  const defaultVisible = (identityAware
+    ? identityWebsite.defaultVisibleFor(identity)
+    : ["about", "education", "projects", "skills", "achievements", "contact"]
+  ).filter((id) => allowed.indexOf(id) !== -1);
   let visibleSections = defaultVisible.slice();
   if (source.visibleSections !== undefined) {
     if (!Array.isArray(source.visibleSections)) {
@@ -242,11 +291,21 @@ function presentationForTemplate(templateId, customization) {
     if (!template.presentation.sectionVisibility) {
       throw new Error("This template does not hide sections.");
     }
-    const unknown = source.visibleSections.filter((id) => allowed.indexOf(String(id)) === -1);
-    if (unknown.length) {
-      throw new Error("Unsupported section visibility: " + unknown.join(", ") + ".");
+    if (identityAware) {
+      const unknown = unknownIdentitySections(source.visibleSections, allowed);
+      if (unknown.length) {
+        throw new Error("Unsupported section visibility: " + unknown.join(", ") + ".");
+      }
+      visibleSections = identityWebsite
+        .normalizeVisibleSections(identity, source.visibleSections)
+        .filter((id) => allowed.indexOf(id) !== -1);
+    } else {
+      const unknown = source.visibleSections.filter((id) => allowed.indexOf(String(id)) === -1);
+      if (unknown.length) {
+        throw new Error("Unsupported section visibility: " + unknown.join(", ") + ".");
+      }
+      visibleSections = uniqueAllowed(source.visibleSections, allowed);
     }
-    visibleSections = uniqueAllowed(source.visibleSections, allowed);
   }
 
   let sectionOrder = fallbackOrder.slice();
@@ -257,14 +316,24 @@ function presentationForTemplate(templateId, customization) {
     if (!template.presentation.sectionOrder) {
       throw new Error("This template does not reorder sections.");
     }
-    const unknownOrder = source.sectionOrder.filter((id) => allowed.indexOf(String(id)) === -1);
-    if (unknownOrder.length) {
-      throw new Error("Unsupported section order: " + unknownOrder.join(", ") + ".");
+    if (identityAware) {
+      const unknownOrder = unknownIdentitySections(source.sectionOrder, allowed);
+      if (unknownOrder.length) {
+        throw new Error("Unsupported section order: " + unknownOrder.join(", ") + ".");
+      }
+      sectionOrder = identityWebsite
+        .normalizeSectionOrder(identity, source.sectionOrder)
+        .filter((id) => allowed.indexOf(id) !== -1);
+    } else {
+      const unknownOrder = source.sectionOrder.filter((id) => allowed.indexOf(String(id)) === -1);
+      if (unknownOrder.length) {
+        throw new Error("Unsupported section order: " + unknownOrder.join(", ") + ".");
+      }
+      sectionOrder = uniqueAllowed(source.sectionOrder, allowed);
+      fallbackOrder.forEach((id) => {
+        if (sectionOrder.indexOf(id) === -1) sectionOrder.push(id);
+      });
     }
-    sectionOrder = uniqueAllowed(source.sectionOrder, allowed);
-    fallbackOrder.forEach((id) => {
-      if (sectionOrder.indexOf(id) === -1) sectionOrder.push(id);
-    });
   }
 
   return {
@@ -275,23 +344,41 @@ function presentationForTemplate(templateId, customization) {
   };
 }
 
-function publishedCustomization(revisionPresentation, configCustomization, templateId) {
+function publishedCustomization(revisionPresentation, configCustomization, templateId, identity) {
   const id = templateId || "magicui-portfolio";
   const stored = revisionPresentation && typeof revisionPresentation === "object" ? revisionPresentation : null;
   if (stored && Array.isArray(stored.visibleSections)) {
-    return presentationForTemplate(id, stored);
+    return presentationForTemplate(id, stored, identity);
   }
   const config = configCustomization && typeof configCustomization === "object" ? configCustomization : {};
-  return presentationForTemplate(id, config);
+  return presentationForTemplate(id, config, identity);
 }
 
-function rollbackPresentation(revisionPresentation, templateId) {
+function rollbackPresentation(revisionPresentation, templateId, identity) {
   const id = templateId || "magicui-portfolio";
   const stored = revisionPresentation && typeof revisionPresentation === "object" ? revisionPresentation : null;
   if (stored && Array.isArray(stored.visibleSections)) {
-    return presentationForTemplate(id, stored);
+    return presentationForTemplate(id, stored, identity);
   }
-  return presentationForTemplate(id, {});
+  return presentationForTemplate(id, {}, identity);
+}
+
+function listIdentityContracts(templateId) {
+  const id = templateId || "magicui-portfolio";
+  const template = getTemplate(id);
+  if (!template) {
+    throw new Error("Template '" + id + "' is not registered.");
+  }
+  return identityWebsite.allIdentityContracts(template);
+}
+
+function getIdentityContract(identity, templateId) {
+  const id = templateId || "magicui-portfolio";
+  const template = getTemplate(id);
+  if (!template) {
+    throw new Error("Template '" + id + "' is not registered.");
+  }
+  return identityWebsite.identityContract(identity, template);
 }
 
 function reorderEntries(list, index, direction) {
@@ -308,9 +395,11 @@ const api = {
   IDENTITIES,
   CONTENT_SECTIONS,
   RETAINED_PUBLIC_FIELDS,
+  CUSTOM_FIELD_TYPES,
   APPROVED_TEMPLATE_IDS: TEMPLATES.map((template) => template.id),
   listTemplates,
   getTemplate,
+  validateTemplateRegistry,
   contentForIdentity,
   partitionPublication,
   retainedProfileKeys,
@@ -318,6 +407,8 @@ const api = {
   presentationForTemplate,
   publishedCustomization,
   rollbackPresentation,
+  listIdentityContracts,
+  getIdentityContract,
   reorderEntries,
 };
 api.default = api;

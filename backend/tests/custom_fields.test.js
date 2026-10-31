@@ -29,6 +29,7 @@ const {
   fieldCompatibility,
 } = require(path.join(projectRoot, "lib", "custom-fields", "index.ts"));
 const { toPublicProfileDTO, allowlistPublicSnapshot } = require(path.join(projectRoot, "lib", "public-profile-dto.ts"));
+const { projectRecordFields } = require(path.join(projectRoot, "lib", "custom-fields", "publish.ts"));
 
 const NOW = "2026-10-27T00:00:00.000Z";
 const ASSET = "ast_" + "ab".repeat(12);
@@ -96,6 +97,23 @@ describe("custom field definitions", () => {
         now: NOW,
       }),
       (error) => error instanceof ProfileValidationError && /unsupported type/.test(error.message)
+    );
+  });
+
+  test("normalizes text, textarea, and heading length bounds", () => {
+    const layout = normalizeCustomLayout(educationLayout([
+      field("text", { id: "fld_text000001", order: 0, config: { maxLength: 300, minLength: 2 } }),
+      field("textarea", { id: "fld_textarea01", order: 1 }),
+      field("heading", { id: "fld_heading001", order: 2 }),
+    ]), { identity: "student", recordIds: { education: [] }, now: NOW });
+    assert.deepEqual(layout.sections[0].fields[0].config, { minLength: 2, maxLength: 300 });
+    assert.deepEqual(layout.sections[0].fields[1].config, { minLength: 0, maxLength: 4000 });
+    assert.deepEqual(layout.sections[0].fields[2].config, { minLength: 0, maxLength: 150 });
+    assert.throws(
+      () => normalizeCustomLayout(educationLayout([
+        field("heading", { id: "fld_heading002", config: { maxLength: 151 } }),
+      ]), { identity: "student", recordIds: { education: [] }, now: NOW }),
+      (error) => error instanceof ProfileValidationError
     );
   });
 
@@ -290,6 +308,93 @@ describe("custom field security and publishing", () => {
       }],
     });
     assert.equal(JSON.stringify(poisoned.customSections || []).includes("javascript:"), false);
+  });
+
+  test("record-level custom fields honor publish strictness and preview asset delivery", () => {
+    const assetId = "ast_" + "ab".repeat(12);
+    const ownerId = "a".repeat(24);
+    const record = {
+      id: "edu_1",
+      institution: "State",
+      degree: "BSc",
+      currentStatus: "studying",
+      customFields: [{
+        id: "fld_poster0001",
+        key: "poster",
+        label: "Poster",
+        type: "image",
+        visibility: "public",
+        order: 0,
+        value: { assetId, fileName: "poster.png" },
+      }],
+    };
+    const profile = { preferredName: "Ada", education: [record] };
+    const baseOptions = {
+      username: "ada",
+      templateId: "magicui-portfolio",
+      identity: "student",
+      ownerId,
+      recordIds: { education: ["edu_1"] },
+    };
+
+    const preview = toPublicProfileDTO(profile, { ...baseOptions, assetDelivery: "preview" });
+    assert.match(
+      preview.education[0].customFields[0].value.href,
+      /^\/api\/assets\/private\/ast_[a-f0-9]{24}\?exp=\d+&sig=[a-f0-9]{64}$/
+    );
+
+    const published = toPublicProfileDTO(profile, { ...baseOptions, assetDelivery: "publish" });
+    assert.equal(published.education[0].customFields[0].value.href, `/api/assets/public/${assetId}`);
+
+    const broken = {
+      preferredName: "Ada",
+      education: [{
+        ...record,
+        customFields: [{
+          ...record.customFields[0],
+          value: { assetId: "ast_not_a_real_asset", fileName: "missing.png" },
+        }],
+      }],
+    };
+    assert.throws(
+      () => toPublicProfileDTO(broken, {
+        ...baseOptions,
+        assetDelivery: "publish",
+        strictCustomFields: true,
+      }),
+      (error) => error instanceof ProfileValidationError && /not available to publish/.test(error.message)
+    );
+    assert.doesNotThrow(() => toPublicProfileDTO(broken, { ...baseOptions, assetDelivery: "publish" }));
+  });
+
+  test("record field projection works with and without an asset resolver", () => {
+    const assetId = "ast_" + "cd".repeat(12);
+    const fields = [{
+      id: "fld_note000001",
+      key: "note",
+      label: "Note",
+      type: "text",
+      visibility: "public",
+      order: 0,
+      value: "Hello",
+    }, {
+      id: "fld_badge00001",
+      key: "badge",
+      label: "Badge",
+      type: "image",
+      visibility: "public",
+      order: 1,
+      value: { assetId, fileName: "badge.png" },
+    }];
+
+    const withoutResolver = projectRecordFields(fields, { templateId: "magicui-portfolio" });
+    assert.deepEqual(withoutResolver.map((item) => item.label), ["Note"]);
+
+    const withResolver = projectRecordFields(fields, {
+      templateId: "magicui-portfolio",
+      assetHref: (id) => `/api/assets/public/${id}`,
+    });
+    assert.equal(withResolver[1].value.href, `/api/assets/public/${assetId}`);
   });
 
   test("rejects excessive field counts, huge payloads, stale revisions, and foreign section keys", () => {

@@ -32,6 +32,35 @@
     if (isLive()) http('PATCH', '/me/preferences', { theme: id }).catch(() => {});
   }
 
-  window.OV.services.site = { listTestimonials, listPlans, listFaq, getThemePreference, setThemePreference };
+  /** Website config - template selection and customization */
+  async function getWebsiteConfig() {
+    if (isLive()) return http('GET', '/student/website/config');
+    await latency(80, 150);
+    const config = db.find('c:websiteConfigs', c => c.userId === window.OV.core.currentUserId);
+    return config || null;
+  }
+
+  async function updateWebsiteConfig(data) {
+    if (isLive()) return http('PUT', '/student/website/config', data);
+    await latency();
+    const existing = db.find('c:websiteConfigs', c => c.userId === window.OV.core.currentUserId);
+    if (existing) {
+      db.update('c:websiteConfigs', existing.id, data);
+      return db.find('c:websiteConfigs', existing.id);
+    }
+    const created = Object.assign({ id: 'wc_' + Date.now(), userId: window.OV.core.currentUserId, status: 'draft' }, data);
+    db.set('c:websiteConfigs', created.id, created);
+    return created;
+  }
+
+  window.OV.services.site = {
+    listTestimonials,
+    listPlans,
+    listFaq,
+    getThemePreference,
+    setThemePreference,
+    getWebsiteConfig,
+    updateWebsiteConfig
+  };
 })();
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { verifyAuth } from "../../../../lib/auth";
 import User from "../../../../models/User";
+import { revokeAllSessions } from "../../../../lib/session";
 
 export async function OPTIONS() {
   return NextResponse.json({}, { status: 200 });
@@ -82,6 +83,7 @@ export async function POST(req: Request) {
     const salt = await bcrypt.genSalt(10);
     userWithPassword.password = await bcrypt.hash(newPassword, salt);
     await userWithPassword.save();
+    await revokeAllSessions(authUser._id, "password-changed");
 
     return NextResponse.json(
       { message: "Password updated successfully." },

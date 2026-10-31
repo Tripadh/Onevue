@@ -1318,6 +1318,9 @@
           if (key.indexOf(".") !== -1) return;
           if (source[key] !== undefined && source[key] !== null) out[key] = source[key];
         });
+        if (source.customFields !== undefined && source.customFields !== null) {
+          out.customFields = source.customFields;
+        }
         if (shape.nested && source[shape.nested.key] !== undefined && source[shape.nested.key] !== null) {
           out[shape.nested.key] = pickShape({ list: shape.nested.list }, source[shape.nested.key]);
         }
@@ -1331,6 +1334,9 @@
         if (source[key] === undefined || source[key] === null) return;
         out[key] = pickShape(shape.fields[key], source[key]);
       });
+      if (source.customFields !== undefined && source.customFields !== null) {
+        out.customFields = source.customFields;
+      }
       if (out.status === "verified" || out.status === "rejected") delete out.status;
       return out;
     }

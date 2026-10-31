@@ -45,6 +45,19 @@ export interface IStudentEducation {
   customFields?: RecordCustomField[];
 }
 
+export interface IStudentWorkExperience {
+  _id?: Schema.Types.ObjectId | string;
+  id?: string;
+  organization: string;
+  title: string;
+  experienceType: "employment" | "internship";
+  location?: string;
+  startDate?: string;
+  endDate?: string;
+  isCurrent?: boolean;
+  description?: string;
+}
+
 export type ProjectType =
   | "academic"
   | "personal"
@@ -281,6 +294,7 @@ export interface IStudentPlatformLink {
   isPrimary?: boolean;
   visibility?: "public" | "connections" | "recruiters" | "private";
   verificationStatus?: "unverified" | "verified" | "failed" | "pending";
+  customFields?: RecordCustomField[];
 }
 
 export interface IStudentContacts {
@@ -332,6 +346,7 @@ export interface IStudentProfile {
 
   // Module 2-9 Canonical collections
   education: IStudentEducation[];
+  workExperience: IStudentWorkExperience[];
   projects: IStudentProject[];
   skills: IStudentSkill[];
   credentials: IStudentCredential[];
@@ -436,6 +451,42 @@ const EducationSubSchema = new Schema(
       default: "self-reported",
     },
     customFields: recordCustomFieldsArray(),
+  },
+  { _id: true }
+);
+
+const WorkExperienceSubSchema = new Schema(
+  {
+    id: {
+      type: String,
+      default: function (this: { _id?: Schema.Types.ObjectId }) {
+        return this._id ? this._id.toString() : "";
+      },
+      trim: true,
+      maxlength: 100,
+    },
+    organization: {
+      type: String,
+      required: [true, "Organization is required"],
+      trim: true,
+      maxlength: 150,
+    },
+    title: {
+      type: String,
+      required: [true, "Role title is required"],
+      trim: true,
+      maxlength: 150,
+    },
+    experienceType: {
+      type: String,
+      enum: ["employment", "internship"],
+      default: "employment",
+    },
+    location: { type: String, default: "", trim: true, maxlength: 150 },
+    startDate: { type: String, default: "", trim: true, maxlength: 50 },
+    endDate: { type: String, default: "", trim: true, maxlength: 50 },
+    isCurrent: { type: Boolean, default: false },
+    description: { type: String, default: "", trim: true, maxlength: 4000 },
   },
   { _id: true }
 );
@@ -943,6 +994,15 @@ const StudentProfileSchema = new Schema(
       validate: [
         (arr: unknown[]) => Array.isArray(arr) && arr.length <= 25,
         "Education cannot exceed 25 items",
+      ],
+    },
+
+    workExperience: {
+      type: [WorkExperienceSubSchema],
+      default: [],
+      validate: [
+        (arr: unknown[]) => Array.isArray(arr) && arr.length <= 30,
+        "Work experience cannot exceed 30 items",
       ],
     },
 

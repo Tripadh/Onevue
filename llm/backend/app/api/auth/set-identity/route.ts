@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import jwt from "jsonwebtoken";
 import { applyCorsHeaders, preflightResponse } from "../../../../lib/cors";
 import connectToDatabase from "../../../../lib/db";
 import { ensureStudentProfile } from "../../../../lib/ensure-student-profile";
 import User, { IdentityType } from "../../../../models/User";
+import { verifySessionToken } from "../../../../lib/auth";
+import { createSession, issueSessionCookie } from "../../../../lib/session";
 
 const VALID_IDENTITIES: IdentityType[] = [
   "student",
@@ -34,10 +35,7 @@ export async function POST(req: Request) {
     const token = authHeader.split(" ")[1];
     let decoded: { id: string; email: string };
     try {
-      decoded = jwt.verify(
-        token,
-        process.env.JWT_SECRET || "fallback_secret"
-      ) as { id: string; email: string };
+      decoded = await verifySessionToken(token);
     } catch {
       return json(req,
         { message: "Invalid or expired session token." },
@@ -82,21 +80,11 @@ export async function POST(req: Request) {
       await ensureStudentProfile(user);
     }
 
-    const newToken = jwt.sign(
-      {
-        id: user._id,
-        email: user.email,
-        identity: user.identity,
-        surveyCompleted: !!user.onboarding?.surveyCompleted,
-      },
-      process.env.JWT_SECRET || "fallback_secret",
-      { expiresIn: "7d" }
-    );
-
-    return json(req,
+    const session = await createSession(user, req);
+    const response = json(req,
       {
         message: "Identity updated successfully",
-        token: newToken,
+        token: session.accessToken,
         user: {
           id: user._id,
           name: user.name,
@@ -107,6 +95,8 @@ export async function POST(req: Request) {
       },
       { status: 200 }
     );
+    issueSessionCookie(response, session.refreshToken, session.csrfToken);
+    return response;
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal server error";
     return json(req, { message }, { status: 500 });

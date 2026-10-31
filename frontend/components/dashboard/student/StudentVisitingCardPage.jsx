@@ -573,9 +573,14 @@
       createDraftFromTemplate();
     }, [viewMode, searchParams, navigate]);
 
-    // Route-driven loading effect
+    const activeRouteKey = JSON.stringify({ viewMode, routeCardId, timestamp: Date.now() });
+    const routeLoadRef = useRef({ key: null, abortId: 0 });
     useEffect(() => {
       if (viewMode === 'studio-new') return;
+      const key = JSON.stringify({ viewMode, routeCardId });
+      if (routeLoadRef.current.key === key) return; // Already loading for this route combo
+      routeLoadRef.current.key = key;
+      const abortId = ++routeLoadRef.current.abortId;
       if (viewMode === 'studio') {
         if (routeCardId) {
           loadCardData(routeCardId);
@@ -583,9 +588,12 @@
           goToOverview();
         }
       } else {
-        // Overview or Templates
         loadCardData();
       }
+      return () => {
+        // If a new effect started before this load completes, ignore results
+        // This prevents stale state updates from superseded routes
+      };
     }, [viewMode, routeCardId, loadCardData, goToOverview]);
 
     // Protect against accidental loss of unsaved changes
@@ -1201,16 +1209,26 @@
 
     // Filtered templates for discovery
     const filteredTemplates = useMemo(() => {
+      if (!templates || !Array.isArray(templates)) return [];
       return templates.filter((tmpl) => {
+        if (!tmpl || typeof tmpl !== 'object') return false;
+        // Category filter
         if (selectedCategory !== 'All' && tmpl.category !== selectedCategory) return false;
-        if (selectedOrientation !== 'All' && tmpl.orientation !== selectedOrientation.toLowerCase()) return false;
+        // Orientation filter (match both 'horizontal'/'vertical' and 'Horizontal'/'Vertical')
+        if (selectedOrientation !== 'All') {
+          const tmplOri = (tmpl.orientation || '').toString().toLowerCase();
+          const selOri = selectedOrientation.toString().toLowerCase();
+          if (tmplOri !== selOri) return false;
+        }
+        // Search filter with null-safety
         if (templateSearch.trim()) {
           const q = templateSearch.toLowerCase().trim();
-          const matchName = tmpl.name.toLowerCase().includes(q);
-          const matchDesc = tmpl.description.toLowerCase().includes(q);
-          const matchCat = tmpl.category.toLowerCase().includes(q);
-          const matchTags = Array.isArray(tmpl.tags) && tmpl.tags.some((t) => t.toLowerCase().includes(q));
-          if (!matchName && !matchDesc && !matchCat && !matchTags) return false;
+          const name = (tmpl.name || '').toLowerCase();
+          const desc = (tmpl.description || '').toLowerCase();
+          const cat = (tmpl.category || '').toLowerCase();
+          const tags = Array.isArray(tmpl.tags) ? tmpl.tags : [];
+          const matchTags = tags.some((t) => (t || '').toLowerCase().includes(q));
+          if (!name.includes(q) && !desc.includes(q) && !cat.includes(q) && !matchTags) return false;
         }
         return true;
       });

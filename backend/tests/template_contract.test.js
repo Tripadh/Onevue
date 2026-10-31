@@ -164,10 +164,12 @@ describe("Create and customize contract", () => {
     assert.equal(saved.sectionOrder[1], "skills");
     assert.equal(saved.sectionOrder.indexOf("contact"), saved.sectionOrder.lastIndexOf("contact"));
     assert.ok(saved.sectionOrder.includes("work"));
-    assert.deepEqual(
-      frontend.presentationForTemplate("magicui-portfolio", { accentColor: "#fff", themeMode: "light", sectionOrder: ["projects"] }),
-      contract.presentationForTemplate("magicui-portfolio", { accentColor: "#fff", themeMode: "light", sectionOrder: ["projects"] })
-    );
+    // Presentation rules live only on the server. The browser mirrors registry
+    // data and shared helpers, but must not re-implement validation.
+    assert.equal(typeof frontend.presentationForTemplate, "undefined");
+    assert.equal(typeof frontend.publishedCustomization, "undefined");
+    assert.equal(typeof frontend.rollbackPresentation, "undefined");
+    assert.deepEqual(frontend.reorderEntries(["a", "b", "c"], 0, 1), contract.reorderEntries(["a", "b", "c"], 0, 1));
     assert.throws(() => contract.presentationForTemplate("magicui-portfolio", { visibleSections: ["secret"] }), /Unsupported section visibility/);
     assert.throws(() => contract.presentationForTemplate("magicui-portfolio", { accentColor: "blue" }), /hex/);
     assert.throws(() => contract.presentationForTemplate("future-template", {}), /not registered/);
@@ -199,10 +201,6 @@ describe("Create and customize contract", () => {
     assert.equal(legacy.accentColor, "#3b82f6");
     assert.equal(legacy.themeMode, "system");
     assert.deepEqual(legacy.visibleSections, ["about", "education", "projects", "skills", "achievements", "contact"]);
-    assert.deepEqual(
-      frontend.rollbackPresentation(null, "magicui-portfolio"),
-      contract.rollbackPresentation(null, "magicui-portfolio")
-    );
     const liveLegacy = contract.publishedCustomization(null, { accentColor: "#abcdef", themeMode: "dark", visibleSections: ["skills"] });
     assert.equal(liveLegacy.accentColor, "#abcdef");
   });
@@ -223,5 +221,30 @@ describe("Create and customize contract", () => {
     assert.equal(body.success, true);
     assert.deepEqual(body.templates.map((template) => template.id), ["magicui-portfolio"]);
     assert.equal(JSON.stringify(body).includes("privateAssets\":true"), false);
+  });
+
+  test("every registered template declares identities, sections, and field types", async () => {
+    assert.equal(contract.validateTemplateRegistry(), true);
+    const template = contract.getTemplate("magicui-portfolio");
+    assert.deepEqual(template.identities, contract.IDENTITIES);
+    assert.ok(template.supportedFieldTypes.length > 0);
+    assert.deepEqual(template.supportedFieldTypes, contract.CUSTOM_FIELD_TYPES);
+    assert.deepEqual(template.hiddenFieldTypes, []);
+
+    const response = await templatesRoute.GET(new Request("http://localhost/api/templates"));
+    const body = await response.json();
+    const served = body.templates[0];
+    assert.deepEqual(served.identities, contract.IDENTITIES);
+    assert.deepEqual(served.supportedFieldTypes, contract.CUSTOM_FIELD_TYPES);
+  });
+
+  test("the renderer only accepts registered template ids", () => {
+    assert.deepEqual(
+      Array.from(portfolioRegistry.REGISTERED_TEMPLATE_IDS),
+      contract.APPROVED_TEMPLATE_IDS
+    );
+    assert.equal(portfolioRegistry.isRegisteredTemplate("magicui-portfolio"), true);
+    assert.equal(portfolioRegistry.isRegisteredTemplate(undefined), true);
+    assert.equal(portfolioRegistry.isRegisteredTemplate("minimal-portfolio"), false);
   });
 });

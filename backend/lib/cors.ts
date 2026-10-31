@@ -3,18 +3,23 @@
  * calls this backend on port 3000. Only those local origins are reflected.
  */
 
-export const ALLOWED_ORIGINS = [
+export const ALLOWED_ORIGINS = (
+  process.env.CORS_ALLOWED_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) || [
   "http://127.0.0.1:8080",
   "http://localhost:8080",
-] as const;
+]) as readonly string[];
 
 const ALLOWED_ORIGIN_SET = new Set<string>(ALLOWED_ORIGINS);
 
 export const CORS_ALLOW_METHODS = "GET, POST, PUT, DELETE, OPTIONS";
-export const CORS_ALLOW_HEADERS = "Content-Type, Authorization, Idempotency-Key";
+export const CORS_ALLOW_HEADERS = "Content-Type, Authorization, Idempotency-Key, X-CSRF-Token";
 
 export function isAllowedOrigin(origin: string | null): origin is string {
   return typeof origin === "string" && ALLOWED_ORIGIN_SET.has(origin);
+}
+
+export function isTrustedStateChangingRequest(origin: string | null): boolean {
+  return isAllowedOrigin(origin);
 }
 
 export function applyCorsHeaders<T extends Response>(
@@ -28,6 +33,7 @@ export function applyCorsHeaders<T extends Response>(
   response.headers.set("Access-Control-Allow-Origin", origin);
   response.headers.set("Access-Control-Allow-Methods", CORS_ALLOW_METHODS);
   response.headers.set("Access-Control-Allow-Headers", CORS_ALLOW_HEADERS);
+  response.headers.set("Access-Control-Allow-Credentials", "true");
   response.headers.set("Vary", "Origin");
   return response;
 }

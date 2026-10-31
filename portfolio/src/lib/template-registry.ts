@@ -6,6 +6,13 @@
 
 export const MAGICUI_TEMPLATE_ID = "magicui-portfolio";
 
+/** Templates this renderer can actually draw. Must match backend APPROVED_TEMPLATE_IDS. */
+export const REGISTERED_TEMPLATE_IDS = [MAGICUI_TEMPLATE_ID] as const;
+
+export function isRegisteredTemplate(templateId: string | undefined): boolean {
+  return (REGISTERED_TEMPLATE_IDS as readonly string[]).includes(templateId || MAGICUI_TEMPLATE_ID);
+}
+
 export const MAGICUI_CUSTOM_FIELD_TYPES = [
   "text",
   "textarea",
