@@ -7,13 +7,16 @@ const useApp = () => acUseContext(AppCtx);
 
 /** Provides openAuth(mode, {username}) and the pending-username flow to the whole app. */
 function AppProvider({ children }) {
-  const [auth, setAuth] = acUseState({ open: false, mode: 'signup', username: '' });
-  const openAuth = (mode = 'signup', opts = {}) => setAuth({ open: true, mode, username: opts.username || '' });
-  const closeAuth = () => setAuth(a => ({ ...a, open: false }));
+  const navigate = ReactRouterDOM.useNavigate();
+  const openAuth = (mode = 'signup', opts = {}) => {
+    const path = mode === 'signin' ? '/login' : '/signup';
+    const query = opts.username ? `?username=${encodeURIComponent(opts.username)}` : '';
+    navigate(path + query);
+  };
+  const closeAuth = () => navigate('/');
   return (
     <AppCtx.Provider value={{ openAuth, closeAuth }}>
       {children}
-      <AuthModal state={auth} setState={setAuth} onClose={closeAuth} />
     </AppCtx.Provider>
   );
 }

@@ -246,15 +246,20 @@ function PublicProfile() {
 }
 
 function App() {
+  const location = ReactRouterDOM.useLocation();
+  const isAuthRoute = ['/login', '/signup', '/forgot-password'].includes(location.pathname);
   return (
-    <HashRouter>
+    <>
       <ToastProvider>
         <AppProvider>
           <a href="#main" className="skip" onClick={e => { e.preventDefault(); const m = document.getElementById('main'); m && m.focus && (m.tabIndex = -1, m.focus()); }}>Skip to content</a>
           <OAuthRedirectHandler />
-          <Navbar />
+          {!isAuthRoute && <Navbar />}
           <Routes>
             <Route path="/" element={<Landing />} />
+            <Route path="/login" element={<AuthLoginPage />} />
+            <Route path="/signup" element={<AuthSignupPage />} />
+            <Route path="/forgot-password" element={<AuthForgotPasswordPage />} />
             <Route path="/onboarding/identity" element={<IdentityOnboardingPage />} />
             <Route path="/onboarding/survey" element={<SurveyOnboardingPage />} />
             <Route path="/dashboard" element={<DashboardRedirect />} />
@@ -295,11 +300,13 @@ function App() {
             <Route path="/:username/:onevue" element={<PublicProfile />} />
           </Routes>
 
-          <Footer />
+          {!isAuthRoute && <Footer />}
         </AppProvider>
       </ToastProvider>
-    </HashRouter>
+    </>
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <HashRouter><App /></HashRouter>
+);

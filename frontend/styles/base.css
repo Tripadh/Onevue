@@ -23,6 +23,17 @@ a { color: inherit; text-decoration: none; }
     radial-gradient(800px 600px at 60% 110%, color-mix(in oklab, var(--soft) 9%, transparent), transparent 70%),
     linear-gradient(180deg, var(--bg-0), var(--bg-1) 140%);
 }
+/* Auth-only ambient balance: distribute the existing theme colors without changing geometry. */
+body:has(.auth-page) .ov-atmos {
+  background:
+    radial-gradient(980px 680px at 16% 12%, color-mix(in oklab, var(--accent) 7%, transparent), transparent 72%),
+    radial-gradient(1180px 760px at 48% 2%, color-mix(in oklab, var(--soft) 9%, transparent), transparent 70%),
+    radial-gradient(920px 720px at 84% 22%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 72%),
+    radial-gradient(760px 620px at 50% 48%, color-mix(in oklab, var(--soft) 5%, transparent), transparent 72%),
+    radial-gradient(900px 680px at 10% 92%, color-mix(in oklab, var(--accent) 5%, transparent), transparent 74%),
+    radial-gradient(900px 680px at 90% 88%, color-mix(in oklab, var(--accent) 6%, transparent), transparent 74%),
+    linear-gradient(180deg, var(--bg-0), var(--bg-1) 140%);
+}
 .ov-noise { position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .055; mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
