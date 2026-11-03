@@ -142,6 +142,16 @@ function valueOrEmpty(value) {
   return value === undefined || value === null || value === '' ? '' : String(value);
 }
 
+function tokenIsExpired(token) {
+  if (!token || typeof token !== 'string') return true;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof payload.exp !== 'number' || Date.now() >= payload.exp * 1000;
+  } catch (error) {
+    return true;
+  }
+}
+
 function studentWorkspace(profile) {
   return profile;
 }
@@ -424,6 +434,11 @@ function SharedIdentityDashboard({ identity, session }) {
     setLoading(true);
     try {
       const token = session?.token || window.OV?.core?.db?.get('session')?.token;
+      if (tokenIsExpired(token)) {
+        await window.OV?.services?.auth?.signOut();
+        navigate('/login', { replace: true });
+        return;
+      }
       const apiBase = (window.OV_ENV && window.OV_ENV.API_BASE) || 'http://localhost:3000/api';
       if (identity === 'student') {
         const response = token && await fetch(`${apiBase}/${config.profileEndpoint}`, { headers: { Authorization: `Bearer ${token}` } });
