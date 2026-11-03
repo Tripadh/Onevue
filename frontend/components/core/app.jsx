@@ -71,21 +71,9 @@ function ProtectedDashboardRoute({ expectedRole }) {
     );
   }
 
-  // Render the identity-specific dashboard component from its dedicated module
-  switch (expectedRole) {
-    case 'student':
-      return window.StudentDashboard ? <window.StudentDashboard session={session} /> : null;
-    case 'professional':
-      return window.ProfessionalDashboard ? <window.ProfessionalDashboard session={session} /> : null;
-    case 'freelancer':
-      return window.FreelancerDashboard ? <window.FreelancerDashboard session={session} /> : null;
-    case 'creator':
-      return window.CreatorDashboard ? <window.CreatorDashboard session={session} /> : null;
-    case 'business':
-      return window.BusinessDashboard ? <window.BusinessDashboard session={session} /> : null;
-    default:
-      return window.ProfessionalDashboard ? <window.ProfessionalDashboard session={session} /> : null;
-  }
+  return window.SharedIdentityDashboard
+    ? <window.SharedIdentityDashboard identity={session.user.identity.toLowerCase()} session={session} />
+    : null;
 }
 
 /* ---------------- Automatic Redirect Route (/dashboard) ---------------- */
