@@ -40,6 +40,14 @@ export async function POST(req: Request) {
       );
     }
 
+    // Strict separation: Administrative accounts are strictly blocked from public login
+    if (user.role === "super_admin" || user.role === "admin" || user.email === "onevue@gmail.com") {
+      return NextResponse.json(
+        { message: "Administrative accounts cannot log in through the public user portal. Please navigate to the secure /admin/login gateway." },
+        { status: 403 }
+      );
+    }
+
     const identity: IdentityType | undefined = user.identity;
     const surveyCompleted = !!user.onboarding?.surveyCompleted;
 

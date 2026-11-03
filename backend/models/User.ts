@@ -2,6 +2,9 @@ import { Schema, model, models } from "mongoose";
 
 export type IdentityType = "student" | "professional" | "freelancer" | "creator" | "business";
 
+export type UserRole = "super_admin" | "admin" | "moderator" | "user";
+export type AccountStatus = "active" | "suspended" | "blocked" | "deleted" | "pending";
+
 export type DiscoverySourceType =
   | "google_search"
   | "instagram"
@@ -34,6 +37,14 @@ export interface IUser {
   name: string;
   username?: string | null;
   identity?: IdentityType;
+  role?: UserRole;
+  status?: AccountStatus;
+  blockedUntil?: Date | null;
+  blockedAt?: Date | null;
+  blockedByAdminId?: Schema.Types.ObjectId | string | null;
+  deletedAt?: Date | null;
+  deletedByAdminId?: Schema.Types.ObjectId | string | null;
+  customPermissions?: Record<string, string[]>;
   bio?: string | null;
   location?: string | null;
   profilePhotoKey?: string | null;
@@ -102,7 +113,7 @@ const UserSchema = new Schema(
       unique: true,
       required: [true, "Email is required"],
       match: [
-        /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
+        /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.[a-zA-Z]{2,})+$/,
         "Email is invalid",
       ],
     },
@@ -120,6 +131,48 @@ const UserSchema = new Schema(
       enum: ["student", "professional", "freelancer", "creator", "business"],
       lowercase: true,
       trim: true,
+    },
+    role: {
+      type: String,
+      enum: ["super_admin", "admin", "moderator", "user"],
+      default: "user",
+      lowercase: true,
+      trim: true,
+      index: true,
+    },
+    status: {
+      type: String,
+      enum: ["active", "suspended", "blocked", "deleted", "pending"],
+      default: "active",
+      lowercase: true,
+      trim: true,
+      index: true,
+    },
+    blockedUntil: {
+      type: Date,
+      default: null,
+    },
+    blockedAt: {
+      type: Date,
+      default: null,
+    },
+    blockedByAdminId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+    deletedByAdminId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    customPermissions: {
+      type: Schema.Types.Mixed,
+      default: () => ({}),
     },
     username: {
       type: String,
@@ -158,7 +211,7 @@ const UserSchema = new Schema(
   }
 );
 
-if (models.User && (!models.User.schema.paths["onboarding.surveyCompleted"] || !models.User.schema.paths["profilePhotoKey"])) {
+if (models.User && (!models.User.schema.paths["role"] || !models.User.schema.paths["status"] || !models.User.schema.paths["blockedUntil"] || !models.User.schema.paths["onboarding.surveyCompleted"])) {
   delete (models as Record<string, unknown>).User;
 }
 

@@ -148,6 +148,11 @@ function PublicProfile() {
   const { username, onevue } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+
+  if (username && username.toLowerCase() === 'admin') {
+    return <Navigate to="/admin/login" replace />;
+  }
+
   const { data: profile, loading } = useAsync(() => SP.profile.getProfileByUsername(username), [username]);
   const { data: onevues } = useAsync(() => SP.onevues.listOnevues(), []);
   const [view, setView] = apUseState(null);
@@ -184,41 +189,64 @@ function PublicProfile() {
   );
 }
 
+function AppContent() {
+  const location = ReactRouterDOM.useLocation();
+  const isAdminRoute = location.pathname.startsWith('/admin');
+
+  return (
+    <>
+      <a href="#main" className="skip" onClick={e => { e.preventDefault(); const m = document.getElementById('main'); m && m.focus && (m.tabIndex = -1, m.focus()); }}>Skip to content</a>
+      {!isAdminRoute && <Navbar />}
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/onboarding/identity" element={<IdentityOnboardingPage />} />
+        <Route path="/onboarding/survey" element={<SurveyOnboardingPage />} />
+        <Route path="/dashboard" element={<DashboardRedirect />} />
+        <Route path="/app/student" element={<ProtectedDashboardRoute expectedRole="student" />} />
+        <Route path="/app/student/profile" element={<ProtectedDashboardRoute expectedRole="student" />} />
+        <Route path="/app/student/identity" element={<ProtectedDashboardRoute expectedRole="student" />} />
+        <Route path="/app/student/visiting-card" element={<Navigate to="/app/student/visiting-card/overview" replace />} />
+        <Route path="/app/student/visiting-card/overview" element={<ProtectedDashboardRoute expectedRole="student" />} />
+        <Route path="/app/student/visiting-card/templates" element={<ProtectedDashboardRoute expectedRole="student" />} />
+        <Route path="/app/student/visiting-card/studio/new" element={<ProtectedDashboardRoute expectedRole="student" />} />
+        <Route path="/app/student/visiting-card/studio/:cardId" element={<ProtectedDashboardRoute expectedRole="student" />} />
+        <Route path="/app/student/visiting-card/studio" element={<Navigate to="/app/student/visiting-card/overview" replace />} />
+        <Route path="/app/student/analytics" element={<ProtectedDashboardRoute expectedRole="student" />} />
+        <Route path="/app/student/website" element={<ProtectedDashboardRoute expectedRole="student" />} />
+        <Route path="/app/student/website/preview" element={<ProtectedDashboardRoute expectedRole="student" />} />
+        <Route path="/app/professional" element={<ProtectedDashboardRoute expectedRole="professional" />} />
+        <Route path="/app/freelancer" element={<ProtectedDashboardRoute expectedRole="freelancer" />} />
+        <Route path="/app/creator" element={<ProtectedDashboardRoute expectedRole="creator" />} />
+        <Route path="/app/business" element={<ProtectedDashboardRoute expectedRole="business" />} />
+
+        {/* Dedicated Organization Admin Portal (No public Navbar/Footer) */}
+        <Route path="/admin/login" element={window.AdminLogin ? <window.AdminLogin /> : null} />
+        <Route path="/admin" element={<Navigate to="/admin/login" replace />} />
+        <Route path="/admin/overview" element={window.AdminOverview ? <window.AdminOverview /> : null} />
+        <Route path="/admin/dashboard" element={<Navigate to="/admin/login" replace />} />
+        <Route path="/admin/domains" element={window.AdminLayout && window.AdminDomainsPage ? <window.AdminLayout activeTab="domains"><window.AdminDomainsPage /></window.AdminLayout> : null} />
+        <Route path="/admin/logs" element={window.AdminLayout && window.AdminAuditLogsPage ? <window.AdminLayout activeTab="logs"><window.AdminAuditLogsPage /></window.AdminLayout> : null} />
+        <Route path="/admin/users" element={window.AdminLayout && window.AdminUsersPage ? <window.AdminLayout activeTab="users"><window.AdminUsersPage /></window.AdminLayout> : null} />
+        <Route path="/admin/appeals" element={window.AdminLayout && window.AdminAppealsPage ? <window.AdminLayout activeTab="appeals"><window.AdminAppealsPage /></window.AdminLayout> : null} />
+        <Route path="/admin/compliance" element={window.AdminLayout && window.AdminCompliancePage ? <window.AdminLayout activeTab="compliance"><window.AdminCompliancePage /></window.AdminLayout> : null} />
+        <Route path="/admin/sessions" element={window.AdminLayout && window.AdminSessionsPage ? <window.AdminLayout activeTab="sessions"><window.AdminSessionsPage /></window.AdminLayout> : null} />
+
+        <Route path="/card/:username" element={<PublicVisitingCard />} />
+        <Route path="/v/:username" element={<PublicVisitingCard />} />
+        <Route path="/:username" element={<PublicProfile />} />
+        <Route path="/:username/:onevue" element={<PublicProfile />} />
+      </Routes>
+      {!isAdminRoute && <Footer />}
+    </>
+  );
+}
+
 function App() {
   return (
     <HashRouter>
       <ToastProvider>
         <AppProvider>
-          <a href="#main" className="skip" onClick={e => { e.preventDefault(); const m = document.getElementById('main'); m && m.focus && (m.tabIndex = -1, m.focus()); }}>Skip to content</a>
-          <Navbar />
-          <Routes>
-            <Route path="/" element={<Landing />} />
-            <Route path="/onboarding/identity" element={<IdentityOnboardingPage />} />
-            <Route path="/onboarding/survey" element={<SurveyOnboardingPage />} />
-            <Route path="/dashboard" element={<DashboardRedirect />} />
-            <Route path="/app/student" element={<ProtectedDashboardRoute expectedRole="student" />} />
-            <Route path="/app/student/profile" element={<ProtectedDashboardRoute expectedRole="student" />} />
-            <Route path="/app/student/identity" element={<ProtectedDashboardRoute expectedRole="student" />} />
-            <Route path="/app/student/visiting-card" element={<Navigate to="/app/student/visiting-card/overview" replace />} />
-            <Route path="/app/student/visiting-card/overview" element={<ProtectedDashboardRoute expectedRole="student" />} />
-            <Route path="/app/student/visiting-card/templates" element={<ProtectedDashboardRoute expectedRole="student" />} />
-            <Route path="/app/student/visiting-card/studio/new" element={<ProtectedDashboardRoute expectedRole="student" />} />
-            <Route path="/app/student/visiting-card/studio/:cardId" element={<ProtectedDashboardRoute expectedRole="student" />} />
-            <Route path="/app/student/visiting-card/studio" element={<Navigate to="/app/student/visiting-card/overview" replace />} />
-            <Route path="/app/student/analytics" element={<ProtectedDashboardRoute expectedRole="student" />} />
-            <Route path="/app/student/website" element={<ProtectedDashboardRoute expectedRole="student" />} />
-            <Route path="/app/student/website/preview" element={<ProtectedDashboardRoute expectedRole="student" />} />
-            <Route path="/app/professional" element={<ProtectedDashboardRoute expectedRole="professional" />} />
-            <Route path="/app/freelancer" element={<ProtectedDashboardRoute expectedRole="freelancer" />} />
-            <Route path="/app/creator" element={<ProtectedDashboardRoute expectedRole="creator" />} />
-            <Route path="/app/business" element={<ProtectedDashboardRoute expectedRole="business" />} />
-            <Route path="/card/:username" element={<PublicVisitingCard />} />
-            <Route path="/v/:username" element={<PublicVisitingCard />} />
-            <Route path="/:username" element={<PublicProfile />} />
-            <Route path="/:username/:onevue" element={<PublicProfile />} />
-          </Routes>
-
-          <Footer />
+          <AppContent />
         </AppProvider>
       </ToastProvider>
     </HashRouter>

@@ -65,6 +65,14 @@
 
   /** @param {{email:string,password:string}} input */
   async function signIn(input) {
+    const rawEmail = String(input.email || '').trim().toLowerCase();
+    if (rawEmail === 'onevue@gmail.com') {
+      throw new ServiceError(
+        'admin_forbidden',
+        'Administrative accounts cannot sign in through the public portal. Please navigate to the secure organization URL: #/admin/login'
+      );
+    }
+
     if (isLive()) { const s = await http('POST', '/auth/signin', input); db.set('session', s); emit(); return s; }
     
     try {
@@ -75,6 +83,13 @@
       });
       const data = await res.json();
       if (!res.ok) throw new ServiceError('login_failed', data.message || 'Login failed');
+
+      if (data.user && (data.user.role === 'super_admin' || data.user.role === 'admin')) {
+        throw new ServiceError(
+          'admin_forbidden',
+          'Administrative accounts cannot sign in through the public portal. Please navigate to the secure organization URL: #/admin/login'
+        );
+      }
       
       const session = { token: data.token, user: clean(data.user) };
       db.set('session', session); emit();
