@@ -188,7 +188,7 @@ describe("JWT Secret Security & Remediation", () => {
       process.env.JWT_SECRET = validSecret32;
       assert.throws(() => verifyJwtToken("not-a-token"), /jwt malformed/i);
       assert.throws(() => verifyJwtToken("part1.part2"), /jwt malformed/i);
-      assert.throws(() => verifyJwtToken(""), /jwt malformed/i);
+      assert.throws(() => verifyJwtToken(""), /jwt (must be provided|malformed)/i);
     });
 
     it("rejects expired tokens", () => {

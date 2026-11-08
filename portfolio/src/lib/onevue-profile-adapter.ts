@@ -196,6 +196,11 @@ export interface WebsiteMetadata {
   publishedAt: string;
   revisionNumber: number;
   customization: WebsiteCustomization;
+  /**
+   * Section of the template the visitor requested, taken from the visitor URL.
+   * Injected templates route in memory, so this is how a deep link survives.
+   */
+  route?: string;
 }
 
 export interface OneVuePublicApiResponse {
@@ -274,6 +279,25 @@ export interface AdaptedSocialLink {
   navbar: boolean;
 }
 
+export interface AdaptedCredential {
+  id: string;
+  title: string;
+  issuer: string;
+  credentialType: string;
+  issueDate?: string;
+  expirationDate?: string;
+  credentialUrl?: string;
+  verificationUrl?: string;
+  description?: string;
+  relatedSkills?: string[];
+}
+
+export interface AdaptedResume {
+  url: string;
+  fileName?: string;
+  targetRole?: string;
+}
+
 export interface AdaptedPortfolioData {
   name: string;
   initials: string;
@@ -287,6 +311,8 @@ export interface AdaptedPortfolioData {
   projects: AdaptedProject[];
   work: AdaptedWorkItem[];
   hackathons: AdaptedHackathon[];
+  credentials: AdaptedCredential[];
+  resume?: AdaptedResume;
   contact: {
     email?: string;
     tel?: string;
@@ -300,6 +326,7 @@ export interface AdaptedPortfolioData {
     skills: boolean;
     projects: boolean;
     hackathons: boolean;
+    credentials: boolean;
     contact: boolean;
   };
 }
@@ -343,7 +370,7 @@ export function adaptOneVueProfile(
     );
   }
 
-  const { profile, education, projects, skills, achievements, contact } = dto;
+  const { profile, education, projects, skills, achievements, credentials, resume, contact } = dto;
 
   // 1. Visible sections evaluation
   const configuredVisible = Array.isArray(website?.customization?.visibleSections)
@@ -509,6 +536,37 @@ export function adaptOneVueProfile(
     }
   }
 
+  // 7b. Credentials mapping
+  const adaptedCredentials: AdaptedCredential[] = Array.isArray(credentials)
+    ? credentials
+        .filter((c) => Boolean(c && c.title && c.issuer))
+        .map((c, idx) => ({
+          id: c.id || `cred_${idx}`,
+          title: c.title,
+          issuer: c.issuer,
+          credentialType: c.credentialType || "Certification",
+          issueDate: c.issueDate,
+          expirationDate: c.expirationDate,
+          credentialUrl: sanitizeSafeUrl(c.credentialUrl),
+          verificationUrl: sanitizeSafeUrl(c.verificationUrl),
+          description: c.description || "",
+          relatedSkills: Array.isArray(c.relatedSkills) ? [...c.relatedSkills] : [],
+        }))
+    : [];
+
+  // 7c. Resume mapping
+  let adaptedResume: AdaptedResume | undefined = undefined;
+  if (resume && resume.url) {
+    const safeResumeUrl = sanitizeSafeUrl(resume.url);
+    if (safeResumeUrl) {
+      adaptedResume = {
+        url: safeResumeUrl,
+        fileName: resume.fileName || "Resume.pdf",
+        targetRole: resume.targetRole,
+      };
+    }
+  }
+
   // 8. Contact and Social links
   const socialMap: Record<string, AdaptedSocialLink> = {};
 
@@ -610,6 +668,8 @@ export function adaptOneVueProfile(
     projects: adaptedProjects,
     work: adaptedWork,
     hackathons: adaptedHackathons,
+    credentials: adaptedCredentials,
+    resume: adaptedResume,
     contact: {
       email: contact?.email,
       tel: contact?.phone,
@@ -623,6 +683,7 @@ export function adaptOneVueProfile(
       skills: isVisible("skills") && adaptedSkills.length > 0,
       projects: isVisible("projects") && adaptedProjects.length > 0,
       hackathons: isVisible("achievements") && adaptedHackathons.length > 0,
+      credentials: (isVisible("credentials") || isVisible("certifications") || isVisible("achievements")) && adaptedCredentials.length > 0,
       contact: isVisible("contact"),
     },
   };

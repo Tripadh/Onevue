@@ -53,6 +53,7 @@ export async function GET(req: Request) {
           name: user.name,
           email: user.email,
           identity: user.identity || "professional",
+          role: user.role,
           onboarding: user.onboarding || { surveyCompleted: false },
           createdAt: user.createdAt,
         },

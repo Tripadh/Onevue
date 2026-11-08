@@ -134,6 +134,7 @@ function StudentWebsitePage({ session, studentProfile }) {
   /* Backend state */
   const [loading, setLoading] = sUseState(true);
   const [config, setConfig] = sUseState(null);
+  const [templateCatalog, setTemplateCatalog] = sUseState(CANONICAL_TEMPLATES);
   const [history, setHistory] = sUseState([]);
   const [activeRevisionId, setActiveRevisionId] = sUseState(null);
   const [activeRevisionNumber, setActiveRevisionNumber] = sUseState(null);
@@ -158,6 +159,10 @@ function StudentWebsitePage({ session, studentProfile }) {
   const [previewOpen, setPreviewOpen] = sUseState(false);
   const [previewViewport, setPreviewViewport] = sUseState('desktop'); // 'desktop' | 'mobile'
   const [previewLoading, setPreviewLoading] = sUseState(false);
+  // Candidate-template preview: the same secure rendering contract the admin
+  // preview uses, with representative sample data. Independent of the student's
+  // own draft, and it never selects, saves or publishes anything.
+  const [samplePreview, setSamplePreview] = sUseState(null); // {id, version, name, html, error, loading}
   const [publishModalOpen, setPublishModalOpen] = sUseState(false);
   const [publishing, setPublishing] = sUseState(false);
   const [rollbackModalItem, setRollbackModalItem] = sUseState(null);
@@ -252,6 +257,47 @@ function StudentWebsitePage({ session, studentProfile }) {
     }
   }, [apiBase, getAuthToken]);
 
+  const fetchTemplateCatalog = sUseCallback(async () => {
+    try {
+      const res = await fetch(`${apiBase}/public/templates`, {
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.success && Array.isArray(data.templates) && data.templates.length > 0) {
+          // Map public templates into UI format
+          const mapped = data.templates.map((t) => {
+            const latestRel = t.releases && t.releases[0] ? t.releases[0] : { version: t.latestVersion || '1.0.0' };
+            return {
+              id: t.id,
+              version: latestRel.version,
+              name: t.name,
+              author: t.author?.name || 'OneVue Creator',
+              tagline: t.description || 'Verified personal portfolio template.',
+              tags: Array.isArray(t.tags) ? t.tags : ['Modern', 'Verified'],
+              supportedSections: latestRel.supportedSections || [],
+              framework: typeof latestRel.framework === 'string' && latestRel.framework
+                ? latestRel.framework
+                : null,
+              checksum: latestRel.artifact && latestRel.artifact.checksum
+                ? String(latestRel.artifact.checksum).slice(0, 16)
+                : null,
+              features: [
+                'Light, Dark, and System theme matching',
+                'Dynamic accent color tinting',
+                'Verified academic credentials & honors',
+                'Fast server-side rendering with immutable snapshots',
+              ],
+            };
+          });
+          setTemplateCatalog(mapped);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch public template catalog:', err);
+    }
+  }, [apiBase]);
+
   const fetchPreview = sUseCallback(async () => {
     const token = getAuthToken();
     if (!token) return null;
@@ -283,17 +329,42 @@ function StudentWebsitePage({ session, studentProfile }) {
     let mounted = true;
     (async () => {
       setLoading(true);
-      await Promise.all([fetchConfig(), fetchHistory()]);
+      await Promise.all([fetchConfig(), fetchHistory(), fetchTemplateCatalog()]);
       if (mounted) setLoading(false);
     })();
     return () => {
       mounted = false;
     };
-  }, [fetchConfig, fetchHistory]);
+  }, [fetchConfig, fetchHistory, fetchTemplateCatalog]);
 
   /* Open Preview Handler: Opens in a dedicated separate page tab */
   const handleOpenPreview = async () => {
-    window.open('/#/app/student/website/preview', '_blank');
+    setPreviewOpen(true);
+    await fetchPreview();
+  };
+
+  const handlePreviewSample = async (tmpl) => {
+    setSamplePreview({ id: tmpl.id, version: tmpl.version, name: tmpl.name, loading: true, html: null, error: null });
+    const token = getAuthToken();
+    if (!token) {
+      setSamplePreview((s) => ({ ...s, loading: false, error: 'Please sign in to preview templates.' }));
+      return;
+    }
+    try {
+      const query = `templateId=${encodeURIComponent(tmpl.id)}&templateVersion=${encodeURIComponent(tmpl.version)}`;
+      const res = await fetch(`${apiBase}/student/website/template-preview?${query}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail.message || `Preview failed (${res.status})`);
+      }
+      const html = await res.text();
+      setSamplePreview({ id: tmpl.id, version: tmpl.version, name: tmpl.name, loading: false, html, error: null });
+    } catch (err) {
+      setSamplePreview({ id: tmpl.id, version: tmpl.version, name: tmpl.name, loading: false, html: null, error: err.message });
+    }
   };
 
   /* ---------------- Claim / Initialize Username ---------------- */
@@ -379,9 +450,11 @@ function StudentWebsitePage({ session, studentProfile }) {
         toast.push({ title: 'Selection failed', body: data.message || 'Could not save template selection.', tone: 'error' });
         return;
       }
+      const matched = templateCatalog.find((t) => t.id === templateId);
+      const templateName = matched?.name || templateId;
       toast.push({
         title: 'Template selected',
-        body: 'Magic UI Portfolio is now selected for your draft. Live site will update upon publication.',
+        body: `${templateName} is now selected for your draft. Live site will update upon publication.`,
         tone: 'success',
       });
       await fetchConfig();
@@ -581,7 +654,13 @@ function StudentWebsitePage({ session, studentProfile }) {
     return false;
   }, [isPublished, config?.publishedAt, config?.updatedAt, studentProfile?.updatedAt]);
 
-  const activeTemplate = CANONICAL_TEMPLATES[0];
+  const activeTemplate = sUseMemo(() => {
+    return (
+      templateCatalog.find((t) => t.id === config?.selectedTemplateId) ||
+      templateCatalog[0] ||
+      CANONICAL_TEMPLATES[0]
+    );
+  }, [templateCatalog, config?.selectedTemplateId]);
 
   /* ---------------- Loading State ---------------- */
   if (loading) {
@@ -1079,7 +1158,7 @@ function StudentWebsitePage({ session, studentProfile }) {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
-            {CANONICAL_TEMPLATES.map((tmpl) => {
+            {templateCatalog.map((tmpl) => {
               const isSelected = config?.selectedTemplateId === tmpl.id;
               const isCurrentlyPublished = isPublished && history.some((h) => h.isActive && h.templateId === tmpl.id);
 
@@ -1161,6 +1240,10 @@ function StudentWebsitePage({ session, studentProfile }) {
                       <p className="muted" style={{ fontSize: 13, margin: 0, lineHeight: 1.5 }}>
                         {tmpl.description || tmpl.tagline}
                       </p>
+                      <div style={{ display: 'flex', gap: 10, marginTop: 8, fontSize: 12 }} className="muted">
+                        <span className="mono">framework: {tmpl.framework || 'not declared'}</span>
+                        {tmpl.checksum ? <span className="mono">sha {tmpl.checksum}…</span> : null}
+                      </div>
                     </div>
 
                     {/* Supported Sections Pills */}
@@ -1193,9 +1276,9 @@ function StudentWebsitePage({ session, studentProfile }) {
                         variant="glass"
                         block
                         icon={<WebsiteIcons.preview />}
-                        onClick={handleOpenPreview}
+                        onClick={() => handlePreviewSample(tmpl)}
                       >
-                        Preview
+                        Preview Sample
                       </Button>
                       <Button
                         size="sm"
@@ -1630,6 +1713,59 @@ function StudentWebsitePage({ session, studentProfile }) {
           </div>
         </div>
       )}
+
+      {/* =========================================================================
+          MODAL 0: CANDIDATE TEMPLATE SAMPLE PREVIEW
+          ========================================================================= */}
+      <Modal
+        open={Boolean(samplePreview)}
+        onClose={() => setSamplePreview(null)}
+        title={samplePreview ? `Template Preview: ${samplePreview.name}` : 'Template Preview'}
+      >
+        {samplePreview ? (
+          <div style={{ display: 'grid', gap: 12, minWidth: 320 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span className="mono muted" style={{ fontSize: 12 }}>
+                {samplePreview.id}@{samplePreview.version}
+              </span>
+              <Button
+                size="sm"
+                variant="glass"
+                onClick={() => handlePreviewSample({ id: samplePreview.id, version: samplePreview.version, name: samplePreview.name })}
+                loading={samplePreview.loading}
+              >
+                Reload
+              </Button>
+            </div>
+
+            <p className="muted" style={{ fontSize: 12.5, margin: 0, lineHeight: 1.5 }}>
+              Rendered with OneVue sample profile data through the same delivery and rendering
+              contract your published page uses. Nothing here is saved, selected or published.
+            </p>
+
+            {samplePreview.error ? (
+              <div style={{ border: '1px solid rgba(239,68,68,.35)', background: 'rgba(239,68,68,.08)', borderRadius: 10, padding: 12, fontSize: 12.5 }}>
+                {samplePreview.error}
+              </div>
+            ) : null}
+
+            <div style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid var(--line)', height: 520, background: '#090d16', display: 'grid', placeItems: samplePreview.html ? 'stretch' : 'center', color: 'rgba(255,255,255,.6)', fontSize: 13 }}>
+              {samplePreview.loading ? <span>Loading preview…</span> : null}
+              {!samplePreview.loading && !samplePreview.html && !samplePreview.error ? <span>No preview available.</span> : null}
+              {samplePreview.html ? (
+                <iframe
+                  title={`Template preview ${samplePreview.id}@${samplePreview.version}`}
+                  srcDoc={samplePreview.html}
+                  style={{ width: '100%', height: '100%', border: 0 }}
+                  // Template code is untrusted: without allow-same-origin it
+                  // cannot reach this page's session token or storage.
+                  sandbox="allow-scripts"
+                />
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </Modal>
 
       {/* =========================================================================
           MODAL 1: PREVIEW WORKSPACE MODAL (Desktop & Mobile Viewport Switcher)

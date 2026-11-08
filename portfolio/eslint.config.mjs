@@ -10,6 +10,8 @@ const eslintConfig = defineConfig([
         'out/**',
         'build/**',
         'next-env.d.ts',
+        // Vendored packaged template releases: built output, not source.
+        'public/templates/**',
     ]),
 ])
 

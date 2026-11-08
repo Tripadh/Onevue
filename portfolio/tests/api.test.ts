@@ -10,6 +10,12 @@ describe("OneVue Public Profile API Client", () => {
       "ab", // too short (min 3)
       "this_username_is_way_too_long_to_be_valid_on_onevue_platform", // >30
       "../traversal",
+      ".leadingdot", // must start alphanumeric
+      "trailingdot.", // must end alphanumeric
+      "-leadingdash", // must start alphanumeric
+      "trailingdash-", // must end alphanumeric
+      "_leadingunderscore",
+      "trailingunderscore_",
       "alex/rivera",
       "alex;drop table users;",
       "alex rivera",
@@ -21,6 +27,40 @@ describe("OneVue Public Profile API Client", () => {
       assert.equal(res.success, false);
       assert.equal(res.notFound, true);
       assert.equal(res.errorMessage, "Invalid username format.");
+    }
+  });
+
+  it("accepts valid canonical usernames including periods (Phase 3.1 harmonization)", async () => {
+    const validUsernamesWithPeriods = [
+      "alex.rivera",
+      "john.doe",
+      "jane.smith.dev",
+      "ram.pranai-0104",
+      "user_name.test",
+    ];
+
+    const originalFetch = globalThis.fetch;
+    try {
+      const requestedUrls: string[] = [];
+      globalThis.fetch = async (url: any) => {
+        requestedUrls.push(String(url));
+        return new Response(JSON.stringify({ success: false, message: "Not found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      };
+
+      for (const u of validUsernamesWithPeriods) {
+        await fetchPublishedProfile(u);
+      }
+
+      // Assert that network requests were actually made for usernames with periods
+      assert.equal(requestedUrls.length, validUsernamesWithPeriods.length);
+      for (let i = 0; i < validUsernamesWithPeriods.length; i++) {
+        assert.ok(requestedUrls[i].includes(`/public/profile/${encodeURIComponent(validUsernamesWithPeriods[i])}`));
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 

@@ -1,6 +1,7 @@
 import { Schema, model, models } from "mongoose";
 
 export type IdentityType = "student" | "professional" | "freelancer" | "creator" | "business";
+export type UserRoleType = "student" | "admin";
 
 export type DiscoverySourceType =
   | "google_search"
@@ -33,6 +34,7 @@ export interface IUser {
   password?: string;
   name: string;
   identity?: IdentityType;
+  role?: UserRoleType;
   onboarding?: IOnboarding;
   createdAt?: Date;
   updatedAt?: Date;
@@ -113,6 +115,13 @@ const UserSchema = new Schema(
     identity: {
       type: String,
       enum: ["student", "professional", "freelancer", "creator", "business"],
+      lowercase: true,
+      trim: true,
+    },
+    role: {
+      type: String,
+      enum: ["student", "admin"],
+      default: "student",
       lowercase: true,
       trim: true,
     },

@@ -4,7 +4,7 @@
   const listeners = new Set();
   const emit = () => listeners.forEach(fn => fn(getSessionSync()));
   function getSessionSync() { return db.get('session', null); }
-  const clean = u => u && ({ id: u.id, name: u.name, email: u.email, username: u.username, identity: u.identity, onboarding: u.onboarding, createdAt: u.createdAt });
+  const clean = u => u && ({ id: u.id, name: u.name, email: u.email, username: u.username, identity: u.identity, role: u.role || undefined, onboarding: u.onboarding, createdAt: u.createdAt });
   const hash = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return 'h' + (h >>> 0).toString(36); };
 
   /** @returns {Promise<Session|null>} */

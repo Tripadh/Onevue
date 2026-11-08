@@ -1,0 +1,39 @@
+{
+  "podmanPath": "/usr/bin/podman",
+  "preflightTimeoutMs": 20000,
+  "adapterTimeoutMs": 1800000,
+  "envFileAllow": [
+    "ENABLE_ISOLATED_BUILD_EXECUTION",
+    "ONEVUE_BUILD_ISOLATION_RUNTIME",
+    "ONEVUE_BUILD_ISOLATION_BINARY",
+    "ONEVUE_BUILD_ISOLATION_IMAGE",
+    "ONEVUE_BUILD_NETWORK_MODE",
+    "ONEVUE_BUILD_READ_ONLY_ROOTFS",
+    "ONEVUE_BUILD_TIMEOUT_MS",
+    "ONEVUE_BUILD_MEMORY_MB",
+    "ONEVUE_BUILD_CPU_LIMIT",
+    "ONEVUE_BUILD_PIDS_LIMIT",
+    "ONEVUE_BUILD_ENV_ALLOWLIST",
+    "ONEVUE_BUILD_MAX_OUTPUT_BYTES",
+    "ONEVUE_BUILD_DEPENDENCY_CACHE_DIR",
+    "ONEVUE_TEMPLATE_STORAGE_ROOT",
+    "ONEVUE_SOURCE_SNAPSHOT_ROOT",
+    "TSC_COMPILE_ON_ERROR",
+    "MONGODB_URI"
+  ],
+  "adapter": {
+    "command": "node",
+    "args": [
+      "scripts/run-adapter-build.mjs",
+      "--repo",
+      "{repo}",
+      "--commit",
+      "{commit}",
+      "--framework",
+      "{framework}",
+      "--output",
+      "{output}"
+    ],
+    "cwd": "."
+  }
+}

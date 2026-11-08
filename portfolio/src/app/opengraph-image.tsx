@@ -1,10 +1,9 @@
 
 import { ImageResponse } from "next/og";
-import { DATA } from "@/data/resume";
 
 export const runtime = "edge";
 
-export const alt = DATA.name;
+export const alt = "OneVue Portfolio";
 export const size = {
     width: 1200,
     height: 630,
@@ -108,25 +107,16 @@ const styles = {
 export default async function Image() {
     try {
         const fontData = await getFontData();
-        const imageUrl = DATA.avatarUrl
-            ? new URL(DATA.avatarUrl, DATA.url).toString()
-            : undefined;
-
         return new ImageResponse(
             (
                 <div style={styles.outerWrapper}>
                     <div style={styles.middleWrapper}>
                         <div style={styles.wrapper}>
-                            {imageUrl && (
-                                <div style={styles.imageSection}>
-                                    <img src={imageUrl} alt={DATA.name} style={styles.image} />
-                                </div>
-                            )}
                             <div style={styles.mainContainer}>
-                                <div style={styles.title}>{DATA.name}</div>
-                                {DATA.description && (
-                                    <div style={styles.description}>{DATA.description}</div>
-                                )}
+                                <div style={styles.title}>OneVue Portfolio</div>
+                                <div style={styles.description}>
+                                    Verified digital identity and public portfolio platform for students.
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -139,20 +129,20 @@ export default async function Image() {
                         {
                             name: "Cabinet Grotesk",
                             data: fontData.cabinetGrotesk,
-                            weight: 400,
-                            style: "normal",
+                            weight: 400 as const,
+                            style: "normal" as const,
                         },
                         {
                             name: "Cabinet Grotesk",
                             data: fontData.cabinetGrotesk,
-                            weight: 700,
-                            style: "normal",
+                            weight: 700 as const,
+                            style: "normal" as const,
                         },
                         {
                             name: "Clash Display",
                             data: fontData.clashDisplay,
-                            weight: 600,
-                            style: "normal",
+                            weight: 600 as const,
+                            style: "normal" as const,
                         },
                     ]
                     : undefined,

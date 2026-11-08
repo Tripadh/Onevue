@@ -61,3 +61,30 @@ export async function verifyAuth(req: Request): Promise<AuthResult> {
 
   return { user };
 }
+
+/**
+ * Verifies that the request is authenticated by a valid user possessing administrative role ('admin').
+ *
+ * Guarantees:
+ * - Returns 401 Unauthorized for missing, invalid, or expired session tokens.
+ * - Resolves the user identity strictly from the trusted database record (rejecting client-spoofed claims).
+ * - Returns 403 Forbidden if the authenticated user lacks 'admin' role.
+ * - Fails closed if user record is missing or role cannot be verified.
+ * - Never logs bearer tokens, credentials, or signing keys.
+ */
+export async function verifyAdminAuth(req: Request): Promise<AuthResult> {
+  const authResult = await verifyAuth(req);
+  if ("error" in authResult) {
+    return authResult;
+  }
+
+  const { user } = authResult;
+  if (!user || user.role !== "admin") {
+    return {
+      error: "Forbidden: Administrative access required.",
+      status: 403,
+    };
+  }
+
+  return { user };
+}

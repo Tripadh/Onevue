@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { preflightResponse } from "../../../../../lib/cors";
 import connectToDatabase from "../../../../../lib/db";
 import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
-import PublishedProfileRevision from "../../../../../models/PublishedProfileRevision";
+import PublishedProfileRevision, {
+  DEFAULT_WEBSITE_CUSTOMIZATION,
+} from "../../../../../models/PublishedProfileRevision";
+import { verifyPublishedRevisionIntegrity } from "../../../../../lib/public-profile-dto";
 
 export function OPTIONS(req: Request) {
   return preflightResponse(req.headers.get("origin"));
@@ -74,6 +77,17 @@ export async function GET(
       );
     }
 
+    // 3b. Verify stored checksum matches published snapshot data
+    if (!verifyPublishedRevisionIntegrity(revision)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Website revision integrity violation.",
+        },
+        { status: 404 }
+      );
+    }
+
     // 4. Return exclusively the approved public DTO and safe public metadata
     const response = NextResponse.json(
       {
@@ -85,11 +99,9 @@ export async function GET(
           templateVersion: revision.templateVersion,
           publishedAt: revision.publishedAt,
           revisionNumber: revision.revisionNumber,
-          customization: config.customization || {
-            accentColor: "#3b82f6",
-            themeMode: "system",
-            visibleSections: ["about", "education", "projects", "skills", "achievements", "contact"],
-          },
+          // Strict Phase 3.1 rule: Never fall back to mutable draft config.customization.
+          // For historical revisions lacking customization, use explicit safe immutable platform defaults.
+          customization: revision.customization || DEFAULT_WEBSITE_CUSTOMIZATION,
         },
       },
       { status: 200 }

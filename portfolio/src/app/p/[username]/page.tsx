@@ -1,13 +1,29 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { fetchPublishedProfile } from "@/lib/onevue-api";
-import { adaptOneVueProfile } from "@/lib/onevue-profile-adapter";
-import { PortfolioClientWrapper } from "@/components/portfolio-client-wrapper";
+import { getPublishedProfile } from "@/lib/onevue-profile-route";
+import { resolveVisitorEntrypoint } from "@/lib/template-visitor-release";
+import { renderPublicTemplateHtml } from "@/lib/template-renderer";
 
 interface PublicProfilePageProps {
   params: Promise<{
     username: string;
   }>;
+  searchParams: Promise<{
+    path?: string | string[];
+  }>;
+}
+
+/**
+ * A template SPA is rendered inside an iframe document, so its own routes
+ * cannot live in the address bar. The visitor URL carries them instead, which
+ * is what makes a deep link shareable and a refresh land on the same section.
+ */
+function normalizeVisitorRoute(raw: string | string[] | undefined): string {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== "string") return "/";
+  const candidate = value.startsWith("/") ? value : `/${value}`;
+  if (candidate.includes("//") || candidate.includes("..") || candidate.includes("?")) return "/";
+  return candidate.length > 200 ? "/" : candidate;
 }
 
 /**
@@ -18,7 +34,7 @@ export async function generateMetadata({
   params,
 }: PublicProfilePageProps): Promise<Metadata> {
   const { username } = await params;
-  const result = await fetchPublishedProfile(username);
+  const result = await getPublishedProfile(username);
 
   if (!result.success || !result.data) {
     return {
@@ -64,17 +80,23 @@ export async function generateMetadata({
 
 /**
  * Server-rendered Public Portfolio Page (/p/:username).
- * Guarantees:
- * - Fetches exclusively via server-side Phase 3 public API.
- * - Zero database access.
- * - Zero fallback to hardcoded demo profiles.
- * - Calls notFound() if unpublished, missing, or inactive.
+ * OneVue Phase 2.4.4 — Serves local versioned public template artifact:
+ * - Strictly consumes the immutable published revision from OneVue Phase 3 API.
+ * - Resolves template release and verifies against Central Registry.
+ * - Enforces path traversal barriers.
+ * - Verifies presence of production HTML entrypoint on disk (never silently falls back).
+ * - Safely serializes PublicProfileDTO and escapes '<' as '\u003c'.
+ * - Injects payload into __ONEVUE_DTO__ script placeholder.
+ * - Serves versioned assets from /templates/<templateId>/<version>/assets/.
+ * - Preserves SEO metadata, 404, and 500 behavior.
  */
 export default async function PublicProfilePage({
   params,
+  searchParams,
 }: PublicProfilePageProps) {
   const { username } = await params;
-  const result = await fetchPublishedProfile(username);
+  const { path: rawPath } = await searchParams;
+  const result = await getPublishedProfile(username);
 
   if (!result.success || !result.data) {
     if (result.notFound) {
@@ -85,7 +107,40 @@ export default async function PublicProfilePage({
   }
 
   const { dto, website } = result.data;
-  const adaptedData = adaptOneVueProfile(dto, website);
 
-  return <PortfolioClientWrapper data={adaptedData} />;
+  // Phase 5.14 — the entrypoint document is delivered by the backend artifact
+  // delivery boundary: the bytes rendered here are the bytes the backend
+  // stored, validated against the release manifest and re-verified by SHA-256.
+  // The template identity and version come from the published revision, so the
+  // exact release that was published is the one that is rendered. Another
+  // template or release is never substituted.
+  const entrypoint = await resolveVisitorEntrypoint(
+    website.templateId,
+    website.templateVersion
+  );
+
+  if (!entrypoint.ok || !entrypoint.html) {
+    throw new Error(
+      entrypoint.resolution.error ||
+        "The published template artifact could not be delivered."
+    );
+  }
+
+  const renderedHtml = renderPublicTemplateHtml({
+    dto,
+    website: { ...website, route: normalizeVisitorRoute(rawPath) },
+    entrypointHtml: entrypoint.html,
+  });
+
+  const displayName = dto.profile.displayName || website.username || "Student";
+
+  return (
+    <iframe
+      srcDoc={renderedHtml}
+      title={`${displayName}'s Portfolio`}
+      className="fixed inset-0 w-full h-full border-0 z-50 bg-background"
+    />
+  );
 }
+
+export { renderPublicTemplateHtml };

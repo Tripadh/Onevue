@@ -8,7 +8,8 @@ import ContactSection from "@/components/section/contact-section";
 import HackathonsSection from "@/components/section/hackathons-section";
 import ProjectsSection from "@/components/section/projects-section";
 import WorkSection from "@/components/section/work-section";
-import { ArrowUpRight, Code2 } from "lucide-react";
+import CredentialsSection from "@/components/section/credentials-section";
+import { ArrowUpRight, Code2, FileText } from "lucide-react";
 import { AdaptedPortfolioData } from "@/lib/onevue-profile-adapter";
 import { ReactLight } from "@/components/ui/svgs/reactLight";
 import { NextjsIconDark } from "@/components/ui/svgs/nextjsIconDark";
@@ -71,6 +72,22 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
                 {data.location && (
                   <BlurFade delay={BLUR_FADE_DELAY * 2}>
                     <p className="text-xs text-muted-foreground">{data.location}</p>
+                  </BlurFade>
+                )}
+                {data.resume && data.resume.url && (
+                  <BlurFade delay={BLUR_FADE_DELAY * 2.5}>
+                    <div className="pt-1">
+                      <a
+                        href={data.resume.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-background hover:bg-muted text-foreground transition-all duration-200 hover:scale-[1.02] shadow-xs"
+                      >
+                        <FileText className="size-3.5 text-muted-foreground" />
+                        <span>{data.resume.fileName || "View Resume"}</span>
+                        <ArrowUpRight className="size-3 text-muted-foreground" />
+                      </a>
+                    </div>
                   </BlurFade>
                 )}
               </div>
@@ -216,6 +233,15 @@ export default function PortfolioView({ data }: PortfolioViewProps) {
         <section id="hackathons">
           <BlurFade delay={BLUR_FADE_DELAY * 13}>
             <HackathonsSection hackathons={data.hackathons} />
+          </BlurFade>
+        </section>
+      )}
+
+      {/* 8. Credentials Section */}
+      {visibleSections.credentials && data.credentials && data.credentials.length > 0 && (
+        <section id="credentials">
+          <BlurFade delay={BLUR_FADE_DELAY * 14}>
+            <CredentialsSection credentials={data.credentials} />
           </BlurFade>
         </section>
       )}

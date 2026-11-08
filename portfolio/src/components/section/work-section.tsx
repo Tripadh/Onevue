@@ -7,7 +7,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { DATA } from "@/data/resume";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AdaptedWorkItem } from "@/lib/onevue-profile-adapter";
@@ -36,7 +35,7 @@ interface WorkSectionProps {
 }
 
 export default function WorkSection({ work }: WorkSectionProps) {
-  const workList = work ?? DATA.work;
+  const workList = work ?? [];
 
   if (workList.length === 0) {
     return null;

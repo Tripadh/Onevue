@@ -487,14 +487,27 @@ describe("OneVue Phase 2 — Model Schema & Validation Constraints", () => {
     const usernameErr = await invalidUsernameConfig.validate().catch((err) => err);
     assert.ok(usernameErr && usernameErr.errors.username);
 
-    // Invalid unapproved template
-    const invalidTemplateConfig = new UserWebsiteConfig({
+    // A malformed template id is a shape problem and stays rejected here.
+    const malformedTemplateConfig = new UserWebsiteConfig({
       userId: "660c00000000000000000010",
       username: "alexrivera",
-      selectedTemplateId: "unapproved-random-template",
+      selectedTemplateId: "Unsafe Template Name!",
     });
-    const templateErr = await invalidTemplateConfig.validate().catch((err) => err);
-    assert.ok(templateErr && templateErr.errors.selectedTemplateId);
+    const shapeErr = await malformedTemplateConfig.validate().catch((err) => err);
+    assert.ok(shapeErr && shapeErr.errors.selectedTemplateId);
+
+    // Whether an id is *approved* is not this schema's decision. A release the
+    // catalog gate just cleared must be persistable; rejecting it here would
+    // put a second allowlist above the catalog. Approval is enforced by the
+    // config, publish and rollback routes via validateEligibleTemplateSelection.
+    const dynamicTemplateConfig = new UserWebsiteConfig({
+      userId: "660c00000000000000000010",
+      username: "alexrivera",
+      selectedTemplateId: "portfolio",
+      selectedTemplateVersion: "1.0.0",
+    });
+    const dynamicErr = await dynamicTemplateConfig.validate().catch((err) => err);
+    assert.equal(dynamicErr, undefined, "catalog-eligible dynamic ids must persist");
 
     // Invalid accent color hex
     const invalidColorConfig = new UserWebsiteConfig({

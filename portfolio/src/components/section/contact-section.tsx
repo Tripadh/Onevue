@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { FlickeringGrid } from "@/components/magicui/flickering-grid";
-import { DATA } from "@/data/resume";
 import { AdaptedSocialLink } from "@/lib/onevue-profile-adapter";
 import { Icons } from "@/components/icons";
 
@@ -30,17 +29,8 @@ function renderContactIcon(iconName: string) {
 }
 
 export default function ContactSection({ contact }: ContactSectionProps) {
-  const isDynamic = contact !== undefined;
-
-  // Build the list of all available social/contact channels
-  const socialList = isDynamic
-    ? Object.values(contact?.social || {}).filter((s) => Boolean(s.url))
-    : Object.entries(DATA.contact.social).map(([name, s]) => ({
-        name,
-        url: s.url,
-        iconName: (name.toLowerCase() as any),
-        navbar: s.navbar,
-      }));
+  // Build the list of all available social/contact channels strictly from the student's verified profile data
+  const socialList = Object.values(contact?.social || {}).filter((s) => Boolean(s.url));
 
   return (
     <div className="border rounded-xl p-10 relative">

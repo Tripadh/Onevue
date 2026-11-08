@@ -35,13 +35,15 @@ function getApiBaseUrl(): string {
  * - Forwards NO student authentication cookies or auth headers.
  * - Safely handles 404 for non-existent or unpublished profiles.
  */
+export const CANONICAL_USERNAME_REGEX = /^[a-z0-9][a-z0-9._-]{1,28}[a-z0-9]$/;
+
 export async function fetchPublishedProfile(
   rawUsername: string
 ): Promise<FetchPublicProfileResult> {
   const username = String(rawUsername || "").toLowerCase().trim();
 
-  // Validate username format (alphanumeric, hyphens, underscores, 3-30 chars)
-  if (!username || !/^[a-z0-9_-]{3,30}$/.test(username)) {
+  // Validate canonical username format (alphanumeric start/end, lowercase, digits, dots, hyphens, underscores, 3-30 chars)
+  if (!username || !CANONICAL_USERNAME_REGEX.test(username)) {
     return {
       success: false,
       notFound: true,
@@ -90,6 +92,19 @@ export async function fetchPublishedProfile(
       data: json,
     };
   } catch (error: unknown) {
+    // In local development or testing mode, fall back to registered local test fixtures if backend is offline
+    if (process.env.ONEVUE_LOCAL_TEST_FIXTURE === "true") {
+      try {
+        const { LOCAL_TEST_PROFILES } = require("./test-fixtures");
+        if (LOCAL_TEST_PROFILES && LOCAL_TEST_PROFILES[username]) {
+          return {
+            success: true,
+            data: LOCAL_TEST_PROFILES[username],
+          };
+        }
+      } catch {}
+    }
+
     const message = error instanceof Error ? error.message : "Unknown network error";
     return {
       success: false,

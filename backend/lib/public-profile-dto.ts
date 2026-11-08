@@ -229,16 +229,72 @@ function deriveInitials(name: string): string {
 }
 
 /**
- * Computes a deterministic SHA-256 checksum of the public DTO.
+ * Recursively sorts object keys to ensure deterministic JSON serialization regardless of property insertion order.
  */
-export function computeSnapshotChecksum(dto: PublicProfileDTO_v1): string {
-  const json = JSON.stringify(dto, Object.keys(dto).sort());
+function canonicalizeObject(obj: any): any {
+  if (obj === null || typeof obj !== "object") {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(canonicalizeObject);
+  }
+  const sortedKeys = Object.keys(obj).sort();
+  const result: Record<string, any> = {};
+  for (const key of sortedKeys) {
+    result[key] = canonicalizeObject(obj[key]);
+  }
+  return result;
+}
+
+/**
+ * Computes a deterministic SHA-256 checksum of the public DTO and optional customization snapshot.
+ * Compatibility strategy:
+ * - If customization is provided, computes checksum over an object containing both { dto, customization },
+ *   ensuring complete presentation contract integrity.
+ * - If customization is omitted, falls back to computing checksum over DTO alone, preserving
+ *   full backward compatibility with historical DTO-only published revisions.
+ */
+export function computeSnapshotChecksum(dto: PublicProfileDTO_v1, customization?: any): string {
+  const payload = customization !== undefined ? { dto, customization } : dto;
+  const canonical = canonicalizeObject(payload);
+  const json = JSON.stringify(canonical);
   const c: any = crypto;
   const hasher =
     (c && typeof c.createHash === "function" && c.createHash) ||
     (c && c.default && typeof c.default.createHash === "function" && c.default.createHash) ||
     (typeof require === "function" && require("crypto").createHash);
   return hasher("sha256").update(json).digest("hex");
+}
+
+/**
+ * Verifies the integrity of a published profile revision against its stored checksum.
+ * Supports both full-revision format (DTO + customization) and legacy DTO-only format.
+ * Returns true if valid, false if checksum is missing, malformed, or mismatched.
+ */
+export function verifyPublishedRevisionIntegrity(revision: any): boolean {
+  if (!revision || typeof revision.checksum !== "string" || !revision.snapshot) {
+    return false;
+  }
+  const cleanChecksum = revision.checksum.trim();
+  if (!/^[a-f0-9]{64}$/i.test(cleanChecksum)) {
+    return false;
+  }
+
+  let expectedChecksum: string;
+  if (revision.customization !== undefined && revision.customization !== null) {
+    expectedChecksum = computeSnapshotChecksum(revision.snapshot, revision.customization);
+  } else {
+    expectedChecksum = computeSnapshotChecksum(revision.snapshot);
+  }
+
+  try {
+    const bufExpected = Buffer.from(expectedChecksum, "hex");
+    const bufActual = Buffer.from(cleanChecksum, "hex");
+    if (bufExpected.length !== bufActual.length) return false;
+    return crypto.timingSafeEqual(bufExpected, bufActual);
+  } catch {
+    return false;
+  }
 }
 
 /* =========================================================================

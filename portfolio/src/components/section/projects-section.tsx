@@ -1,6 +1,5 @@
 import BlurFade from "@/components/magicui/blur-fade";
 import { ProjectCard } from "@/components/project-card";
-import { DATA } from "@/data/resume";
 import { AdaptedProject } from "@/lib/onevue-profile-adapter";
 import { cn } from "@/lib/utils";
 
@@ -12,7 +11,7 @@ interface ProjectsSectionProps {
 }
 
 export default function ProjectsSection({ projects, subtitle }: ProjectsSectionProps) {
-  const projectList = projects ?? DATA.projects;
+  const projectList = projects ?? [];
 
   if (projectList.length === 0) {
     return null;

@@ -6,7 +6,12 @@ import { verifyAuth } from "../../../../../lib/auth";
 import StudentProfile from "../../../../../models/StudentProfile";
 import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
 import PublishedProfileRevision from "../../../../../models/PublishedProfileRevision";
-import { toPublicProfileDTO, computeSnapshotChecksum } from "../../../../../lib/public-profile-dto";
+import {
+  toPublicProfileDTO,
+  computeSnapshotChecksum,
+  PUBLIC_PROFILE_SCHEMA_VERSION,
+} from "../../../../../lib/public-profile-dto";
+import { validateEligibleTemplateSelection } from "../../../../../lib/template-registry-extension";
 
 export function OPTIONS(req: Request) {
   return preflightResponse(req.headers.get("origin"));
@@ -98,6 +103,30 @@ export async function POST(req: Request) {
       );
     }
 
+    // 4b. Validate selected template and version against central registry
+    const templateId = (config.selectedTemplateId || "magicui-portfolio").trim();
+    const templateVersion = (config.selectedTemplateVersion || "1.0.0").trim();
+
+    const templateValidation = await validateEligibleTemplateSelection(
+      templateId,
+      templateVersion,
+      PUBLIC_PROFILE_SCHEMA_VERSION
+    );
+
+    if (!templateValidation.valid) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: templateValidation.code,
+          message: `Publication validation failed: ${templateValidation.error}`,
+          errors: {
+            template: templateValidation.error,
+          },
+        },
+        { status: 400 }
+      );
+    }
+
     // 5. Generate sanitized immutable PublicProfileDTO_v1
     const publishedAt = new Date();
     const publicUrl = `https://onevue.id/p/${config.username}`;
@@ -106,19 +135,27 @@ export async function POST(req: Request) {
       username: config.username,
       canonicalUrl: publicUrl,
       publishedAt,
-      templateId: config.selectedTemplateId || "magicui-portfolio",
-      templateVersion: config.selectedTemplateVersion || "1.0.0",
+      templateId,
+      templateVersion,
       user: { name: auth.user.name },
     });
 
-    // 6. Compute deterministic SHA-256 checksum
-    const checksum = computeSnapshotChecksum(dto);
+    // 5b. Construct validated immutable customization snapshot
+    const publishedCustomization = {
+      accentColor: config.customization?.accentColor || "#3b82f6",
+      themeMode: config.customization?.themeMode || "system",
+      visibleSections: Array.isArray(config.customization?.visibleSections) && config.customization.visibleSections.length > 0
+        ? [...config.customization.visibleSections]
+        : ["about", "education", "projects", "skills", "achievements", "contact"],
+    };
+
+    // 6. Compute deterministic SHA-256 checksum covering both DTO and customization snapshot
+    const checksum = computeSnapshotChecksum(dto, publishedCustomization);
 
     // 7. Atomic revision creation & pointer activation
     // Determine if MongoDB replica set transactions are supported in this runtime
     let session: mongoose.ClientSession | null = null;
     let useTransaction = false;
-
     try {
       session = await mongoose.startSession();
       session.startTransaction();
@@ -142,10 +179,11 @@ export async function POST(req: Request) {
         userId: auth.user._id,
         websiteConfigId: config._id,
         revisionNumber: nextRevisionNumber,
-        templateId: config.selectedTemplateId || "magicui-portfolio",
-        templateVersion: config.selectedTemplateVersion || "1.0.0",
+        templateId,
+        templateVersion,
         snapshot: dto,
         checksum,
+        customization: publishedCustomization,
         publishedAt,
       });
 

@@ -2,11 +2,10 @@ import { NextResponse } from "next/server";
 import { preflightResponse } from "../../../../../lib/cors";
 import connectToDatabase from "../../../../../lib/db";
 import { verifyAuth } from "../../../../../lib/auth";
-import UserWebsiteConfig, {
-  APPROVED_TEMPLATES,
-  ApprovedTemplateId,
-} from "../../../../../models/UserWebsiteConfig";
+import UserWebsiteConfig from "../../../../../models/UserWebsiteConfig";
 import PublishedProfileRevision from "../../../../../models/PublishedProfileRevision";
+import { validateEligibleTemplateSelection } from "../../../../../lib/template-registry-extension";
+import { PUBLIC_PROFILE_SCHEMA_VERSION } from "../../../../../lib/public-profile-dto";
 
 export function OPTIONS(req: Request) {
   return preflightResponse(req.headers.get("origin"));
@@ -118,14 +117,47 @@ export async function PUT(req: Request) {
       );
     }
 
-    // Validate Template ID
-    if (body.selectedTemplateId !== undefined) {
-      if (!APPROVED_TEMPLATES.includes(body.selectedTemplateId as ApprovedTemplateId)) {
+    // Validate Template Selection against Central Registry
+    if (body.selectedTemplateId !== undefined || body.selectedTemplateVersion !== undefined) {
+      if (
+        body.selectedTemplateId !== undefined &&
+        (typeof body.selectedTemplateId !== "string" || !body.selectedTemplateId.trim())
+      ) {
+        return NextResponse.json(
+          { message: "Template ID is required.", code: "TEMPLATE_ID_REQUIRED" },
+          { status: 400 }
+        );
+      }
+      if (
+        body.selectedTemplateVersion !== undefined &&
+        (typeof body.selectedTemplateVersion !== "string" || !body.selectedTemplateVersion.trim())
+      ) {
+        return NextResponse.json(
+          { message: "Template version is required.", code: "VERSION_REQUIRED" },
+          { status: 400 }
+        );
+      }
+
+      const candidateTemplateId =
+        body.selectedTemplateId !== undefined
+          ? body.selectedTemplateId.trim()
+          : "magicui-portfolio";
+      const candidateTemplateVersion =
+        body.selectedTemplateVersion !== undefined
+          ? body.selectedTemplateVersion.trim()
+          : "latest";
+
+      const earlyValidation = await validateEligibleTemplateSelection(
+        candidateTemplateId,
+        candidateTemplateVersion,
+        PUBLIC_PROFILE_SCHEMA_VERSION
+      );
+
+      if (!earlyValidation.valid) {
         return NextResponse.json(
           {
-            message: `Template '${body.selectedTemplateId}' is not in the approved template registry. Approved templates: ${APPROVED_TEMPLATES.join(
-              ", "
-            )}`,
+            message: earlyValidation.error,
+            code: earlyValidation.code,
           },
           { status: 400 }
         );
@@ -192,18 +224,79 @@ export async function PUT(req: Request) {
         );
       }
 
+      const initialTemplateId =
+        body.selectedTemplateId !== undefined
+          ? body.selectedTemplateId.trim()
+          : "magicui-portfolio";
+      const requestedTemplateVersion =
+        body.selectedTemplateVersion !== undefined
+          ? body.selectedTemplateVersion.trim()
+          : "latest";
+
+      const initValidation = await validateEligibleTemplateSelection(
+        initialTemplateId,
+        requestedTemplateVersion,
+        PUBLIC_PROFILE_SCHEMA_VERSION
+      );
+      if (!initValidation.valid) {
+        return NextResponse.json(
+          {
+            message: initValidation.error,
+            code: initValidation.code,
+          },
+          { status: 400 }
+        );
+      }
+
       config = new UserWebsiteConfig({
         userId: auth.user._id,
         username: normalizedUsername,
-        selectedTemplateId: body.selectedTemplateId || "magicui-portfolio",
-        selectedTemplateVersion: body.selectedTemplateVersion || "1.0.0",
+        selectedTemplateId: initialTemplateId,
+        selectedTemplateVersion:
+          (initValidation as any).resolvedVersion || requestedTemplateVersion,
         customization: body.customization,
         status: "draft",
       });
     } else {
       if (normalizedUsername) config.username = normalizedUsername;
-      if (body.selectedTemplateId) config.selectedTemplateId = body.selectedTemplateId;
-      if (body.selectedTemplateVersion) config.selectedTemplateVersion = body.selectedTemplateVersion;
+
+      if (body.selectedTemplateId !== undefined || body.selectedTemplateVersion !== undefined) {
+        const resolvedTemplateId =
+          body.selectedTemplateId !== undefined
+            ? body.selectedTemplateId.trim()
+            : config.selectedTemplateId;
+        const switchingTemplate =
+          body.selectedTemplateId !== undefined &&
+          body.selectedTemplateId.trim() !== config.selectedTemplateId;
+        const resolvedTemplateVersion =
+          body.selectedTemplateVersion !== undefined
+            ? body.selectedTemplateVersion.trim()
+            : switchingTemplate
+              ? "latest"
+              : config.selectedTemplateVersion;
+
+        const updateValidation = await validateEligibleTemplateSelection(
+          resolvedTemplateId,
+          resolvedTemplateVersion,
+          PUBLIC_PROFILE_SCHEMA_VERSION
+        );
+
+        if (!updateValidation.valid) {
+          return NextResponse.json(
+            {
+              message: updateValidation.error,
+              code: updateValidation.code,
+            },
+            { status: 400 }
+          );
+        }
+
+        config.selectedTemplateId = resolvedTemplateId;
+        // Persist the resolved release, so 'latest' selections pin a concrete
+        // immutable version and never drift when newer releases appear.
+        config.selectedTemplateVersion =
+          (updateValidation as any).resolvedVersion || resolvedTemplateVersion;
+      }
       if (body.customization) {
         config.customization = {
           accentColor: body.customization.accentColor || config.customization?.accentColor || "#3b82f6",

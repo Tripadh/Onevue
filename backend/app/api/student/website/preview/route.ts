@@ -47,14 +47,17 @@ export async function GET(req: Request) {
       (config && config.username) ||
       (auth.user.name ? auth.user.name.toLowerCase().replace(/[^a-z0-9]/g, "") : "student");
 
-    const templateId = (config && config.selectedTemplateId) || "magicui-portfolio";
-    const templateVersion = (config && config.selectedTemplateVersion) || "1.0.0";
+    // No invented default: previewing a template the student never selected
+    // would show them a site they do not have. The UI renders the "choose a
+    // template" state from these nulls instead.
+    const templateId = config?.selectedTemplateId?.trim() || null;
+    const templateVersion = config?.selectedTemplateVersion?.trim() || null;
 
     const dto = toPublicProfileDTO(profile, {
       username: resolvedUsername,
       canonicalUrl: config?.username ? `https://onevue.id/p/${config.username}` : undefined,
-      templateId,
-      templateVersion,
+      ...(templateId ? { templateId } : {}),
+      ...(templateVersion ? { templateVersion } : {}),
       user: { name: auth.user.name },
     });
 

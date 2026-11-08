@@ -70,6 +70,7 @@ export async function POST(req: Request) {
       email,
       password: hashedPassword,
       identity: canonicalIdentity,
+      role: "student", // Enforce trusted server-side default; client-supplied role is strictly ignored
     });
 
     if (canonicalIdentity === "student") {

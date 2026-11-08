@@ -415,6 +415,39 @@ describe("OneVue Phase 3 — Publishing, Preview & Revision Workflow", () => {
     assert.equal(rev1.revisionNumber, 1);
   });
 
+  test("3.6 What is stored is exactly what the checksum covered", () => {
+    const { toPublicProfileDTO, computeSnapshotChecksum } = require(path.join(projectRoot, "lib", "public-profile-dto.ts"));
+
+    // A student who never filled in an address still produces an empty
+    // `location` object in the DTO. Mongoose's default `minimize` used to drop
+    // it on write, so the stored snapshot no longer matched its own checksum
+    // and the public page 404'd on an honestly published profile.
+    const dto = toPublicProfileDTO(
+      { userId: user1._id, preferredName: "Alex Rivera", headline: "Engineer", education: [], projects: [], skills: [], contacts: {} },
+      { username: username1, templateId: "magicui-portfolio", templateVersion: "1.0.0" }
+    );
+    const customization = { accentColor: "#2563eb", themeMode: "dark", visibleSections: ["about"] };
+    const checksum = computeSnapshotChecksum(dto, customization);
+
+    const revision = new PublishedProfileRevision({
+      userId: user1._id,
+      websiteConfigId: user1._id,
+      revisionNumber: 999,
+      templateId: "magicui-portfolio",
+      templateVersion: "1.0.0",
+      snapshot: dto,
+      customization,
+      checksum,
+    });
+
+    const stored = revision.toBSON();
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(stored.snapshot.profile, "location"),
+      "empty DTO objects must survive the write, or the snapshot hash can never verify"
+    );
+    assert.equal(computeSnapshotChecksum(stored.snapshot, stored.customization), checksum);
+  });
+
   /* =========================================================================
      4. Public Endpoint Tests
      ========================================================================= */

@@ -17,6 +17,9 @@ dist/
 */dist/
 build/
 */build/
+# The admin template build API route lives in a directory named "build";
+# the generic build-output rule above would otherwise ignore it.
+!backend/app/api/admin/templates/build/
 out/
 */out/
 .next/
@@ -64,3 +67,25 @@ Thumbs.db
 # Temporary files
 .~lock.*
 *.tmp
+
+# Local template artifact storage (backend artifact storage bridge).
+# Regenerate with: node backend/scripts/seed_local_template_artifact.js
+.local-template-storage/
+
+# Local template pipeline runtime state (generated on this machine; never committed).
+# Retained source snapshots, isolated build sandboxes and fetched source trees.
+.local-source-snapshots/
+.phase11-isolated/
+template-sources/
+
+# Local agent tooling workspaces.
+.agent/
+.agents/
+.gsd/
+.gemini/
+graphify-out/
+
+# Local credential material and archives.
+ENV.txt
+*.zip
+.tmp-stage-list.txt

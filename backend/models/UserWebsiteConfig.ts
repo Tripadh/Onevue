@@ -7,8 +7,17 @@ import { Schema, model, models } from "mongoose";
 export type WebsiteStatus = "draft" | "published" | "suspended";
 export type WebsiteThemeMode = "light" | "dark" | "system";
 
-export const APPROVED_TEMPLATES = ["magicui-portfolio"] as const;
-export type ApprovedTemplateId = (typeof APPROVED_TEMPLATES)[number];
+/**
+ * Architectural Note — one eligibility source, not two.
+ *
+ * Which template a student may select is decided ONLY by
+ * `validateEligibleTemplateSelection` in lib/template-registry-extension.ts,
+ * the fail-closed catalog gate, which the config, publish and rollback routes
+ * all call. This schema therefore constrains the *shape* of a template id and
+ * never its approval status: a second allowlist here would either reject
+ * releases the catalog just approved, or accept anything that happens to exist
+ * in the storage directory, and neither is the catalog's verdict.
+ */
 
 export interface IWebsiteCustomization {
   accentColor?: string;
@@ -78,10 +87,9 @@ const UserWebsiteConfigSchema = new Schema(
       type: String,
       required: [true, "selectedTemplateId is required"],
       default: "magicui-portfolio",
-      enum: {
-        values: APPROVED_TEMPLATES,
-        message: "Template '{VALUE}' is not in the approved template registry",
-      },
+      trim: true,
+      maxlength: 64,
+      match: [/^[a-z0-9-_]{1,64}$/, "Invalid template ID format"],
     },
     selectedTemplateVersion: {
       type: String,

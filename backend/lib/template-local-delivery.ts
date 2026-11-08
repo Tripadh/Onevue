@@ -1,0 +1,288 @@
+/**
+ * =========================================================================
+ * OneVue Phase 5.13 — Local Template Artifact Delivery Bridge (Backend Side)
+ * =========================================================================
+ *
+ * Purpose
+ * -------
+ * The public visitor path must deliver template artifacts that were packaged
+ * and stored by the BACKEND, not an independently copied fixture that happens
+ * to sit inside the portfolio application.
+ *
+ * This module provides the local-development half of that bridge:
+ *
+ *  1. `seedLocalTemplateArtifact()` takes an ALREADY BUILT artifact directory
+ *     and pushes it through the real platform pipeline:
+ *       verifyAndPackageArtifact()  -> immutable release manifest (SHA-256)
+ *       storageAdapter.storeArtifact() -> atomic, immutable, collision-checked
+ *                                         write into <storageRoot>/templates/
+ *  2. `resolveLocalDeliveryTemplatesRoot()` exposes the exact directory the
+ *     portfolio visitor bridge must read from, so both sides can never drift.
+ *
+ * Guarantees
+ * ----------
+ * - NO template build execution. The source directory must already contain a
+ *   production build output (index.html + assets). This module never runs a
+ *   package manager, a build script, or any lifecycle script.
+ * - NO network access. No GitHub, no R2, no registry mutation.
+ * - Immutable: an existing version is never overwritten. A pre-existing
+ *   version is reported as ALREADY_STORED instead of being replaced.
+ * - Adapter-agnostic: the artifact layout (<root>/templates/<id>/<version>/)
+ *   is identical for the local filesystem adapter and any future R2/CDN
+ *   adapter, so consumers stay transport-agnostic.
+ */
+
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
+import { verifyAndPackageArtifact } from "./template-build";
+import {
+  LocalFilesystemStorageAdapter,
+  resolveTemplateStorageRoot,
+  type TemplateStorageAdapter,
+  type StorageResult,
+} from "./template-storage";
+
+export type LocalDeliveryOutcome =
+  | "SEEDED"
+  | "ALREADY_STORED"
+  | "INVALID_SOURCE"
+  | "STORAGE_FAILURE";
+
+export interface LocalDeliveryRequest {
+  /** Directory holding the already-built artifact (index.html + assets). */
+  sourceArtifactDir: string;
+  templateId: string;
+  templateVersion: string;
+  sourceCommitSha: string;
+  supportedDtoVersions: string[];
+  /** Optional storage adapter override (e.g. an in-memory mock in tests). */
+  storageAdapter?: TemplateStorageAdapter;
+}
+
+export interface LocalDeliveryResult {
+  outcome: LocalDeliveryOutcome;
+  templateId: string;
+  templateVersion: string;
+  /** Directory the visitor bridge must read the artifact from. */
+  artifactsRoot: string;
+  artifactDir?: string;
+  storageLocation?: string;
+  manifestSha256?: string;
+  fileCount?: number;
+  totalBytes?: number;
+  error?: string;
+}
+
+/**
+ * Resolves the directory containing every versioned template artifact.
+ * The portfolio visitor bridge MUST read from this exact location.
+ */
+export function resolveLocalDeliveryTemplatesRoot(storageAdapter?: TemplateStorageAdapter): string {
+  // The adapter owns the canonical root; deriving it from the adapter keeps a
+  // single source of truth instead of duplicating the path convention.
+  const root = (storageAdapter as any)?.root ?? (storageAdapter as any)?.storageRoot;
+  if (typeof root === "string" && root.trim()) {
+    return path.resolve(root, "templates");
+  }
+  return path.resolve(resolveTemplateStorageRoot(), "templates");
+}
+
+/**
+ * Rewrites the versioned asset base path inside a seeded entrypoint.
+ *
+ * A production build bakes its asset base into `index.html` (Vite is invoked
+ * with `--base=/templates/<id>/<version>/`). When an existing build output is
+ * seeded under a different template identity, the baked path would still point
+ * at the original identity and the delivered artifact would reference assets
+ * it does not ship.
+ *
+ * The rewrite is deliberately narrow: only absolute `/templates/<id>/<version>/`
+ * prefixes are rewritten, and only within the entrypoint document. The asset
+ * files themselves are copied byte-for-byte.
+ */
+function rewriteVersionedAssetBase(
+  html: string,
+  templateId: string,
+  templateVersion: string
+): string {
+  const targetBase = `/templates/${templateId}/${templateVersion}/`;
+  return html.replace(/\/templates\/[a-z0-9_-]+\/[0-9A-Za-z.+-]+\//g, targetBase);
+}
+
+function copyBuildOutput(
+  sourceDir: string,
+  stagingDir: string,
+  templateId: string,
+  templateVersion: string
+): { fileCount: number; totalBytes: number } {
+  let fileCount = 0;
+  let totalBytes = 0;
+
+  const walk = (current: string) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const sourcePath = path.join(current, entry.name);
+      const relativePath = path.relative(sourceDir, sourcePath).replace(/\\/g, "/");
+
+      // The release manifest is regenerated by the packager, never copied.
+      if (relativePath === "onevue-manifest.json") {
+        continue;
+      }
+
+      if (entry.isSymbolicLink()) {
+        throw new Error(`Security violation: artifact source contains a symbolic link: '${relativePath}'.`);
+      }
+
+      if (entry.isDirectory()) {
+        const target = path.join(stagingDir, relativePath);
+        fs.mkdirSync(target, { recursive: true });
+        walk(sourcePath);
+        continue;
+      }
+
+      if (!entry.isFile()) {
+        throw new Error(`Artifact source contains a non-regular file: '${relativePath}'.`);
+      }
+
+      const target = path.join(stagingDir, relativePath);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+
+      if (relativePath === "index.html") {
+        // The entrypoint carries the baked asset base path; realign it with the
+        // identity this release is being seeded under.
+        const html = fs.readFileSync(sourcePath, "utf8");
+        fs.writeFileSync(target, rewriteVersionedAssetBase(html, templateId, templateVersion), "utf8");
+      } else {
+        fs.copyFileSync(sourcePath, target);
+      }
+      fileCount += 1;
+      totalBytes += fs.statSync(target).size;
+    }
+  };
+
+  walk(sourceDir);
+  return { fileCount, totalBytes };
+}
+
+/**
+ * Packages an already-built artifact and stores it in the backend artifact
+ * storage through the real, immutable storage adapter.
+ */
+export async function seedLocalTemplateArtifact(
+  request: LocalDeliveryRequest
+): Promise<LocalDeliveryResult> {
+  const templateId = String(request.templateId || "").trim();
+  const templateVersion = String(request.templateVersion || "").trim();
+  const sourceArtifactDir = path.resolve(request.sourceArtifactDir);
+
+  const storageAdapter = request.storageAdapter || new LocalFilesystemStorageAdapter();
+  const artifactsRoot = resolveLocalDeliveryTemplatesRoot(storageAdapter);
+
+  if (!templateId || !templateVersion || !fs.existsSync(sourceArtifactDir)) {
+    return {
+      outcome: "INVALID_SOURCE",
+      templateId,
+      templateVersion,
+      artifactsRoot,
+      error: `Invalid seed request: source '${sourceArtifactDir}' does not exist or the template identity is empty.`,
+    };
+  }
+
+  const sourceManifestPath = path.join(sourceArtifactDir, "onevue-manifest.json");
+  const sourceManifest = fs.existsSync(sourceManifestPath)
+    ? JSON.parse(fs.readFileSync(sourceManifestPath, "utf8"))
+    : undefined;
+
+  // Immutability: never overwrite an already stored release.
+  const alreadyStored = await storageAdapter.checkVersionExists(templateId, templateVersion);
+  if (alreadyStored) {
+    const retrieved = await storageAdapter.retrieveArtifact(templateId, templateVersion);
+    return {
+      outcome: "ALREADY_STORED",
+      templateId,
+      templateVersion,
+      artifactsRoot,
+      artifactDir: retrieved.artifactDir,
+      storageLocation: retrieved.storageLocation,
+      manifestSha256: retrieved.manifest?.manifestSha256,
+      fileCount: retrieved.manifest?.files.length,
+      totalBytes: retrieved.manifest?.totalBytes,
+    };
+  }
+
+  // Stage a clean copy of the build output (no pre-existing manifest).
+  const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), "onevue-local-seed-"));
+  try {
+    const copied = copyBuildOutput(sourceArtifactDir, stagingDir, templateId, templateVersion);
+
+    const packaged = verifyAndPackageArtifact(stagingDir, {
+      templateId,
+      templateVersion,
+      sourceCommitSha: request.sourceCommitSha,
+      supportedDtoVersions: request.supportedDtoVersions,
+    });
+
+    if (!packaged.valid || !packaged.manifest) {
+      return {
+        outcome: "INVALID_SOURCE",
+        templateId,
+        templateVersion,
+        artifactsRoot,
+        error: packaged.error || "Artifact packaging failed.",
+      };
+    }
+
+    const stored: StorageResult = await storageAdapter.storeArtifact(
+      templateId,
+      templateVersion,
+      stagingDir,
+      packaged.manifest
+    );
+
+    if (!stored.success) {
+      return {
+        outcome: "STORAGE_FAILURE",
+        templateId,
+        templateVersion,
+        artifactsRoot,
+        error: stored.error || "Artifact storage failed.",
+      };
+    }
+
+    return {
+      outcome: "SEEDED",
+      templateId,
+      templateVersion,
+      artifactsRoot,
+      artifactDir: stored.artifactDir,
+      storageLocation: stored.storageLocation,
+      manifestSha256: stored.manifest?.manifestSha256,
+      fileCount: copied.fileCount,
+      totalBytes: copied.totalBytes,
+    };
+  } finally {
+    try {
+      fs.rmSync(stagingDir, { recursive: true, force: true });
+    } catch {
+      // Best effort cleanup of the staging directory.
+    }
+  }
+}
+
+/**
+ * Verifies that a stored artifact passes the backend storage integrity
+ * validation (manifest structure, self checksum, per-file SHA-256 digests).
+ */
+export async function verifyStoredArtifactIntegrity(
+  templateId: string,
+  templateVersion: string,
+  storageAdapter?: TemplateStorageAdapter
+): Promise<{ valid: boolean; error?: string; manifestSha256?: string }> {
+  const adapter = storageAdapter || new LocalFilesystemStorageAdapter();
+  const validated = await adapter.validateStoredArtifact(templateId, templateVersion);
+  return {
+    valid: validated.success,
+    error: validated.error,
+    manifestSha256: validated.manifest?.manifestSha256,
+  };
+}

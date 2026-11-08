@@ -46,7 +46,6 @@
       method,
       headers: { 'Content-Type': 'application/json', ...(session && session.token ? { Authorization: 'Bearer ' + session.token } : {}) },
       body: body ? JSON.stringify(body) : undefined,
-      credentials: 'include',
     });
     if (!res.ok) {
       let msg = 'Request failed (' + res.status + ')';

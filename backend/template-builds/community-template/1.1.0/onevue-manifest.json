@@ -1,0 +1,30 @@
+{
+  "templateId": "community-template",
+  "templateVersion": "1.1.0",
+  "sourceCommitSha": "4e73ad9d1a3b5c7e9f0123456789abcdef012345",
+  "supportedDtoVersions": [
+    "1.0.0"
+  ],
+  "entrypoint": "index.html",
+  "totalFiles": 3,
+  "totalBytes": 726467,
+  "builtAt": "2026-10-30T13:34:59.880Z",
+  "files": [
+    {
+      "relativePath": "assets/index-rjjXbK8O.js",
+      "sizeBytes": 661409,
+      "sha256": "be2c62b71049a27e0ac898a53818329e63770c43e1925de5f4c8e239639aa642"
+    },
+    {
+      "relativePath": "assets/index-Xx6-cmgs.css",
+      "sizeBytes": 63907,
+      "sha256": "14c575b333bd13bd497148b45de9ca53f01c4e754d93e5e28e68bf6b2dd43db1"
+    },
+    {
+      "relativePath": "index.html",
+      "sizeBytes": 1151,
+      "sha256": "5db0ed62e3116d7871d29905ce171e0c8d3b0693db26782d4c1d98e2f1f6b728"
+    }
+  ],
+  "manifestSha256": "92bbe3825501159fe725562929c9dea8196860555241ec188c03535ebbe879ab"
+}

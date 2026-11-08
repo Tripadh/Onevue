@@ -2,7 +2,6 @@
 
 import { ImageResponse } from "next/og";
 import { allPosts } from "content-collections";
-import { DATA } from "@/data/resume";
 
 export const runtime = "edge";
 
@@ -130,9 +129,7 @@ export default async function Image({
         const fontData = await getFontData();
         const { slug } = await params;
         const post = allPosts.find((p) => p._meta.path.replace(/\.mdx$/, "") === slug);
-        const imageUrl = DATA.avatarUrl
-            ? new URL(DATA.avatarUrl, DATA.url).toString()
-            : undefined;
+        const imageUrl = undefined;
 
         if (!post) {
             return new ImageResponse(
@@ -159,8 +156,8 @@ export default async function Image({
                             {
                                 name: "Clash Display",
                                 data: fontData.clashDisplay,
-                                weight: 600,
-                                style: "normal",
+                                weight: 600 as const,
+                                style: "normal" as const,
                             },
                         ]
                         : undefined,
@@ -207,20 +204,20 @@ export default async function Image({
                         {
                             name: "Cabinet Grotesk",
                             data: fontData.cabinetGrotesk,
-                            weight: 400,
-                            style: "normal",
+                            weight: 400 as const,
+                            style: "normal" as const,
                         },
                         {
                             name: "Cabinet Grotesk",
                             data: fontData.cabinetGrotesk,
-                            weight: 700,
-                            style: "normal",
+                            weight: 700 as const,
+                            style: "normal" as const,
                         },
                         {
                             name: "Clash Display",
                             data: fontData.clashDisplay,
-                            weight: 600,
-                            style: "normal",
+                            weight: 600 as const,
+                            style: "normal" as const,
                         },
                     ]
                     : undefined,

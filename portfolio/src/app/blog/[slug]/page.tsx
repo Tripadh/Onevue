@@ -1,6 +1,5 @@
 import { allPosts } from "content-collections";
 import { formatDate } from "@/lib/utils";
-import { DATA } from "@/data/resume";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { MDXContent } from "@content-collections/mdx/react";
@@ -44,6 +43,8 @@ export async function generateMetadata({
     image,
   } = post;
 
+  const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://onevue.me";
+
   return {
     title,
     description,
@@ -52,11 +53,11 @@ export async function generateMetadata({
       description,
       type: "article",
       publishedTime,
-      url: `${DATA.url}/blog/${slug}`,
+      url: `${siteUrl}/blog/${slug}`,
       ...(image && {
         images: [
           {
-            url: `${DATA.url}${image}`,
+            url: `${siteUrl}${image}`,
           },
         ],
       }),
@@ -66,7 +67,7 @@ export async function generateMetadata({
       title,
       description,
       ...(image && {
-        images: [`${DATA.url}${image}`],
+        images: [`${siteUrl}${image}`],
       }),
     },
   };
@@ -96,6 +97,7 @@ export default async function Blog({
   const getSlug = (post: (typeof sortedPosts)[0]) =>
     post._meta.path.replace(/\.mdx$/, "");
 
+  const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://onevue.me";
   const jsonLdContent = JSON.stringify({
     "@context": "https://schema.org",
     "@type": "BlogPosting",
@@ -104,12 +106,12 @@ export default async function Blog({
     dateModified: post.publishedAt,
     description: post.summary,
     image: post.image
-      ? `${DATA.url}${post.image}`
-      : `${DATA.url}/blog/${slug}/opengraph-image`,
-    url: `${DATA.url}/blog/${slug}`,
+      ? `${siteUrl}${post.image}`
+      : `${siteUrl}/blog/${slug}/opengraph-image`,
+    url: `${siteUrl}/blog/${slug}`,
     author: {
-      "@type": "Person",
-      name: DATA.name,
+      "@type": "Organization",
+      name: "OneVue",
     },
   }).replace(/</g, "\\u003c");
 

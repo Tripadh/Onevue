@@ -1,7 +1,6 @@
 /* eslint-disable @next/next/no-img-element */
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { DATA } from "@/data/resume";
 import { Timeline, TimelineItem, TimelineConnectItem } from "@/components/timeline";
 import { AdaptedHackathon } from "@/lib/onevue-profile-adapter";
 import { Globe, Github } from "lucide-react";
@@ -11,7 +10,7 @@ interface HackathonsSectionProps {
 }
 
 export default function HackathonsSection({ hackathons }: HackathonsSectionProps) {
-  const hackathonList = hackathons ?? (DATA.hackathons as unknown as AdaptedHackathon[]);
+  const hackathonList = hackathons ?? [];
 
   if (hackathonList.length === 0) {
     return null;

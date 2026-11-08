@@ -5,6 +5,7 @@ const SP = window.OV.services;
 
 /* ---------------- Centralized Route Resolver ---------------- */
 const DASHBOARD_ROUTES = {
+  admin: '/app/admin/templates',
   student: '/app/student',
   professional: '/app/professional',
   freelancer: '/app/freelancer',
@@ -88,6 +89,42 @@ function ProtectedDashboardRoute({ expectedRole }) {
   }
 }
 
+/* ---------------- Administrator Template Ingestion Route ---------------- */
+function AdminTemplateRoute() {
+  const session = useSession();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [checking, setChecking] = apUseState(true);
+
+  apUseEffect(() => {
+    if (!session) {
+      toast.push({ title: 'Access Denied', body: 'Please sign in as an administrator.', tone: 'info' });
+      navigate('/');
+      return;
+    }
+    const role = String(session.user?.role || '').toLowerCase();
+    if (role !== 'admin') {
+      toast.push({ title: 'Access Restricted', body: 'Administrator access is required.', tone: 'info' });
+      navigate(resolveDashboardRoute(session.user?.identity));
+      return;
+    }
+    setChecking(false);
+  }, [session, navigate]);
+
+  if (checking || !session) {
+    return (
+      <main id="main" className="wrap" style={{ paddingTop: 120, minHeight: '70vh', display: 'grid', placeItems: 'center' }}>
+        <GlassCard style={{ padding: 36, textAlign: 'center', maxWidth: 400 }}>
+          <div className="spin" style={{ margin: '0 auto 14px', width: 26, height: 26 }} />
+          <h3 className="h-card" style={{ fontSize: 19 }}>Verifying administrator credentials…</h3>
+        </GlassCard>
+      </main>
+    );
+  }
+
+  return window.TemplateSubmissionPage ? <window.TemplateSubmissionPage session={session} /> : null;
+}
+
 /* ---------------- Automatic Redirect Route (/dashboard) ---------------- */
 function DashboardRedirect() {
   const session = useSession();
@@ -114,6 +151,7 @@ Object.assign(window, {
   DASHBOARD_ROUTES,
   resolveDashboardRoute,
   ProtectedDashboardRoute,
+  AdminTemplateRoute,
   DashboardRedirect,
 });
 
@@ -206,6 +244,7 @@ function App() {
             <Route path="/app/freelancer" element={<ProtectedDashboardRoute expectedRole="freelancer" />} />
             <Route path="/app/creator" element={<ProtectedDashboardRoute expectedRole="creator" />} />
             <Route path="/app/business" element={<ProtectedDashboardRoute expectedRole="business" />} />
+            <Route path="/app/admin/templates" element={<AdminTemplateRoute />} />
             <Route path="/:username" element={<PublicProfile />} />
             <Route path="/:username/:onevue" element={<PublicProfile />} />
           </Routes>
