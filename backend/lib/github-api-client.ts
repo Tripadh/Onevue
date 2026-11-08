@@ -324,7 +324,21 @@ export class GitHubApiClient {
           has_issues: false,
           has_projects: false,
           has_wiki: false,
-          auto_init: false, // Critical: do not auto-init README or license
+          /**
+           * The repository MUST be seeded with an initial commit.
+           *
+           * GitHub's Git Data API refuses to create a blob in a repository that
+           * has no commits: `POST /repos/{org}/{repo}/git/blobs` answers
+           * `409 "Git Repository is empty."`. The mirror is delivered through
+           * that API (blob -> tree -> commit -> ref), so a repository created
+           * without an initial commit can never receive its files and every
+           * provisioning attempt fails at the first blob.
+           *
+           * The auto-created README does not leak into the mirror: the tree is
+           * built from the mirrored files alone (no `base_tree`), so the
+           * provisioned branch contains exactly the approved source files.
+           */
+          auto_init: true,
         },
       });
 

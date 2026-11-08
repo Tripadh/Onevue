@@ -143,6 +143,23 @@ function createFakeGitHub(options = {}) {
         refs: new Map(),
       };
       repos.set(key, repo);
+      /**
+       * GitHub seeds a repository created with auto_init=true with an initial
+       * commit (a README) on the default branch. The mirror is delivered
+       * through the Git Data API, which requires a repository that already has
+       * at least one commit, so this seeding is not optional.
+       */
+      if (body.auto_init === true) {
+        const readme = Buffer.from(`# ${body.name}\n`, "utf8").toString("base64");
+        const blobSha = gitBlobSha(Buffer.from(readme, "base64"));
+        repo.blobs.set(blobSha, readme);
+        const treeSha = nextSha();
+        repo.trees.set(treeSha, [{ path: "README.md", mode: "100644", type: "blob", sha: blobSha }]);
+        const commitSha = nextSha();
+        repo.commits.set(commitSha, { sha: commitSha, message: "Initial commit", tree: treeSha, parents: [] });
+        repo.default_branch = DEFAULT_PROVISIONING_BRANCH;
+        repo.refs.set(`refs/heads/${DEFAULT_PROVISIONING_BRANCH}`, commitSha);
+      }
       return jsonResponse({
         html_url: `https://github.com/${key}`,
         private: repo.private,
@@ -230,6 +247,15 @@ function createFakeGitHub(options = {}) {
       // POST /repos/{owner}/{repo}/git/blobs
       if (method === "POST" && rest === "/git/blobs") {
         if (!repo) return jsonResponse({ message: "Not Found" }, 404);
+        /**
+         * GitHub refuses to create a blob in a repository that has no commits:
+         * `POST /git/blobs` answers `409 "Git Repository is empty."`. This is
+         * the live failure that a repository created without an initial commit
+         * produces, reproduced here so the offline contract catches it.
+         */
+        if (repo.commits.size === 0) {
+          return jsonResponse({ message: "Git Repository is empty." }, 409);
+        }
         if (options.failBlob) return jsonResponse({ message: "blob rejected" }, 422);
         const buffer = Buffer.from(body.content, "base64");
         const sha = gitBlobSha(buffer);
@@ -330,8 +356,31 @@ describe("OneVue — GitHub API client (offline contract)", () => {
       assert.ok(create, "the create request must have been issued");
       assert.equal(create.body.private, true);
       assert.equal(create.body.visibility, "private");
-      assert.equal(create.body.auto_init, false);
+      /**
+       * The repository MUST be seeded with an initial commit. GitHub's Git
+       * Data API answers `409 "Git Repository is empty."` when a blob is
+       * created in a repository that has no commits, so a repository created
+       * without one can never receive the mirrored files.
+       */
+      assert.equal(create.body.auto_init, true);
       assert.equal(create.body.name, "mirror-repo");
+    });
+
+    it("seeds the created repository with an initial commit on the default branch", async () => {
+      const fake = createFakeGitHub();
+      const client = makeClient(fake);
+
+      await client.createPrivateOrgRepository(FIXED_GITHUB_ORG, "mirror-repo");
+
+      const repo = fake.repos.get(`${FIXED_GITHUB_ORG}/mirror-repo`);
+      assert.ok(repo, "the repository must exist");
+      assert.equal(repo.commits.size, 1, "the repository must start with an initial commit");
+      assert.equal(repo.default_branch, DEFAULT_PROVISIONING_BRANCH);
+      assert.equal(
+        repo.refs.get(`refs/heads/${DEFAULT_PROVISIONING_BRANCH}`),
+        [...repo.commits.keys()][0],
+        "the default branch must point at the initial commit"
+      );
     });
 
     it("maps 422, 401, 403 and 429 to distinct error categories", async () => {
@@ -408,7 +457,7 @@ describe("OneVue — GitHub API client (offline contract)", () => {
   });
 
   describe("Content push through the Git Data API", () => {
-    it("creates blobs, a tree, a commit and the branch ref on an empty repository", async () => {
+    it("creates blobs, a tree and a commit, and advances the seeded branch ref", async () => {
       const fake = createFakeGitHub();
       const client = makeClient(fake);
       await client.createPrivateOrgRepository(FIXED_GITHUB_ORG, "mirror-repo");
@@ -421,7 +470,9 @@ describe("OneVue — GitHub API client (offline contract)", () => {
       assert.equal(push.success, true);
       assert.match(push.commitSha || "", /^[a-f0-9]{40}$/);
       assert.equal(push.branch, DEFAULT_PROVISIONING_BRANCH);
-      assert.equal(push.createdRef, true);
+      // The repository was seeded with an initial commit, so the branch already
+      // exists and the push advances it instead of creating a second ref.
+      assert.equal(push.createdRef, false);
 
       const repo = fake.repos.get(`${FIXED_GITHUB_ORG}/mirror-repo`);
       const files = fake.resolveFiles(`${FIXED_GITHUB_ORG}/mirror-repo`);
@@ -435,6 +486,64 @@ describe("OneVue — GitHub API client (offline contract)", () => {
         ["package.json", "src/index.js"]
       );
       assert.equal(treeCall.body.tree.every((e) => e.mode === "100644" && e.type === "blob"), true);
+    });
+
+    it("keeps the auto-created README out of the mirrored branch", async () => {
+      const fake = createFakeGitHub();
+      const client = makeClient(fake);
+      await client.createPrivateOrgRepository(FIXED_GITHUB_ORG, "mirror-repo");
+
+      // The seeded repository carries a README from the initial commit.
+      assert.equal(fake.resolveFiles(`${FIXED_GITHUB_ORG}/mirror-repo`).has("README.md"), true);
+
+      const push = await client.pushFiles(FIXED_GITHUB_ORG, "mirror-repo", [
+        { relativePath: "index.html", contentBase64: Buffer.from("<h1>mirror</h1>", "utf8").toString("base64") },
+      ]);
+      assert.equal(push.success, true);
+
+      // The tree is built from the mirrored files alone, so the mirror holds
+      // exactly the approved source files and nothing else.
+      const files = fake.resolveFiles(`${FIXED_GITHUB_ORG}/mirror-repo`);
+      assert.deepEqual([...files.keys()], ["index.html"]);
+    });
+
+    it("refuses to push into a repository that has no commit", async () => {
+      const fake = createFakeGitHub();
+      const client = makeClient(fake);
+
+      // A repository created without an initial commit has no commit at all.
+      // GitHub answers `409 "Git Repository is empty."` to the first blob.
+      await fake.fetchImpl(`${BASE_URL}/orgs/${FIXED_GITHUB_ORG}/repos`, {
+        method: "POST",
+        body: JSON.stringify({ name: "unseeded-repo", private: true, visibility: "private", auto_init: false }),
+      });
+
+      const push = await client.pushFiles(FIXED_GITHUB_ORG, "unseeded-repo", [
+        { relativePath: "index.html", contentBase64: Buffer.from("<h1>mirror</h1>", "utf8").toString("base64") },
+      ]);
+
+      assert.equal(push.success, false);
+      assert.match(push.error || "", /Blob creation failed with status 409/);
+    });
+
+    it("creates the branch ref when the repository has a commit but no branch", async () => {
+      const fake = createFakeGitHub();
+      const client = makeClient(fake);
+      await client.createPrivateOrgRepository(FIXED_GITHUB_ORG, "mirror-repo");
+
+      // Drop the default branch while keeping the repository's commit, which
+      // is the state that requires a new ref instead of a ref update.
+      const repo = fake.repos.get(`${FIXED_GITHUB_ORG}/mirror-repo`);
+      repo.refs.clear();
+      repo.default_branch = null;
+
+      const push = await client.pushFiles(FIXED_GITHUB_ORG, "mirror-repo", [
+        { relativePath: "index.html", contentBase64: Buffer.from("<h1>mirror</h1>", "utf8").toString("base64") },
+      ]);
+
+      assert.equal(push.success, true);
+      assert.equal(push.createdRef, true);
+      assert.equal(repo.refs.get(`refs/heads/${DEFAULT_PROVISIONING_BRANCH}`), push.commitSha);
     });
 
     it("updates the existing branch ref instead of creating a second one", async () => {
